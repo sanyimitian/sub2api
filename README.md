@@ -18,7 +18,7 @@ English | [中文](README_CN.md) | [日本語](README_JA.md)
 
 </div>
 
-## ⚠️ Important Notice
+## ⚠️ Important Notice 
 
 Please read the following carefully before using this project:
 
