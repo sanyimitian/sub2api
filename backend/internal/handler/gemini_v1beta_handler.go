@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -503,6 +504,27 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if fs.SwitchCount > 0 {
 			requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 		}
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr := beginHandlerAPIKeyCooldownAttempt(requestCtx, h.gatewayService, account, modelName, true)
+		if cooldownErr != nil {
+			reqLog.Warn("gemini.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if cooldownBlocked {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			if fs.RecordAPIKeyCooldownGuardVeto(account.ID) == FailoverExhausted {
+				markOpsRoutingCapacityLimited(c)
+				googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts")
+				return
+			}
+			continue
+		}
+		requestCtx = attemptCtx
+		if cooldownAttempt != nil {
+			cooldownAttempt.MarkRequestSent()
+		}
+		writerSizeBeforeForward := c.Writer.Size()
+		restoreAttemptWriter := installAPIKeyCooldownAttemptWriter(c, cooldownAttempt)
 		sessionGroupID := derefGroupID(apiKey.GroupID)
 		if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
 			result, err = h.antigravityGatewayService.ForwardGemini(
@@ -519,12 +541,20 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		} else {
 			result, err = h.geminiCompatService.ForwardNative(requestCtx, c, account, modelName, action, stream, body)
 		}
+		restoreAttemptWriter()
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
 		}
 		if err != nil {
+			if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(requestCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+				reqLog.Warn("gemini.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
+				if c.Writer.Size() != writerSizeBeforeForward || (cooldownAttempt != nil && cooldownAttempt.ResponseStarted()) {
+					h.handleGeminiFailoverExhausted(c, failoverErr)
+					return
+				}
 				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 				switch failoverAction {
 				case FailoverContinue:
@@ -540,6 +570,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			// ForwardNative already wrote the response
 			reqLog.Error("gemini.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			return
+		}
+		if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(requestCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("gemini.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 		}
 
 		// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）

@@ -57,6 +57,8 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 	var release func()
 	var token string
 	var upstream *service.GrokRealtimeUpstream
+	var cooldownAttempt *service.APIKeyCooldownAttempt
+	var attemptCtx context.Context
 	var candidateSeen bool
 	for attempts := 0; attempts < 4; attempts++ {
 		// Realtime's voice model is not a text-model capability. Passing a
@@ -85,18 +87,38 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 			failed[account.ID] = struct{}{}
 			continue
 		}
+		var cooldownBlocked bool
+		var cooldownErr error
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr = beginHandlerAPIKeyCooldownAttempt(c.Request.Context(), h.gatewayService, account, model, true)
+		if cooldownErr != nil {
+			reqLog.Warn("grok_realtime.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if cooldownBlocked {
+			if release != nil {
+				release()
+			}
+			release = nil
+			failed[account.ID] = struct{}{}
+			continue
+		}
 		var credErr error
-		token, _, credErr = h.gatewayService.GetRequestCredential(c.Request.Context(), c, account)
+		token, _, credErr = h.gatewayService.GetRequestCredential(attemptCtx, c, account)
 		if credErr != nil {
 			release()
 			release = nil
 			failed[account.ID] = struct{}{}
 			continue
 		}
-		probeCtx, cancelProbe := context.WithTimeout(c.Request.Context(), service.DefaultGrokRealtimeDialTimeout)
+		if cooldownAttempt != nil {
+			cooldownAttempt.MarkRequestSent()
+		}
+		probeCtx, cancelProbe := context.WithTimeout(attemptCtx, service.DefaultGrokRealtimeDialTimeout)
 		candidateUpstream, openErr := h.gatewayService.OpenGrokRealtime(probeCtx, account, token, model)
 		cancelProbe()
 		if openErr != nil {
+			if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, account, cooldownAttempt, openErr, time.Now().UTC()); observeErr != nil {
+				reqLog.Warn("grok_realtime.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+			}
 			reqLog.Warn("grok_realtime.pre_accept_failed", zap.Int64("account_id", account.ID), zap.Error(openErr))
 			statusCode := http.StatusBadGateway
 			var dialErr *service.GrokRealtimeDialError
@@ -125,19 +147,30 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 
 	conn, err := coderws.Accept(c.Writer, c.Request, &coderws.AcceptOptions{CompressionMode: coderws.CompressionContextTakeover})
 	if err != nil {
+		if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, selection.Account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("grok_realtime.api_key_cooldown_success_failed", zap.Int64("account_id", selection.Account.ID), zap.Error(observeErr))
+		}
 		return
+	}
+	if cooldownAttempt != nil {
+		cooldownAttempt.MarkResponseStarted()
 	}
 	defer func() { _ = conn.CloseNow() }()
 
 	started := time.Now()
-	audioObserved, proxyErr := h.gatewayService.ProxyGrokRealtimeConn(c.Request.Context(), c, conn, upstream)
+	audioObserved, proxyErr := h.gatewayService.ProxyGrokRealtimeConn(attemptCtx, c, conn, upstream)
 	elapsed := time.Since(started)
 	if proxyErr != nil {
+		if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, selection.Account, cooldownAttempt, proxyErr, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("grok_realtime.api_key_cooldown_observe_failed", zap.Int64("account_id", selection.Account.ID), zap.Error(observeErr))
+		}
 		reqLog.Info("grok_realtime.proxy_failed", zap.Error(proxyErr))
 		if !isExpectedGrokRealtimeClose(proxyErr) {
 			_ = conn.Close(coderws.StatusInternalError, "upstream realtime websocket failed")
 			return
 		}
+	} else if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, selection.Account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+		reqLog.Warn("grok_realtime.api_key_cooldown_success_failed", zap.Int64("account_id", selection.Account.ID), zap.Error(observeErr))
 	}
 	if result := grokRealtimeBillingResult(model, elapsed, audioObserved); result != nil {
 		h.recordGrokVoiceUsage(c, apiKey, selection.Account, subscription, "realtime", nil, result)
@@ -261,13 +294,39 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 			failed[account.ID] = struct{}{}
 			continue
 		}
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr := beginHandlerAPIKeyCooldownAttempt(c.Request.Context(), h.gatewayService, account, selectionModel, true)
+		if cooldownErr != nil {
+			reqLog.Warn("grok_voice.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if cooldownBlocked {
+			if release != nil {
+				release()
+			}
+			failed[account.ID] = struct{}{}
+			continue
+		}
+		if cooldownAttempt != nil {
+			cooldownAttempt.MarkRequestSent()
+		}
+		restoreAttemptWriter := installAPIKeyCooldownAttemptWriter(c, cooldownAttempt)
 		result, forwardErr := func() (*service.OpenAIForwardResult, error) {
-			defer release()
-			return h.gatewayService.ForwardGrokVoice(c.Request.Context(), c, account, endpoint, body, contentType)
+			defer func() {
+				restoreAttemptWriter()
+				if release != nil {
+					release()
+				}
+			}()
+			return h.gatewayService.ForwardGrokVoice(attemptCtx, c, account, endpoint, body, contentType)
 		}()
 		if forwardErr == nil {
+			if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+				reqLog.Warn("grok_voice.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+			}
 			h.recordGrokVoiceUsage(c, apiKey, account, subscription, endpoint, body, result)
 			return
+		}
+		if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, account, cooldownAttempt, forwardErr, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("grok_voice.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 		}
 		var failoverErr *service.UpstreamFailoverError
 		if errors.As(forwardErr, &failoverErr) && failoverErr.ShouldRetryNextAccount() {

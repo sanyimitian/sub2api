@@ -149,6 +149,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
 	profitVetoCount := 0
+	cooldownGuardVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
@@ -242,13 +243,36 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		}
 		forwardStart := time.Now()
 		writerSizeBeforeForward := service.OpenAIImagesJSONKeepaliveAdjustedWrittenSize(c)
+		attemptModel := requestModel
+		if strings.TrimSpace(channelMapping.MappedModel) != "" {
+			attemptModel = channelMapping.MappedModel
+		}
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr := beginHandlerAPIKeyCooldownAttempt(requestCtx, h.gatewayService, account, attemptModel, true)
+		if cooldownErr != nil {
+			reqLog.Warn("openai.images.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if cooldownBlocked {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			if !recordOpenAIAPIKeyCooldownGuardVeto(failedAccountIDs, account.ID, &cooldownGuardVetoCount) {
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+				return
+			}
+			continue
+		}
+		if cooldownAttempt != nil {
+			cooldownAttempt.MarkRequestSent()
+		}
+		restoreAttemptWriter := installAPIKeyCooldownAttemptWriter(c, cooldownAttempt)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
+				restoreAttemptWriter()
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardImages(requestCtx, c, account, body, parsed, channelMapping.MappedModel)
+			return h.gatewayService.ForwardImages(attemptCtx, c, account, body, parsed, channelMapping.MappedModel)
 		}()
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
@@ -268,6 +292,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					zap.Error(err),
 				)
 			} else {
+				if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+					reqLog.Warn("openai.images.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+				}
 				var imageUpstreamErr *service.OpenAIImagesUpstreamError
 				if errors.As(err, &imageUpstreamErr) {
 					retryableServerError := service.IsOpenAIImagesRetryableUpstreamError(imageUpstreamErr)
@@ -366,6 +393,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				reqLog.Error("openai.images.forward_failed", fields...)
 				return
 			}
+		}
+		if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("openai.images.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 		}
 		if result != nil {
 			// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。

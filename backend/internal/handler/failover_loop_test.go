@@ -156,6 +156,17 @@ func TestNewFailoverState(t *testing.T) {
 	})
 }
 
+func TestRecordAPIKeyCooldownGuardVetoIsBoundedAndExcludesAccounts(t *testing.T) {
+	state := NewFailoverState(100, false)
+	for index := 1; index < maxAPIKeyCooldownGuardVetoAttempts; index++ {
+		require.Equal(t, FailoverContinue, state.RecordAPIKeyCooldownGuardVeto(int64(index)))
+		_, excluded := state.FailedAccountIDs[int64(index)]
+		require.True(t, excluded)
+	}
+	require.Equal(t, FailoverExhausted, state.RecordAPIKeyCooldownGuardVeto(999))
+	require.Equal(t, maxAPIKeyCooldownGuardVetoAttempts, state.APIKeyCooldownGuardVetoCount())
+}
+
 // ---------------------------------------------------------------------------
 // sleepWithContext 测试
 // ---------------------------------------------------------------------------

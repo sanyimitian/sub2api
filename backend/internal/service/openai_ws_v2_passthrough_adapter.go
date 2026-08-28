@@ -798,6 +798,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	usageMeta.initFromFirstFrame(firstClientMessage, capturedSessionModel)
 	_, initialUpstreamModel := usageMeta.turnModels(initialRequestModel)
 	SetOpsUpstreamModel(c, initialUpstreamModel)
+	if hooks != nil && hooks.BeforeUpstreamSend != nil {
+		if err := hooks.BeforeUpstreamSend(1, initialUpstreamModel); err != nil {
+			return err
+		}
+	}
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)
 	if err != nil {
 		return fmt.Errorf("build ws url: %w", err)
@@ -863,6 +868,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		headers, err = s.refreshOpenAIAgentIdentityHeaders(ctx, account, headers)
 		if err != nil {
 			return fmt.Errorf("refresh ws authentication headers: %w", err)
+		}
+		if hooks != nil && hooks.UpstreamRequestSent != nil {
+			hooks.UpstreamRequestSent(1)
 		}
 		dialCtx, cancelDial := context.WithTimeout(ctx, s.openAIWSDialTimeout())
 		upstreamConn, statusCode, handshakeHeaders, err = dialer.Dial(dialCtx, wsURL, headers, proxyURL)
@@ -940,6 +948,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 
 	completedTurns := atomic.Int32{}
+	activeTurnNo := atomic.Int32{}
+	activeTurnNo.Store(1)
 	turnLifecycle := newOpenAIWSPassthroughTurnLifecycle(true)
 	var acceptedTurnStartedAt atomic.Pointer[time.Time]
 	clientFrameConn := &openAIWSClientFrameConn{
@@ -1093,12 +1103,21 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			//     覆盖（Store(nil)），因为 OpenAI 上游对该帧实际不传
 			//     service_tier 时按 default 处理，billing 应如实反映。
 			if policyErr == nil && blocked == nil && isResponseCreate {
+				if hooks != nil && hooks.BeforeUpstreamSend != nil {
+					if err := hooks.BeforeUpstreamSend(turnNo, model); err != nil {
+						return payload, nil, err
+					}
+				}
 				usageMeta.updateFromResponseCreate(out, model, requestModelForThisFrame)
 				_, actualModel := usageMeta.turnModels(requestModelForThisFrame)
 				SetOpsUpstreamModel(c, actualModel)
 				responseCreateAtCopy := responseCreateAt
 				acceptedTurnStartedAt.Store(&responseCreateAtCopy)
+				activeTurnNo.Store(int32(turnNo))
 				acceptedTurn = true
+				if hooks != nil && hooks.UpstreamRequestSent != nil {
+					hooks.UpstreamRequestSent(turnNo)
+				}
 			}
 			return out, blocked, policyErr
 		},
@@ -1227,6 +1246,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}
 			},
 			BeforeClientWrite: func(msgType coderws.MessageType, payload []byte) {
+				if hooks != nil && hooks.DownstreamResponseStarted != nil {
+					turnNo := int(activeTurnNo.Load())
+					if turnNo <= 0 {
+						turnNo = 1
+					}
+					hooks.DownstreamResponseStarted(turnNo)
+				}
 				if msgType == coderws.MessageText && openAIWSPassthroughIsTerminalOutput(payload) {
 					turnLifecycle.beginTerminalWrite()
 				}

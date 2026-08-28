@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -108,6 +109,109 @@ func TestRunClientToUpstream_ErrorPaths(t *testing.T) {
 func TestRunUpstreamToClient_ErrorAndDropPaths(t *testing.T) {
 	t.Parallel()
 
+	t.Run("pre-output rejection does not mark downstream response started", func(t *testing.T) {
+		t.Parallel()
+
+		exitCh := make(chan relayExitSignal, 1)
+		drop := &atomic.Bool{}
+		rejectedErr := errors.New("retry next account")
+		var responseStarted atomic.Bool
+		var clientWrites atomic.Int32
+		runUpstreamToClient(
+			context.Background(),
+			newPassthroughTestFrameConn([]passthroughTestFrame{
+				{msgType: coderws.MessageText, payload: []byte(`{"type":"error","code":"rate_limit_exceeded"}`)},
+			}, true),
+			func(_ coderws.MessageType, _ []byte) error {
+				clientWrites.Add(1)
+				return nil
+			},
+			time.Now(),
+			time.Now,
+			&relayState{},
+			nil,
+			nil,
+			func(_ coderws.MessageType, _ []byte, wroteDownstream bool) error {
+				require.False(t, wroteDownstream)
+				return rejectedErr
+			},
+			func(_ coderws.MessageType, _ []byte) { responseStarted.Store(true) },
+			nil,
+			nil,
+			drop,
+			nil,
+			nil,
+			func() {},
+			nil,
+			exitCh,
+		)
+
+		sig := <-exitCh
+		require.Equal(t, "upstream_message", sig.stage)
+		require.ErrorIs(t, sig.err, rejectedErr)
+		require.False(t, sig.wroteDownstream)
+		require.False(t, responseStarted.Load())
+		require.Zero(t, clientWrites.Load())
+	})
+
+	t.Run("accepted terminal marks response before completing turn", func(t *testing.T) {
+		t.Parallel()
+
+		exitCh := make(chan relayExitSignal, 1)
+		drop := &atomic.Bool{}
+		var eventMu sync.Mutex
+		var events []string
+		runUpstreamToClient(
+			context.Background(),
+			newPassthroughTestFrameConn([]passthroughTestFrame{
+				{
+					msgType: coderws.MessageText,
+					payload: []byte(`{"type":"response.completed","response":{"id":"resp_order","usage":{"input_tokens":1,"output_tokens":1}}}`),
+				},
+			}, true),
+			func(_ coderws.MessageType, _ []byte) error {
+				eventMu.Lock()
+				events = append(events, "write")
+				eventMu.Unlock()
+				return nil
+			},
+			time.Now(),
+			time.Now,
+			&relayState{},
+			nil,
+			func(_ RelayTurnResult) {
+				eventMu.Lock()
+				events = append(events, "complete")
+				eventMu.Unlock()
+			},
+			func(_ coderws.MessageType, _ []byte, _ bool) error {
+				eventMu.Lock()
+				events = append(events, "preflight")
+				eventMu.Unlock()
+				return nil
+			},
+			func(_ coderws.MessageType, _ []byte) {
+				eventMu.Lock()
+				events = append(events, "started")
+				eventMu.Unlock()
+			},
+			nil,
+			nil,
+			drop,
+			nil,
+			nil,
+			func() {},
+			nil,
+			exitCh,
+		)
+
+		sig := <-exitCh
+		require.Equal(t, "read_upstream", sig.stage)
+		eventMu.Lock()
+		require.Equal(t, []string{"preflight", "started", "complete", "write"}, append([]string(nil), events...))
+		eventMu.Unlock()
+	})
+
 	t.Run("read upstream eof", func(t *testing.T) {
 		t.Parallel()
 
@@ -178,6 +282,7 @@ func TestRunUpstreamToClient_ErrorAndDropPaths(t *testing.T) {
 		drop := &atomic.Bool{}
 		drop.Store(true)
 		dropped := &atomic.Int64{}
+		var responseStarted atomic.Bool
 		runUpstreamToClient(
 			context.Background(),
 			newPassthroughTestFrameConn([]passthroughTestFrame{
@@ -193,7 +298,7 @@ func TestRunUpstreamToClient_ErrorAndDropPaths(t *testing.T) {
 			nil,
 			nil,
 			nil,
-			nil,
+			func(_ coderws.MessageType, _ []byte) { responseStarted.Store(true) },
 			nil,
 			nil,
 			drop,
@@ -207,6 +312,7 @@ func TestRunUpstreamToClient_ErrorAndDropPaths(t *testing.T) {
 		require.Equal(t, "drain_terminal", sig.stage)
 		require.True(t, sig.graceful)
 		require.Equal(t, int64(1), dropped.Load())
+		require.False(t, responseStarted.Load())
 	})
 }
 

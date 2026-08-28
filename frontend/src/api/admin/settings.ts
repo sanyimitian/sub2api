@@ -1310,6 +1310,121 @@ export async function updateRateLimit429CooldownSettings(
   return data;
 }
 
+// ==================== API Key Failure Cooldown Settings ====================
+
+export const API_KEY_FAILURE_COOLDOWN_FAMILIES = [
+  "rate_limit",
+  "overload",
+  "transient_upstream",
+  "temporary_forbidden",
+  "account_blocked",
+  "unauthorized",
+  "quota_exhausted",
+  "model_unsupported",
+  "global_upstream",
+  "unknown",
+] as const;
+
+export type APIKeyFailureFamily =
+  (typeof API_KEY_FAILURE_COOLDOWN_FAMILIES)[number];
+export type APIKeyFailureCooldownMode = "hold_last" | "cycle";
+
+export interface APIKeyCooldownPolicy {
+  enabled: boolean;
+  cooldowns: number[];
+  mode: APIKeyFailureCooldownMode;
+}
+
+export interface APIKeyFailureCooldownSettings {
+  version: 1;
+  policies: Record<APIKeyFailureFamily, APIKeyCooldownPolicy>;
+}
+
+export function createDefaultAPIKeyFailureCooldownSettings(): APIKeyFailureCooldownSettings {
+  return {
+    version: 1,
+    policies: {
+      rate_limit: { enabled: true, cooldowns: [60, 300, 900], mode: "hold_last" },
+      overload: { enabled: true, cooldowns: [60, 300], mode: "hold_last" },
+      transient_upstream: { enabled: true, cooldowns: [30, 120, 600], mode: "hold_last" },
+      temporary_forbidden: { enabled: true, cooldowns: [300], mode: "hold_last" },
+      account_blocked: { enabled: true, cooldowns: [300], mode: "hold_last" },
+      unauthorized: { enabled: true, cooldowns: [1800], mode: "hold_last" },
+      quota_exhausted: { enabled: true, cooldowns: [3600], mode: "hold_last" },
+      model_unsupported: { enabled: true, cooldowns: [1800], mode: "hold_last" },
+      global_upstream: { enabled: true, cooldowns: [1800], mode: "hold_last" },
+      unknown: { enabled: true, cooldowns: [60, 600, 1800], mode: "cycle" },
+    },
+  };
+}
+
+function normalizeAPIKeyFailureCooldownSettings(
+  settings: APIKeyFailureCooldownSettings,
+): APIKeyFailureCooldownSettings {
+  const normalized = createDefaultAPIKeyFailureCooldownSettings();
+
+  for (const family of API_KEY_FAILURE_COOLDOWN_FAMILIES) {
+    const policy = settings?.policies?.[family];
+    if (!policy) continue;
+
+    const validCooldowns =
+      Array.isArray(policy.cooldowns) &&
+      policy.cooldowns.length > 0 &&
+      policy.cooldowns.every(
+        (seconds) => Number.isInteger(seconds) && seconds > 0,
+      );
+    normalized.policies[family] = {
+      enabled:
+        typeof policy.enabled === "boolean"
+          ? policy.enabled
+          : normalized.policies[family].enabled,
+      cooldowns: validCooldowns
+        ? [...new Set(policy.cooldowns)].sort((left, right) => left - right)
+        : normalized.policies[family].cooldowns,
+      mode:
+        policy.mode === "hold_last" || policy.mode === "cycle"
+          ? policy.mode
+          : normalized.policies[family].mode,
+    };
+  }
+
+  return normalized;
+}
+
+function cloneAPIKeyFailureCooldownSettings(
+  settings: APIKeyFailureCooldownSettings,
+): APIKeyFailureCooldownSettings {
+  return {
+    version: settings.version,
+    policies: Object.fromEntries(
+      API_KEY_FAILURE_COOLDOWN_FAMILIES.map((family) => [
+        family,
+        {
+          ...settings.policies[family],
+          cooldowns: [...settings.policies[family].cooldowns],
+        },
+      ]),
+    ) as Record<APIKeyFailureFamily, APIKeyCooldownPolicy>,
+  };
+}
+
+export async function getAPIKeyFailureCooldownSettings(): Promise<APIKeyFailureCooldownSettings> {
+  const { data } = await apiClient.get<APIKeyFailureCooldownSettings>(
+    "/admin/settings/api-key-failure-cooldown",
+  );
+  return normalizeAPIKeyFailureCooldownSettings(data);
+}
+
+export async function updateAPIKeyFailureCooldownSettings(
+  settings: APIKeyFailureCooldownSettings,
+): Promise<APIKeyFailureCooldownSettings> {
+  const { data } = await apiClient.put<APIKeyFailureCooldownSettings>(
+    "/admin/settings/api-key-failure-cooldown",
+    cloneAPIKeyFailureCooldownSettings(settings),
+  );
+  return normalizeAPIKeyFailureCooldownSettings(data);
+}
+
 // ==================== Panel Rate Limit Settings ====================
 
 /**
@@ -1569,6 +1684,8 @@ export const settingsAPI = {
   updateOverloadCooldownSettings,
   getRateLimit429CooldownSettings,
   updateRateLimit429CooldownSettings,
+  getAPIKeyFailureCooldownSettings,
+  updateAPIKeyFailureCooldownSettings,
   getPanelRateLimitSettings,
   updatePanelRateLimitSettings,
   getStreamTimeoutSettings,

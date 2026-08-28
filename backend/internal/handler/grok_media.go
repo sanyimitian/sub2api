@@ -182,6 +182,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	// 也防止已计费的在途视频任务因绑定账号被门排除而查询返回伪 404。
 	requestCtx := service.WithOpenAIProfitControlSuppressed(c.Request.Context())
 	profitVetoCount := 0
+	cooldownGuardVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
@@ -318,13 +319,32 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
 		writerSizeBeforeForward := c.Writer.Size()
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr := beginHandlerAPIKeyCooldownAttempt(requestCtx, h.gatewayService, account, routingModel, !endpoint.IsGenerationRequest())
+		if cooldownErr != nil {
+			reqLog.Warn("grok_media.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if cooldownBlocked {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			if !recordOpenAIAPIKeyCooldownGuardVeto(failedAccountIDs, account.ID, &cooldownGuardVetoCount) {
+				h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+				return
+			}
+			continue
+		}
+		if cooldownAttempt != nil {
+			cooldownAttempt.MarkRequestSent()
+		}
+		restoreAttemptWriter := installAPIKeyCooldownAttemptWriter(c, cooldownAttempt)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
+				restoreAttemptWriter()
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardGrokMedia(requestCtx, c, account, endpoint, requestID, body, contentType)
+			return h.gatewayService.ForwardGrokMedia(attemptCtx, c, account, endpoint, requestID, body, contentType)
 		}()
 
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
@@ -336,6 +356,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, responseLatencyMs)
 
 		if err != nil {
+			if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+				reqLog.Warn("grok_media.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				if failoverClientGone(c) {
@@ -409,6 +432,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				zap.Error(err),
 			)
 			return
+		}
+		if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("grok_media.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 		}
 
 		h.gatewayService.ReportOpenAIAccountScheduleResult(account, grokMediaScheduleModel(account, routingModel, result), true, nil)

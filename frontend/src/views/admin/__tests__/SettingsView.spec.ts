@@ -6,6 +6,7 @@ import enCommon from "@/i18n/locales/en/common";
 import enSettings from "@/i18n/locales/en/admin/settings";
 import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
+import { createDefaultAPIKeyFailureCooldownSettings } from "@/api/admin/settings";
 import SettingsView from "../SettingsView.vue";
 
 const {
@@ -17,6 +18,8 @@ const {
   getOverloadCooldownSettings,
   getRateLimit429CooldownSettings,
   updateRateLimit429CooldownSettings,
+  getAPIKeyFailureCooldownSettings,
+  updateAPIKeyFailureCooldownSettings,
   getPanelRateLimitSettings,
   updatePanelRateLimitSettings,
   getStreamTimeoutSettings,
@@ -45,6 +48,8 @@ const {
   getOverloadCooldownSettings: vi.fn(),
   getRateLimit429CooldownSettings: vi.fn(),
   updateRateLimit429CooldownSettings: vi.fn(),
+  getAPIKeyFailureCooldownSettings: vi.fn(),
+  updateAPIKeyFailureCooldownSettings: vi.fn(),
   getPanelRateLimitSettings: vi.fn().mockResolvedValue({
     enabled: true,
     user_rpm: 240,
@@ -92,6 +97,8 @@ vi.mock("@/api", () => ({
       getOverloadCooldownSettings,
       getRateLimit429CooldownSettings,
       updateRateLimit429CooldownSettings,
+      getAPIKeyFailureCooldownSettings,
+      updateAPIKeyFailureCooldownSettings,
       getPanelRateLimitSettings,
       updatePanelRateLimitSettings,
       getStreamTimeoutSettings,
@@ -635,6 +642,8 @@ describe("admin SettingsView payment visible method controls", () => {
     getOverloadCooldownSettings.mockReset();
     getRateLimit429CooldownSettings.mockReset();
     updateRateLimit429CooldownSettings.mockReset();
+    getAPIKeyFailureCooldownSettings.mockReset();
+    updateAPIKeyFailureCooldownSettings.mockReset();
     getStreamTimeoutSettings.mockReset();
     getRectifierSettings.mockReset();
     getBetaPolicySettings.mockReset();
@@ -680,6 +689,10 @@ describe("admin SettingsView payment visible method controls", () => {
       cooldown_seconds: 5,
     });
     updateRateLimit429CooldownSettings.mockImplementation(async (payload) => payload);
+    getAPIKeyFailureCooldownSettings.mockResolvedValue(
+      createDefaultAPIKeyFailureCooldownSettings(),
+    );
+    updateAPIKeyFailureCooldownSettings.mockImplementation(async (payload) => payload);
     getStreamTimeoutSettings.mockResolvedValue({
       enabled: true,
       action: "temp_unsched",
@@ -1543,6 +1556,8 @@ describe("admin SettingsView wechat connect controls", () => {
     getOverloadCooldownSettings.mockReset();
     getRateLimit429CooldownSettings.mockReset();
     updateRateLimit429CooldownSettings.mockReset();
+    getAPIKeyFailureCooldownSettings.mockReset();
+    updateAPIKeyFailureCooldownSettings.mockReset();
     getStreamTimeoutSettings.mockReset();
     getRectifierSettings.mockReset();
     getBetaPolicySettings.mockReset();
@@ -1587,6 +1602,10 @@ describe("admin SettingsView wechat connect controls", () => {
       cooldown_seconds: 5,
     });
     updateRateLimit429CooldownSettings.mockImplementation(async (payload) => payload);
+    getAPIKeyFailureCooldownSettings.mockResolvedValue(
+      createDefaultAPIKeyFailureCooldownSettings(),
+    );
+    updateAPIKeyFailureCooldownSettings.mockImplementation(async (payload) => payload);
     getStreamTimeoutSettings.mockResolvedValue({
       enabled: true,
       action: "temp_unsched",
@@ -1789,6 +1808,8 @@ describe("admin SettingsView platform quota matrix", () => {
     getOverloadCooldownSettings.mockReset();
     getRateLimit429CooldownSettings.mockReset();
     updateRateLimit429CooldownSettings.mockReset();
+    getAPIKeyFailureCooldownSettings.mockReset();
+    updateAPIKeyFailureCooldownSettings.mockReset();
     getStreamTimeoutSettings.mockReset();
     getRectifierSettings.mockReset();
     getBetaPolicySettings.mockReset();
@@ -1815,6 +1836,10 @@ describe("admin SettingsView platform quota matrix", () => {
     getOverloadCooldownSettings.mockResolvedValue({});
     getRateLimit429CooldownSettings.mockResolvedValue({});
     updateRateLimit429CooldownSettings.mockResolvedValue({});
+    getAPIKeyFailureCooldownSettings.mockResolvedValue(
+      createDefaultAPIKeyFailureCooldownSettings(),
+    );
+    updateAPIKeyFailureCooldownSettings.mockImplementation(async (payload) => payload);
     getStreamTimeoutSettings.mockResolvedValue({});
     getRectifierSettings.mockResolvedValue({});
     getBetaPolicySettings.mockResolvedValue({});

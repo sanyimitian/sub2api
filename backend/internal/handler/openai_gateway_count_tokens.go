@@ -96,14 +96,39 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	requestStart := time.Now()
-	account, err := h.gatewayService.SelectAccountForTokenCount(
-		c.Request.Context(),
-		apiKey.GroupID,
-		sessionHash,
-		routingModel,
-		service.OpenAIEndpointCapabilityChatCompletions,
-		requestPlatform,
-	)
+	failedAccountIDs := make(map[int64]struct{})
+	cooldownGuardVetoCount := 0
+	var account *service.Account
+	var attemptCtx = c.Request.Context()
+	var cooldownAttempt *service.APIKeyCooldownAttempt
+	for {
+		account, err = h.gatewayService.SelectAccountForTokenCountWithExclusions(
+			c.Request.Context(),
+			apiKey.GroupID,
+			sessionHash,
+			routingModel,
+			service.OpenAIEndpointCapabilityChatCompletions,
+			requestPlatform,
+			failedAccountIDs,
+		)
+		if err != nil || account == nil {
+			break
+		}
+		setOpsSelectedAccount(c, account.ID, account.Platform)
+		var cooldownBlocked bool
+		var cooldownErr error
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr = beginHandlerAPIKeyCooldownAttempt(c.Request.Context(), h.gatewayService, account, routingModel, true)
+		if cooldownErr != nil {
+			reqLog.Warn("openai_input_tokens.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if !cooldownBlocked {
+			break
+		}
+		if !recordOpenAIAPIKeyCooldownGuardVeto(failedAccountIDs, account.ID, &cooldownGuardVetoCount) {
+			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+			return
+		}
+	}
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	if err != nil {
 		reqLog.Warn("openai_input_tokens.account_select_failed", zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)))
@@ -123,9 +148,21 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		return
 	}
 
-	setOpsSelectedAccount(c, account.ID, account.Platform)
-	if err := h.gatewayService.ForwardResponsesInputTokens(c.Request.Context(), c, account, forwardBody); err != nil {
+	if cooldownAttempt != nil {
+		cooldownAttempt.MarkRequestSent()
+	}
+	restoreAttemptWriter := installAPIKeyCooldownAttemptWriter(c, cooldownAttempt)
+	err = h.gatewayService.ForwardResponsesInputTokens(attemptCtx, c, account, forwardBody)
+	restoreAttemptWriter()
+	if err != nil {
+		if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("openai_input_tokens.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+		}
 		reqLog.Error("openai_input_tokens.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+		return
+	}
+	if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+		reqLog.Warn("openai_input_tokens.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 	}
 }
 
@@ -268,17 +305,42 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	if preferredMappedModel != "" {
 		currentRoutingModel = preferredMappedModel
 	}
-	account, err := h.gatewayService.SelectAccountForTokenCount(
-		c.Request.Context(),
-		apiKey.GroupID,
-		sessionHash,
-		currentRoutingModel,
-		service.OpenAIEndpointCapabilityChatCompletions,
-		openAICompatibleRequestPlatform(c.Request.Context(), apiKey),
-	)
+	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+	failedAccountIDs := make(map[int64]struct{})
+	cooldownGuardVetoCount := 0
+	var account *service.Account
+	var attemptCtx = c.Request.Context()
+	var cooldownAttempt *service.APIKeyCooldownAttempt
+	for {
+		account, err = h.gatewayService.SelectAccountForTokenCountWithExclusions(
+			c.Request.Context(),
+			apiKey.GroupID,
+			sessionHash,
+			currentRoutingModel,
+			service.OpenAIEndpointCapabilityChatCompletions,
+			requestPlatform,
+			failedAccountIDs,
+		)
+		if err != nil || account == nil {
+			break
+		}
+		setOpsSelectedAccount(c, account.ID, account.Platform)
+		var cooldownBlocked bool
+		var cooldownErr error
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr = beginHandlerAPIKeyCooldownAttempt(c.Request.Context(), h.gatewayService, account, currentRoutingModel, true)
+		if cooldownErr != nil {
+			reqLog.Warn("openai_count_tokens.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if !cooldownBlocked {
+			break
+		}
+		if !recordOpenAIAPIKeyCooldownGuardVeto(failedAccountIDs, account.ID, &cooldownGuardVetoCount) {
+			h.anthropicErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+			return
+		}
+	}
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	if err != nil {
-		requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 		reqLog.Warn("openai_count_tokens.account_select_failed", zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)))
 		cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel)
 		if !cls.ModelNotFound {
@@ -296,11 +358,23 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		return
 	}
 
-	setOpsSelectedAccount(c, account.ID, account.Platform)
 	forwardBody := mappedBodyForMessages(channelMapping.Mapped, channelMapping.MappedModel)
 	defaultMappedModel := preferredMappedModel
 
-	if err := h.gatewayService.ForwardCountTokensAsAnthropic(c.Request.Context(), c, account, forwardBody, defaultMappedModel); err != nil {
+	if cooldownAttempt != nil {
+		cooldownAttempt.MarkRequestSent()
+	}
+	restoreAttemptWriter := installAPIKeyCooldownAttemptWriter(c, cooldownAttempt)
+	err = h.gatewayService.ForwardCountTokensAsAnthropic(attemptCtx, c, account, forwardBody, defaultMappedModel)
+	restoreAttemptWriter()
+	if err != nil {
+		if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("openai_count_tokens.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+		}
 		reqLog.Error("openai_count_tokens.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+		return
+	}
+	if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+		reqLog.Warn("openai_count_tokens.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 	}
 }

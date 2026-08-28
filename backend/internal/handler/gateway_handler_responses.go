@@ -255,7 +255,32 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
 		// 5. Forward request
+		if shouldUseAntigravityCompat(account) && h.antigravityGatewayService == nil {
+			h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", "Antigravity compatibility service is not configured")
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			return
+		}
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr := beginHandlerAPIKeyCooldownAttempt(requestCtx, h.gatewayService, account, reqModel, true)
+		if cooldownErr != nil {
+			reqLog.Warn("gateway.responses.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if cooldownBlocked {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			if fs.RecordAPIKeyCooldownGuardVeto(account.ID) == FailoverExhausted {
+				h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+				return
+			}
+			continue
+		}
+		if cooldownAttempt != nil {
+			cooldownAttempt.MarkRequestSent()
+		}
 		writerSizeBeforeForward := c.Writer.Size()
+		restoreAttemptWriter := installAPIKeyCooldownAttemptWriter(c, cooldownAttempt)
 		forwardBody := body
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
@@ -263,24 +288,21 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		var result *service.ForwardResult
 		setActualUpstreamEndpoint(c, "")
 		if shouldUseAntigravityCompat(account) {
-			if h.antigravityGatewayService == nil {
-				h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", "Antigravity compatibility service is not configured")
-				if accountReleaseFunc != nil {
-					accountReleaseFunc()
-				}
-				return
-			}
 			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
-			result, err = h.antigravityGatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+			result, err = h.antigravityGatewayService.ForwardAsResponses(attemptCtx, c, account, forwardBody, parsedReq)
 		} else {
-			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+			result, err = h.gatewayService.ForwardAsResponses(attemptCtx, c, account, forwardBody, parsedReq)
 		}
+		restoreAttemptWriter()
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
 		}
 
 		if err != nil {
+			if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+				reqLog.Warn("gateway.responses.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				// Can't failover if streaming content already sent
@@ -312,6 +334,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				zap.Error(err),
 			)
 			return
+		}
+		if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("gateway.responses.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 		}
 
 		// 6. Record usage

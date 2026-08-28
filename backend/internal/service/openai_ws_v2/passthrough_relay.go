@@ -567,6 +567,10 @@ func runUpstreamToClient(
 				return
 			}
 		}
+		droppingDownstream := dropDownstreamWrites != nil && dropDownstreamWrites.Load()
+		if !droppingDownstream && beforeClientWrite != nil {
+			beforeClientWrite(msgType, payload)
+		}
 		observedEvent := observedUpstreamEvent{}
 		switch msgType {
 		case coderws.MessageText:
@@ -579,7 +583,7 @@ func runUpstreamToClient(
 			// binary frame 直接透传，不进入 JSON 观测路径（避免无效解析开销）。
 		}
 		emitTurnComplete(onTurnComplete, state, observedEvent)
-		if dropDownstreamWrites != nil && dropDownstreamWrites.Load() {
+		if droppingDownstream {
 			if droppedFrames != nil {
 				droppedFrames.Add(1)
 			}
@@ -600,9 +604,6 @@ func runUpstreamToClient(
 			}
 			markActivity()
 			continue
-		}
-		if beforeClientWrite != nil {
-			beforeClientWrite(msgType, payload)
 		}
 		writeErr := writeClient(msgType, payload)
 		if afterClientWrite != nil {

@@ -588,7 +588,7 @@ func TestOpenAIGatewayService_Forward_WSv2_ResponseFailedIsNotSchedulingSuccess(
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
-		Credentials: map[string]any{"api_key": "sk-test"},
+		Credentials: map[string]any{"api_key": "sk-test", "pool_mode": true},
 		Extra:       map[string]any{"responses_websockets_v2_enabled": true},
 	}
 	svc.recordOpenAIAccountModelTransientFailure(account, "gpt-5.5", time.Now())

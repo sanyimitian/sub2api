@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -175,14 +176,38 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		}
 		account = selected.Account
 		accountReleaseFunc = release
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr := beginHandlerAPIKeyCooldownAttempt(
+			c.Request.Context(), h.gatewayService, account, searchModel, true,
+		)
+		if cooldownErr != nil {
+			reqLog.Warn("gateway.web_search.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if cooldownBlocked {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+				accountReleaseFunc = nil
+			}
+			failedAccounts[account.ID] = struct{}{}
+			account = nil
+			continue
+		}
+		if cooldownAttempt != nil {
+			cooldownAttempt.MarkRequestSent()
+		}
 
 		if isXSearch {
-			nativeResp, providerName, err = h.doGrokNativeXSearch(c.Request.Context(), c, account, req, searchModel, maxResults)
+			nativeResp, providerName, err = h.doGrokNativeXSearch(attemptCtx, c, account, req, searchModel, maxResults)
 		} else {
-			nativeResp, providerName, err = h.doGrokNativeWebSearch(c.Request.Context(), c, account, req.Query, maxResults, searchModel)
+			nativeResp, providerName, err = h.doGrokNativeWebSearch(attemptCtx, c, account, req.Query, maxResults, searchModel)
 		}
 		if err == nil {
+			if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+				reqLog.Warn("gateway.web_search.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+			}
 			break
+		}
+		if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("gateway.web_search.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 		}
 		var failoverErr *service.UpstreamFailoverError
 		if !errors.As(err, &failoverErr) || !failoverErr.ShouldRetryNextAccount() {

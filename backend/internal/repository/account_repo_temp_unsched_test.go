@@ -9,7 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -24,6 +27,23 @@ func TestAccountRepository_SetTempUnschedulable_NoRowsAffectedDoesNotWriteOutbox
 	require.Len(t, exec.execQueries, 1)
 	require.Contains(t, exec.execQueries[0], "UPDATE accounts")
 	require.NotContains(t, strings.Join(exec.execQueries, "\n"), "scheduler_outbox")
+}
+
+func TestAccountRepository_SetModelRateLimit_UsesAtomicMonotonicJSONBUpdate(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	defer func() { _ = client.Close() }()
+	repo := newAccountRepositoryWithSQL(client, nil, nil)
+	resetAt := time.Now().UTC().Add(10 * time.Minute)
+	mock.ExpectExec(`(?s)UPDATE accounts AS a SET`).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err = repo.SetModelRateLimit(context.Background(), 42, "gpt-5", resetAt, `{"family":"transient"}`)
+	require.NoError(t, err)
+	// The repository receives the deadline as a typed timestamptz argument so
+	// PostgreSQL can compare it under the row lock without string ordering.
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestAccountRepository_GrokCredentialConditionalMutationsAreEligibleAndAtomicallyPropagated(t *testing.T) {

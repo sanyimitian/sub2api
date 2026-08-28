@@ -167,7 +167,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	// same-account retry budget. Recording the generic account+model transient
 	// cooldown here would block the next approved retry before that budget is used.
 	poolModeRetryable := account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)
-	if !shouldDisable && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey &&
+	if !shouldDisable && useLegacyOpenAIModelTransientState(account) &&
 		shouldCooldownOpenAITransientUpstreamError(statusCode, responseBody) && !poolModeRetryable {
 		model := ""
 		if len(canonicalModel) > 0 {
@@ -428,7 +428,7 @@ func openAIAccountModelTransientModel(canonicalModel string) string {
 }
 
 func (s *OpenAIGatewayService) recordOpenAIAccountModelTransientFailure(account *Account, canonicalModel string, now time.Time) openAIAccountModelTransientDecision {
-	if s == nil || account == nil {
+	if s == nil || !useLegacyOpenAIModelTransientState(account) {
 		return openAIAccountModelTransientDecision{}
 	}
 	state := s.getOpenAIAccountModelTransientState()
@@ -447,7 +447,7 @@ func (s *OpenAIGatewayService) clearOpenAIAccountModelTransientState(accountID i
 }
 
 func (s *OpenAIGatewayService) isOpenAIAccountModelRuntimeBlocked(account *Account, requestedModel string) bool {
-	if s == nil || account == nil {
+	if s == nil || !useLegacyOpenAIModelTransientState(account) {
 		return false
 	}
 	state := s.getOpenAIAccountModelTransientState()
@@ -456,6 +456,11 @@ func (s *OpenAIGatewayService) isOpenAIAccountModelRuntimeBlocked(account *Accou
 	}
 	canonicalModel := canonicalOpenAIAccountSchedulingModel(account, requestedModel)
 	return state.isBlocked(account.ID, openAIAccountModelTransientModel(canonicalModel), time.Now())
+}
+
+func useLegacyOpenAIModelTransientState(account *Account) bool {
+	return account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey &&
+		!IsAPIKeyFailureCooldownApplicable(account)
 }
 
 func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string) bool {

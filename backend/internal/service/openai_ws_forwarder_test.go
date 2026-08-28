@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
@@ -134,7 +133,7 @@ func TestOpenAIForwardResultSucceededForScheduling_TerminalEvents(t *testing.T) 
 	}
 }
 
-func TestOpenAIWSTerminalEvent_ResponseFailedRecordsModelTransient(t *testing.T) {
+func TestOpenAIWSTerminalEvent_ResponseFailedSkipsLegacyModelTransient(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	svc.rateLimitService = NewRateLimitService(transientCooldownAccountRepo{}, nil, &config.Config{}, nil, nil)
 	account := &Account{ID: 5201, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
@@ -145,10 +144,10 @@ func TestOpenAIWSTerminalEvent_ResponseFailedRecordsModelTransient(t *testing.T)
 		require.Equal(t, "response.failed", terminalEvent)
 	}
 
-	require.True(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.5"))
+	require.False(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.5"))
 }
 
-func TestOpenAIWSErrorEvent_ServerErrorRecordsModelTransient(t *testing.T) {
+func TestOpenAIWSErrorEvent_ServerErrorSkipsLegacyModelTransient(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	svc.rateLimitService = NewRateLimitService(transientCooldownAccountRepo{}, nil, &config.Config{}, nil, nil)
 	account := &Account{ID: 5203, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
@@ -158,7 +157,7 @@ func TestOpenAIWSErrorEvent_ServerErrorRecordsModelTransient(t *testing.T) {
 		svc.handleOpenAIWSErrorEventTransientFailure(context.Background(), account, "gpt-5.5", http.Header{}, payload)
 	}
 
-	require.True(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.5"))
+	require.False(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.5"))
 }
 
 func TestOpenAIWSPayloadTransientStatus_Explicit529IsNotModelTransient(t *testing.T) {
@@ -167,7 +166,7 @@ func TestOpenAIWSPayloadTransientStatus_Explicit529IsNotModelTransient(t *testin
 	require.Zero(t, openAIWSPayloadTransientStatus(payload))
 }
 
-func TestOpenAIWSDial5xxRecordsModelTransient(t *testing.T) {
+func TestOpenAIWSDial5xxSkipsLegacyModelTransient(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	svc.rateLimitService = NewRateLimitService(transientCooldownAccountRepo{}, nil, &config.Config{}, nil, nil)
 	account := &Account{ID: 5202, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
@@ -181,9 +180,7 @@ func TestOpenAIWSDial5xxRecordsModelTransient(t *testing.T) {
 		svc.handleOpenAIWSDialTransientFailure(context.Background(), account, "gpt-5.5", dialErr)
 	}
 
-	require.Eventually(t, func() bool {
-		return svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.5")
-	}, time.Second, 10*time.Millisecond)
+	require.False(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.5"))
 }
 
 // TestIsOpenAIWSTokenEvent_DisjointWithTerminal 守护「token 事件集合与终止事件集合互斥」的不变量。

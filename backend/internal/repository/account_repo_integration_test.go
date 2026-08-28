@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1048,6 +1049,106 @@ func (s *AccountRepoSuite) TestClearModelRateLimits_SyncsSchedulerSnapshot() {
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 	s.Require().Equal(account.ID, cacheRecorder.setAccounts[0].ID)
 	s.Require().NotContains(cacheRecorder.setAccounts[0].Extra, "model_rate_limits")
+}
+
+func (s *AccountRepoSuite) TestSetModelRateLimitOnlyExtendsAndSyncsSchedulerSnapshot() {
+	firstReset := time.Now().UTC().Add(30 * time.Minute).Truncate(time.Second)
+	secondReset := time.Now().UTC().Add(20 * time.Minute).Truncate(time.Second)
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name: "acc-model-rate-monotonic",
+		Extra: map[string]any{
+			"model_rate_limits": map[string]any{
+				"model-a": map[string]any{
+					"rate_limit_reset_at": firstReset.Format(time.RFC3339),
+					"reason":              "first-generation",
+				},
+			},
+		},
+	})
+	cacheRecorder := &schedulerCacheRecorder{}
+	s.repo.schedulerCache = cacheRecorder
+
+	// A shorter update must leave both the deadline and the existing metadata intact.
+	s.Require().NoError(s.repo.SetModelRateLimit(s.ctx, account.ID, "model-a", secondReset, "stale-generation"))
+	got, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	limits, ok := got.Extra["model_rate_limits"].(map[string]any)
+	s.Require().True(ok)
+	modelA, ok := limits["model-a"].(map[string]any)
+	s.Require().True(ok)
+	s.Require().Equal(firstReset.Format(time.RFC3339), modelA["rate_limit_reset_at"])
+	s.Require().Equal("first-generation", modelA["reason"])
+
+	// A distinct model can be added without changing model-a.
+	modelBReset := time.Now().UTC().Add(45 * time.Minute).Truncate(time.Second)
+	s.Require().NoError(s.repo.SetModelRateLimit(s.ctx, account.ID, "model-b", modelBReset, "model-b-failure"))
+	got, err = s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	limits, ok = got.Extra["model_rate_limits"].(map[string]any)
+	s.Require().True(ok)
+	modelA, ok = limits["model-a"].(map[string]any)
+	s.Require().True(ok)
+	modelB, ok := limits["model-b"].(map[string]any)
+	s.Require().True(ok)
+	s.Require().Equal(firstReset.Format(time.RFC3339), modelA["rate_limit_reset_at"])
+	s.Require().Equal(modelBReset.Format(time.RFC3339), modelB["rate_limit_reset_at"])
+
+	s.Require().Len(cacheRecorder.setAccounts, 2)
+	s.Require().NotNil(cacheRecorder.setAccounts[1])
+	cachedLimits, ok := cacheRecorder.setAccounts[1].Extra["model_rate_limits"].(map[string]any)
+	s.Require().True(ok)
+	s.Require().Contains(cachedLimits, "model-a")
+	s.Require().Contains(cachedLimits, "model-b")
+}
+
+func TestAccountRepository_SetModelRateLimitConcurrentWritesNeverShorten(t *testing.T) {
+	if integrationDB == nil || integrationEntClient == nil {
+		t.Skip("integration database is unavailable")
+	}
+	account := mustCreateAccount(t, integrationEntClient, &service.Account{Name: "acc-model-rate-concurrent"})
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id = $1", account.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE id = $1", account.ID)
+	})
+	repo := newAccountRepositoryWithSQL(integrationEntClient, integrationDB, nil)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	latest := now.Add(2 * time.Hour)
+	short := now.Add(5 * time.Minute)
+	const writers = 100
+	start := make(chan struct{})
+	errs := make(chan error, writers)
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			resetAt := short
+			if i == 0 {
+				resetAt = latest
+			}
+			errs <- repo.SetModelRateLimit(context.Background(), account.ID, "model-concurrent", resetAt)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	got, err := integrationEntClient.Account.Get(context.Background(), account.ID)
+	require.NoError(t, err)
+	limits, ok := got.Extra["model_rate_limits"].(map[string]any)
+	require.True(t, ok)
+	model, ok := limits["model-concurrent"].(map[string]any)
+	require.True(t, ok)
+	resetRaw, ok := model["rate_limit_reset_at"].(string)
+	require.True(t, ok)
+	resetAt, err := time.Parse(time.RFC3339, resetRaw)
+	require.NoError(t, err)
+	require.WithinDuration(t, latest, resetAt, time.Second)
 }
 
 // --- UpdateLastUsed ---

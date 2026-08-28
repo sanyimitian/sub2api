@@ -527,6 +527,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	switchCount := 0
 	firstOutputTimeoutSwitchCount := 0
 	profitVetoCount := 0
+	cooldownGuardVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
@@ -673,13 +674,32 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
 		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
 		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, account, &passthroughFailoverState)
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr := beginHandlerAPIKeyCooldownAttempt(c.Request.Context(), h.gatewayService, account, forwardModel, true)
+		if cooldownErr != nil {
+			reqLog.Warn("openai.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if cooldownBlocked {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			if !recordOpenAIAPIKeyCooldownGuardVeto(failedAccountIDs, account.ID, &cooldownGuardVetoCount) {
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+				return
+			}
+			continue
+		}
+		if cooldownAttempt != nil {
+			cooldownAttempt.MarkRequestSent()
+		}
+		restoreAttemptWriter := installAPIKeyCooldownAttemptWriter(c, cooldownAttempt)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
+				restoreAttemptWriter()
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
+			return h.gatewayService.Forward(attemptCtx, c, account, attemptBody)
 		}()
 		var cyberBlockBodyHTTP []byte
 		if service.GetOpsCyberPolicy(c) != nil {
@@ -748,6 +768,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					zap.Error(err),
 				)
 			} else {
+				if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+					reqLog.Warn("openai.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					if failoverClientGone(c) {
@@ -850,6 +873,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				reqLog.Error("openai.forward_failed", fields...)
 				return
 			}
+		}
+		if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("openai.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 		}
 		if result != nil {
 			// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
@@ -1141,6 +1167,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
 	profitVetoCount := 0
+	cooldownGuardVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
@@ -1236,13 +1263,32 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		// 应用渠道模型映射到请求体
 		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
 		writerSizeBeforeForward := c.Writer.Size()
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr := beginHandlerAPIKeyCooldownAttempt(c.Request.Context(), h.gatewayService, account, currentRoutingModel, true)
+		if cooldownErr != nil {
+			reqLog.Warn("openai_messages.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if cooldownBlocked {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			if !recordOpenAIAPIKeyCooldownGuardVeto(failedAccountIDs, account.ID, &cooldownGuardVetoCount) {
+				h.anthropicStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+				return
+			}
+			continue
+		}
+		if cooldownAttempt != nil {
+			cooldownAttempt.MarkRequestSent()
+		}
+		restoreAttemptWriter := installAPIKeyCooldownAttemptWriter(c, cooldownAttempt)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
+				restoreAttemptWriter()
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
+			return h.gatewayService.ForwardAsAnthropic(attemptCtx, c, account, forwardBody, promptCacheKey, defaultMappedModel)
 		}()
 		var cyberBlockBodyMsg []byte
 		if service.GetOpsCyberPolicy(c) != nil {
@@ -1312,6 +1358,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					zap.Error(err),
 				)
 			} else {
+				if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+					reqLog.Warn("openai_messages.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					if failoverClientGone(c) {
@@ -1394,6 +1443,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				submitMessagesUsage(result)
 				return
 			}
+		}
+		if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("openai_messages.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 		}
 		if result != nil {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), true, result.FirstTokenMs)
@@ -1591,6 +1643,12 @@ func recordOpenAIProfitVeto(failedAccountIDs map[int64]struct{}, accountID int64
 	failedAccountIDs[accountID] = struct{}{}
 	*vetoCount++
 	return *vetoCount < maxProfitVetoAttempts
+}
+
+func recordOpenAIAPIKeyCooldownGuardVeto(failedAccountIDs map[int64]struct{}, accountID int64, vetoCount *int) bool {
+	failedAccountIDs[accountID] = struct{}{}
+	*vetoCount++
+	return *vetoCount < maxAPIKeyCooldownGuardVetoAttempts
 }
 
 // handleOpenAIProfitVetoExhausted 在利润否决预算耗尽时写出错误响应。
@@ -2097,6 +2155,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	// 建连时刻只用于选号/准入，不作为任何 turn 的计费定价时刻。
 	wsPricingCtx, _ := h.gatewayService.WithOpenAIRequestPricingContext(ctx, apiKey.GroupID)
 	ctx = wsPricingCtx
+	cooldownGuardVetoCount := 0
 
 	for {
 		if ctx.Err() != nil {
@@ -2241,6 +2300,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		var requestPayloadHash string
 		var turnStartsMu sync.Mutex
 		turnStarts := make(map[int]time.Time, 4)
+		turnCooldownAttempts := newOpenAIWSCooldownTurnAttempts(ctx, h.gatewayService, account)
+		var activeCooldownTurn atomic.Int32
 		recordTurnStart := func(turn int, startedAt time.Time) {
 			if turn <= 0 || startedAt.IsZero() {
 				return
@@ -2292,6 +2353,30 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					return service.NewOpenAIWSClientCloseError(securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision), nil)
 				}
 				return nil
+			},
+			BeforeUpstreamSend: func(turn int, upstreamModel string) error {
+				activeCooldownTurn.Store(int32(turn))
+				blocked, err := turnCooldownAttempts.begin(turn, upstreamModel)
+				if err != nil {
+					reqLog.Warn("openai.websocket.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Int("turn", turn), zap.Error(err))
+					return nil
+				}
+				if !blocked {
+					return nil
+				}
+				return &service.UpstreamFailoverError{
+					StatusCode:        http.StatusServiceUnavailable,
+					Scope:             service.GatewayFailureScopeAccount,
+					Reason:            service.APIKeyCooldownActiveReason,
+					NextAccountAction: service.NextAccountRetry,
+				}
+			},
+			UpstreamRequestSent: func(turn int) {
+				activeCooldownTurn.Store(int32(turn))
+				turnCooldownAttempts.markRequestSent(turn)
+			},
+			DownstreamResponseStarted: func(turn int) {
+				turnCooldownAttempts.markResponseStarted(turn)
 			},
 			MapRequestModel: func(turn int, originalModel string) (string, error) {
 				model := strings.TrimSpace(originalModel)
@@ -2358,6 +2443,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return nil
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
+				if observeErr := turnCooldownAttempts.finish(turn, turnErr); observeErr != nil {
+					reqLog.Warn("openai.websocket.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Int("turn", turn), zap.Error(observeErr))
+				}
 				turnStart := getTurnStart(turn)
 				cyberBlockBody := takeCyberTurnBody(turn)
 				// F1: cyber 标记按 turn 生命周期清理——defer 保证任意早返回路径都执行；
@@ -2479,7 +2567,17 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 
 		for {
-			err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks)
+			err := func() (proxyErr error) {
+				defer func() {
+					turn := int(activeCooldownTurn.Load())
+					if turn > 0 {
+						if observeErr := turnCooldownAttempts.finish(turn, proxyErr); observeErr != nil {
+							reqLog.Warn("openai.websocket.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Int("turn", turn), zap.Error(observeErr))
+						}
+					}
+				}()
+				return h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks)
+			}()
 			if err == nil {
 				reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))
 				return
@@ -2503,6 +2601,17 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 						zap.Int("upstream_status", failoverErr.StatusCode),
 						zap.Int("retry_payload_bytes", len(retryPayload)),
 					)
+				}
+				if failoverErr.Reason == service.APIKeyCooldownActiveReason {
+					releaseAccountSlot()
+					if !recordOpenAIAPIKeyCooldownGuardVeto(failedAccountIDs, account.ID, &cooldownGuardVetoCount) {
+						closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "no available account")
+						return
+					}
+					if !ensureUserSlotHeld() {
+						return
+					}
+					break
 				}
 				if waitForWSSameAccountRetry(account, failoverErr) {
 					if failoverErr.ShouldReportAccountScheduleFailure() {

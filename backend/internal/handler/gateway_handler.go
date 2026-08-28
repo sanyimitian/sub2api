@@ -458,8 +458,28 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if fs.SwitchCount > 0 {
 				requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 			}
+			attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr := beginHandlerAPIKeyCooldownAttempt(requestCtx, h.gatewayService, account, reqModel, true)
+			if cooldownErr != nil {
+				reqLog.Warn("gateway.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+			}
+			if cooldownBlocked {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				if fs.RecordAPIKeyCooldownGuardVeto(account.ID) == FailoverExhausted {
+					markOpsRoutingCapacityLimited(c)
+					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+					return
+				}
+				continue
+			}
+			requestCtx = attemptCtx
+			if cooldownAttempt != nil {
+				cooldownAttempt.MarkRequestSent()
+			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
+			restoreAttemptWriter := installAPIKeyCooldownAttemptWriter(c, cooldownAttempt)
 			if account.Platform == service.PlatformAntigravity {
 				result, err = h.antigravityGatewayService.ForwardGemini(
 					requestCtx,
@@ -475,10 +495,14 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			} else {
 				result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
 			}
+			restoreAttemptWriter()
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
 			if err != nil {
+				if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(requestCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+					reqLog.Warn("gateway.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
@@ -523,6 +547,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
 				return
+			}
+			if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(requestCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+				reqLog.Warn("gateway.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 			}
 
 			// RPM 计数递增（Forward 成功后）
@@ -852,13 +879,38 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if fs.ForceCacheBilling {
 				requestCtx = service.WithForceCacheBilling(requestCtx)
 			}
+			attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr := beginHandlerAPIKeyCooldownAttempt(requestCtx, h.gatewayService, account, attemptParsedReq.Model, true)
+			if cooldownErr != nil {
+				reqLog.Warn("gateway.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+			}
+			if cooldownBlocked {
+				if queueRelease != nil {
+					queueRelease()
+				}
+				attemptParsedReq.OnUpstreamAccepted = nil
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				if fs.RecordAPIKeyCooldownGuardVeto(account.ID) == FailoverExhausted {
+					markOpsRoutingCapacityLimited(c)
+					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+					return
+				}
+				continue
+			}
+			requestCtx = attemptCtx
+			if cooldownAttempt != nil {
+				cooldownAttempt.MarkRequestSent()
+			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
+			restoreAttemptWriter := installAPIKeyCooldownAttemptWriter(c, cooldownAttempt)
 			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
 				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, attemptBody, hasBoundSession)
 			} else {
 				result, err = h.gatewayService.Forward(requestCtx, c, account, attemptParsedReq)
 			}
+			restoreAttemptWriter()
 
 			// 兜底释放串行锁（正常情况已通过回调提前释放）
 			if queueRelease != nil {
@@ -985,6 +1037,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					_ = h.antigravityGatewayService.WriteMappedClaudeError(c, account, promptTooLongErr.StatusCode, promptTooLongErr.RequestID, promptTooLongErr.Body)
 					return
 				}
+				if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(requestCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+					reqLog.Warn("gateway.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
@@ -1035,6 +1090,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					submitForwardUsage(result)
 				}
 				return
+			}
+			if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(requestCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+				reqLog.Warn("gateway.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 			}
 
 			// RPM 计数递增（Forward 成功后）
@@ -2139,8 +2197,32 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	}
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
 
-	// 选择支持该模型的账号
-	account, err := h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, sessionHash, parsedReq.Model)
+	// 选择支持该模型且未被最终共享冷却守卫否决的账号。
+	failedAccountIDs := make(map[int64]struct{})
+	cooldownGuardVetoCount := 0
+	var account *service.Account
+	var attemptCtx = c.Request.Context()
+	var cooldownAttempt *service.APIKeyCooldownAttempt
+	for {
+		account, err = h.gatewayService.SelectAccountForModelWithExclusions(c.Request.Context(), apiKey.GroupID, sessionHash, parsedReq.Model, failedAccountIDs)
+		if err != nil || account == nil {
+			break
+		}
+		setOpsSelectedAccount(c, account.ID, account.Platform)
+		var cooldownBlocked bool
+		var cooldownErr error
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr = beginHandlerAPIKeyCooldownAttempt(c.Request.Context(), h.gatewayService, account, parsedReq.Model, true)
+		if cooldownErr != nil {
+			reqLog.Warn("gateway.count_tokens_api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if !cooldownBlocked {
+			break
+		}
+		if !recordOpenAIAPIKeyCooldownGuardVeto(failedAccountIDs, account.ID, &cooldownGuardVetoCount) {
+			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+			return
+		}
+	}
 	if err != nil {
 		reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
 		cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, parsedReq.Model, parsedReq.Model, service.PlatformAnthropic)
@@ -2150,13 +2232,29 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 		return
 	}
-	setOpsSelectedAccount(c, account.ID, account.Platform)
+	if account == nil {
+		markOpsRoutingCapacityLimited(c)
+		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+		return
+	}
 
 	// 转发请求（不记录使用量）
-	if err := h.gatewayService.ForwardCountTokens(c.Request.Context(), c, account, parsedReq); err != nil {
+	if cooldownAttempt != nil {
+		cooldownAttempt.MarkRequestSent()
+	}
+	restoreAttemptWriter := installAPIKeyCooldownAttemptWriter(c, cooldownAttempt)
+	err = h.gatewayService.ForwardCountTokens(attemptCtx, c, account, parsedReq)
+	restoreAttemptWriter()
+	if err != nil {
+		if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("gateway.count_tokens_api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+		}
 		reqLog.Error("gateway.count_tokens_forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 		// 错误响应已在 ForwardCountTokens 中处理
 		return
+	}
+	if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+		reqLog.Warn("gateway.count_tokens_api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 	}
 }
 

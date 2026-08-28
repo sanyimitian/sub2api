@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -142,12 +143,25 @@ type GrokRealtimeUpstream struct{ conn openAIWSClientConn }
 // GrokRealtimeDialError preserves an HTTP status returned before WebSocket
 // upgrade so handlers can apply the normal Grok account policy.
 type GrokRealtimeDialError struct {
-	StatusCode int
-	Err        error
+	StatusCode      int
+	ResponseHeaders http.Header
+	ResponseBody    []byte
+	Err             error
 }
 
-func (e *GrokRealtimeDialError) Error() string { return e.Err.Error() }
-func (e *GrokRealtimeDialError) Unwrap() error { return e.Err }
+func (e *GrokRealtimeDialError) Error() string {
+	if e == nil || e.Err == nil {
+		return "grok realtime websocket handshake failed"
+	}
+	return e.Err.Error()
+}
+
+func (e *GrokRealtimeDialError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
 
 func (u *GrokRealtimeUpstream) Close() error {
 	if u == nil || u.conn == nil {
@@ -181,9 +195,19 @@ func (s *OpenAIGatewayService) OpenGrokRealtime(ctx context.Context, account *Ac
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	conn, status, _, err := s.getOpenAIWSPassthroughDialer().Dial(ctx, u.String(), headers, proxyURL)
+	conn, status, responseHeaders, err := s.getOpenAIWSPassthroughDialer().Dial(ctx, u.String(), headers, proxyURL)
 	if err != nil {
-		return nil, &GrokRealtimeDialError{StatusCode: status, Err: err}
+		var responseBody []byte
+		var handshakeErr *openAIWSHandshakeError
+		if errors.As(err, &handshakeErr) && handshakeErr != nil {
+			responseBody = append([]byte(nil), handshakeErr.Body...)
+		}
+		return nil, &GrokRealtimeDialError{
+			StatusCode:      status,
+			ResponseHeaders: cloneHeader(responseHeaders),
+			ResponseBody:    responseBody,
+			Err:             err,
+		}
 	}
 	return &GrokRealtimeUpstream{conn: conn}, nil
 }

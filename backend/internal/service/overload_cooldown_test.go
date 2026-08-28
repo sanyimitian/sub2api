@@ -277,19 +277,21 @@ func TestHandle529_DBReadError_FallsBackToConfig(t *testing.T) {
 
 func TestHandleUpstreamError_529RespectsAccountPolicies(t *testing.T) {
 	tests := []struct {
-		name        string
-		credentials map[string]any
+		name                  string
+		credentials           map[string]any
+		expectedOverloadCalls int
 	}{
 		{
 			name:        "pool mode",
 			credentials: map[string]any{"pool_mode": true},
 		},
 		{
-			name: "custom code filter excludes 529",
+			name: "unmatched custom code still uses default 529 cooldown",
 			credentials: map[string]any{
 				"custom_error_codes_enabled": true,
 				"custom_error_codes":         []any{float64(429)},
 			},
+			expectedOverloadCalls: 1,
 		},
 	}
 
@@ -307,7 +309,7 @@ func TestHandleUpstreamError_529RespectsAccountPolicies(t *testing.T) {
 			shouldDisable := svc.HandleUpstreamError(context.Background(), account, 529, nil, []byte(`{"error":{"message":"overloaded"}}`))
 
 			require.False(t, shouldDisable)
-			require.Zero(t, repo.overloadCalls)
+			require.Equal(t, tt.expectedOverloadCalls, repo.overloadCalls)
 			require.Zero(t, repo.errorCalls)
 		})
 	}

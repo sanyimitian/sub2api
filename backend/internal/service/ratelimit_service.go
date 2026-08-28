@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -14,7 +17,9 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 )
 
@@ -31,6 +36,7 @@ type RateLimitService struct {
 	settingService        *SettingService
 	tokenCacheInvalidator TokenCacheInvalidator
 	runtimeBlocker        AccountRuntimeBlocker
+	apiKeyCooldown        *APIKeyCooldownCoordinator
 	usageCacheMu          sync.RWMutex
 	usageCache            map[int64]*geminiUsageCacheEntry
 
@@ -123,6 +129,215 @@ func (s *RateLimitService) SetSettingService(settingService *SettingService) {
 // SetTokenCacheInvalidator 设置 token 缓存清理器（可选依赖）
 func (s *RateLimitService) SetTokenCacheInvalidator(invalidator TokenCacheInvalidator) {
 	s.tokenCacheInvalidator = invalidator
+}
+
+// SetAPIKeyCooldownCoordinator installs the unified failure cooldown entry
+// point. It is optional so existing tests and non-production callers can keep
+// constructing RateLimitService with the legacy constructor.
+func (s *RateLimitService) SetAPIKeyCooldownCoordinator(coordinator *APIKeyCooldownCoordinator) {
+	if s != nil {
+		s.apiKeyCooldown = coordinator
+	}
+}
+
+// CheckAPIKeyCooldown is the shared pre-send guard used by account selectors.
+// Redis/cache errors are returned to the caller so it can fall back to the
+// existing scheduler snapshot rather than blocking all traffic.
+func (s *RateLimitService) CheckAPIKeyCooldown(ctx context.Context, account *Account, model string, now time.Time) (bool, APIKeyCooldownAttemptToken, error) {
+	if s == nil || s.apiKeyCooldown == nil {
+		return false, APIKeyCooldownAttemptToken{StartedAt: now.UTC()}, nil
+	}
+	return s.apiKeyCooldown.Check(ctx, account, model, now.UTC())
+}
+
+// BeginAPIKeyCooldownAttempt performs the final shared-state guard and, when
+// allowed, returns the generation token that must accompany the terminal
+// success or failure observation for this concrete upstream dispatch.
+func (s *RateLimitService) BeginAPIKeyCooldownAttempt(ctx context.Context, account *Account, model string, replaySafe bool, now time.Time) (*APIKeyCooldownAttempt, bool, error) {
+	if account == nil || !IsAPIKeyFailureCooldownApplicable(account) {
+		return nil, false, nil
+	}
+	now = now.UTC()
+	blocked, token, err := s.CheckAPIKeyCooldown(ctx, account, model, now)
+	if err != nil || blocked {
+		return nil, blocked, err
+	}
+	if token.StartedAt.IsZero() {
+		token.StartedAt = now
+	}
+	if token.Generations == nil {
+		token.Generations = make(map[string]int64)
+	}
+	return &APIKeyCooldownAttempt{
+		ID:            uuid.NewString(),
+		AccountID:     account.ID,
+		Model:         NormalizeAPIKeyCooldownModel(model),
+		StartedAt:     now,
+		Token:         token,
+		ReplaySafe:    replaySafe,
+		clientContext: ctx,
+	}, false, nil
+}
+
+func (s *RateLimitService) ObserveAPIKeySuccess(ctx context.Context, account *Account, success APIKeyCooldownSuccess, now time.Time) error {
+	if s == nil || s.apiKeyCooldown == nil {
+		return nil
+	}
+	return s.apiKeyCooldown.ObserveSuccess(ctx, account, success, now.UTC())
+}
+
+func (s *RateLimitService) ObserveAPIKeyAttemptSuccess(ctx context.Context, account *Account, attempt *APIKeyCooldownAttempt, now time.Time) error {
+	if attempt == nil {
+		attempt = APIKeyCooldownAttemptFromContext(ctx)
+	}
+	if attempt == nil {
+		return nil
+	}
+	return attempt.completeSuccess(func() error {
+		return s.ObserveAPIKeySuccess(ctx, account, attempt.successObservation(), now.UTC())
+	})
+}
+
+func (s *RateLimitService) ObserveAPIKeyAttemptError(ctx context.Context, account *Account, attempt *APIKeyCooldownAttempt, upstreamErr error, now time.Time) (APIKeyCooldownDecision, error) {
+	if attempt == nil {
+		attempt = APIKeyCooldownAttemptFromContext(ctx)
+	}
+	if s == nil || s.apiKeyCooldown == nil || account == nil || attempt == nil {
+		return APIKeyCooldownDecision{Disposition: APIKeyCooldownDispositionIgnored}, nil
+	}
+	now = now.UTC()
+	details := extractAPIKeyUpstreamErrorDetails(upstreamErr)
+	transportError := classifyAPIKeyTransportError(upstreamErr)
+	if details.statusCode > 0 {
+		transportError = APIKeyTransportErrorNone
+	}
+	observation := APIKeyFailureObservation{
+		AttemptID:       attempt.ID,
+		AttemptStarted:  attempt.StartedAt,
+		AttemptToken:    attempt.Token,
+		AccountID:       account.ID,
+		AccountType:     account.Type,
+		PoolMode:        account.IsPoolMode(),
+		Platform:        account.Platform,
+		Model:           attempt.Model,
+		HTTPStatus:      details.statusCode,
+		Headers:         details.headers,
+		ErrorCode:       details.errorCode,
+		ErrorType:       details.errorType,
+		TransportError:  transportError,
+		RequestSent:     attempt.RequestSent(),
+		ReplaySafe:      attempt.ReplaySafe,
+		ClientCanceled:  attempt.ClientCanceled(),
+		ClientTimedOut:  attempt.ClientTimedOut(),
+		ResponseStarted: attempt.ResponseStarted(),
+		RequestError:    details.requestError,
+		ErrorSummary:    SanitizeAPIKeyErrorSummary(details.errorSummary),
+	}
+	if resetAt, ok := ParseAPIKeyUpstreamReset(details.headers, now); ok {
+		observation.UpstreamReset = &resetAt
+	}
+	return attempt.completeFailure(func() (APIKeyCooldownDecision, error) {
+		return s.apiKeyCooldown.ObserveFailure(ctx, account, observation, now)
+	})
+}
+
+type apiKeyUpstreamErrorDetails struct {
+	statusCode   int
+	headers      http.Header
+	body         []byte
+	errorCode    string
+	errorType    string
+	errorSummary string
+	requestError bool
+}
+
+func extractAPIKeyUpstreamErrorDetails(upstreamErr error) apiKeyUpstreamErrorDetails {
+	var details apiKeyUpstreamErrorDetails
+
+	var failoverErr *UpstreamFailoverError
+	if errors.As(upstreamErr, &failoverErr) && failoverErr != nil {
+		details.statusCode = failoverErr.StatusCode
+		details.headers = failoverErr.ResponseHeaders
+		details.body = failoverErr.ResponseBody
+		details.requestError = failoverErr.Scope == GatewayFailureScopeRequest || failoverErr.RequestScopedTransient
+	}
+
+	var imageErr *OpenAIImagesUpstreamError
+	if errors.As(upstreamErr, &imageErr) && imageErr != nil {
+		details.statusCode = imageErr.StatusCode
+		details.errorCode = strings.TrimSpace(imageErr.Code)
+		details.errorType = strings.TrimSpace(imageErr.ErrorType)
+		details.errorSummary = strings.TrimSpace(imageErr.Message)
+	}
+
+	var grokErr *GrokRealtimeDialError
+	if errors.As(upstreamErr, &grokErr) && grokErr != nil {
+		details.statusCode = grokErr.StatusCode
+		details.headers = grokErr.ResponseHeaders
+		details.body = grokErr.ResponseBody
+	}
+
+	var codexModelsErr *codexModelsManifestUpstreamError
+	if errors.As(upstreamErr, &codexModelsErr) && codexModelsErr != nil {
+		details.statusCode = codexModelsErr.statusCode
+		details.headers = codexModelsErr.headers
+		details.body = codexModelsErr.body
+	}
+
+	var applicationErr *infraerrors.ApplicationError
+	if details.statusCode == 0 && len(details.body) == 0 && errors.As(upstreamErr, &applicationErr) && applicationErr != nil {
+		details.statusCode = int(applicationErr.Code)
+		details.errorCode = strings.TrimSpace(applicationErr.Reason)
+		details.errorSummary = strings.TrimSpace(applicationErr.Message)
+		details.requestError = applicationErr.Code >= http.StatusBadRequest && applicationErr.Code < http.StatusInternalServerError
+	}
+
+	if details.errorCode == "" {
+		details.errorCode = extractUpstreamErrorCode(details.body)
+	}
+	if details.errorType == "" {
+		details.errorType = extractUpstreamErrorType(details.body)
+	}
+	if details.errorSummary == "" {
+		details.errorSummary = extractUpstreamErrorMessage(details.body)
+	}
+	if details.errorSummary == "" {
+		details.errorSummary = errorString(upstreamErr)
+	}
+	return details
+}
+
+func classifyAPIKeyTransportError(err error) APIKeyTransportError {
+	if err == nil || errors.Is(err, io.EOF) {
+		return APIKeyTransportErrorEmptyResponse
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		var opErr *net.OpError
+		if errors.As(err, &opErr) && strings.EqualFold(strings.TrimSpace(opErr.Op), "dial") {
+			return APIKeyTransportErrorConnectTimeout
+		}
+		return APIKeyTransportErrorReadTimeout
+	}
+	if isConnectionResetError(err) {
+		return APIKeyTransportErrorReset
+	}
+	return APIKeyTransportErrorOther
+}
+
+func isConnectionResetError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "connection reset") || strings.Contains(message, "broken pipe")
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return "empty upstream response"
+	}
+	return err.Error()
 }
 
 func (s *RateLimitService) SetAccountRuntimeBlocker(blocker AccountRuntimeBlocker) {
@@ -290,6 +505,40 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	// 同请求内与 fastpath 调用点的重复触发由方法内去重吸收。
 	s.maybeHandleOpenAITeamLinkedError(ctx, account, statusCode, responseBody)
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
+	customErrorCodeMatched := customErrorCodesEnabled && len(account.GetCustomErrorCodes()) > 0 && account.ShouldHandleErrorCode(statusCode)
+	customTempRuleMatched := len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0
+	customRuleMatched := customErrorCodeMatched || customTempRuleMatched
+	unmatchedCustomRuleForUnified := IsAPIKeyFailureCooldownApplicable(account) && customErrorCodesEnabled && !customRuleMatched
+	if unmatchedCustomRuleForUnified {
+		// Keep the legacy custom-code branch from treating an unmatched code as
+		// a match after the unified classifier has handled the default path.
+		customErrorCodesEnabled = false
+	}
+
+	if s != nil && s.apiKeyCooldown != nil && IsAPIKeyFailureCooldownApplicable(account) {
+		now := time.Now().UTC()
+		observation := buildAPIKeyHTTPFailureObservation(ctx, account, statusCode, headers, responseBody, firstRequestedModel(requestedModel), now)
+		observation.CustomRuleMatched = customRuleMatched
+		observe := func() (APIKeyCooldownDecision, error) {
+			return s.apiKeyCooldown.ObserveFailure(ctx, account, observation, now)
+		}
+		var decision APIKeyCooldownDecision
+		var err error
+		if attempt := APIKeyCooldownAttemptFromContext(ctx); attempt != nil {
+			decision, err = attempt.completeFailure(observe)
+		} else {
+			decision, err = observe()
+		}
+		if err != nil {
+			slog.Warn("api_key_cooldown_observe_failed", "account_id", account.ID, "error", err)
+		}
+		if decision.ShouldCooldown() {
+			return decision.Exclude
+		}
+		if decision.Disposition == APIKeyCooldownDispositionIgnored && isExcludedAPIKeyRequestFailure(observation) {
+			return false
+		}
+	}
 
 	// 池模式默认不标记本地账号状态；但管理员显式配置的临时不可调度规则优先。
 	// 401 保留现有认证错误语义，不在这里改变池模式的认证处理。
@@ -303,7 +552,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 
 	// apikey 类型账号：检查自定义错误码配置
 	// 如果启用且错误码不在列表中，则不处理（不停止调度、不标记限流/过载）
-	if !account.ShouldHandleErrorCode(statusCode) {
+	if !unmatchedCustomRuleForUnified && !account.ShouldHandleErrorCode(statusCode) {
 		slog.Info("account_error_code_skipped", "account_id", account.ID, "status_code", statusCode)
 		return false
 	}
@@ -501,9 +750,14 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		)
 		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
 	case 429:
-		s.handle429(ctx, account, headers, responseBody)
+		if !IsAPIKeyFailureCooldownApplicable(account) || s.apiKeyCooldown == nil {
+			s.handle429(ctx, account, headers, responseBody)
+		}
 		shouldDisable = false
 	case 529:
+		if !IsAPIKeyFailureCooldownApplicable(account) || s.apiKeyCooldown == nil {
+			s.handle529(ctx, account)
+		}
 		// Handled after pool/custom-code policy gates above.
 		shouldDisable = false
 	default:
@@ -523,6 +777,39 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	}
 
 	return shouldDisable
+}
+
+func buildAPIKeyHTTPFailureObservation(ctx context.Context, account *Account, statusCode int, headers http.Header, body []byte, model string, now time.Time) APIKeyFailureObservation {
+	observation := APIKeyFailureObservation{
+		AttemptStarted: now,
+		AccountID:      account.ID,
+		AccountType:    account.Type,
+		PoolMode:       account.IsPoolMode(),
+		Platform:       account.Platform,
+		Model:          model,
+		HTTPStatus:     statusCode,
+		Headers:        headers,
+		RequestSent:    true,
+		ReplaySafe:     true,
+		ErrorCode:      extractUpstreamErrorCode(body),
+		ErrorType:      extractUpstreamErrorType(body),
+		ErrorSummary:   extractUpstreamErrorMessage(body),
+	}
+	if attempt := APIKeyCooldownAttemptFromContext(ctx); attempt != nil {
+		observation.AttemptID = attempt.ID
+		observation.AttemptStarted = attempt.StartedAt
+		observation.AttemptToken = attempt.Token
+		observation.Model = attempt.Model
+		observation.RequestSent = attempt.RequestSent()
+		observation.ReplaySafe = attempt.ReplaySafe
+		observation.ClientCanceled = attempt.ClientCanceled()
+		observation.ClientTimedOut = attempt.ClientTimedOut()
+		observation.ResponseStarted = attempt.ResponseStarted()
+	}
+	if resetAt, ok := ParseAPIKeyUpstreamReset(headers, now); ok {
+		observation.UpstreamReset = &resetAt
+	}
+	return observation
 }
 
 // PreCheckUsage proactively checks local quota before dispatching a request.

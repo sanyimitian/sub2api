@@ -998,6 +998,86 @@ export default {
         saved: '429 默认回避设置保存成功',
         saveFailed: '保存 429 默认回避设置失败'
       },
+      apiKeyFailureCooldown: {
+        title: 'API Key 故障冷却',
+        description: '统一配置非池模式 API Key 账号在可恢复上游故障后的调度回避策略。',
+        reload: '重新加载故障冷却配置',
+        scopeNotice: '作用域由故障语义固定，不能手动修改。账号级冷却会跨该账号所属分组生效；账号＋模型级冷却只影响当前上游模型。现有 429/529 设置仍用于未纳入本策略的账号类型。',
+        columns: {
+          failure: '故障类型与作用域',
+          cooldowns: '冷却阶梯',
+          mode: '到达末档后',
+          enabled: '启用'
+        },
+        cooldownsPlaceholder: '例如：60, 300, 900',
+        seconds: '秒',
+        scope: {
+          account: '账号级',
+          accountModel: '账号＋模型级'
+        },
+        modes: {
+          holdLast: '保持末档',
+          cycle: '循环阶梯'
+        },
+        validation: {
+          positiveIntegers: '请输入至少一个正整数秒数，并用英文逗号分隔。'
+        },
+        saved: 'API Key 故障冷却设置已保存',
+        loadFailed: '加载 API Key 故障冷却设置失败',
+        saveFailed: '保存 API Key 故障冷却设置失败',
+        families: {
+          rate_limit: {
+            title: '请求频率限制',
+            description: '用于 429 或等价的上游限流；可靠的上游重置时间优先。',
+            toggle: '启用请求频率限制冷却'
+          },
+          overload: {
+            title: '上游过载',
+            description: '用于 529 等模型相关的过载响应。',
+            toggle: '启用上游过载冷却'
+          },
+          transient_upstream: {
+            title: '临时上游故障',
+            description: '用于可恢复的 5xx、连接超时、连接重置或空响应。',
+            toggle: '启用临时上游故障冷却'
+          },
+          temporary_forbidden: {
+            title: '临时禁止访问',
+            description: '用于可恢复的上游 403 响应。',
+            toggle: '启用临时禁止访问冷却'
+          },
+          account_blocked: {
+            title: '账号受限',
+            description: '用于上游明确表示账号暂时被限制的响应。',
+            toggle: '启用账号受限冷却'
+          },
+          unauthorized: {
+            title: '临时未授权',
+            description: '用于可恢复的授权失败；永久无效凭据仍由原有账号错误机制处理。',
+            toggle: '启用临时未授权冷却'
+          },
+          quota_exhausted: {
+            title: '配额耗尽',
+            description: '用于上游明确表示配额、余额或额度已经耗尽。',
+            toggle: '启用配额耗尽冷却'
+          },
+          model_unsupported: {
+            title: '模型不可用',
+            description: '只回避当前账号上的当前上游模型，不影响同账号其他模型。',
+            toggle: '启用模型不可用冷却'
+          },
+          global_upstream: {
+            title: '全局上游故障',
+            description: '用于上游明确标记为全局性的服务故障。',
+            toggle: '启用全局上游故障冷却'
+          },
+          unknown: {
+            title: '未知上游故障',
+            description: '在其他分类均未命中时使用；默认按 1、10、30 分钟循环。',
+            toggle: '启用未知上游故障冷却'
+          }
+        }
+      },
       streamTimeout: {
         title: '流超时处理',
         description: '配置上游响应超时时的账户处理策略，避免问题账户持续被选中',

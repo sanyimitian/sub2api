@@ -743,6 +743,40 @@ func buildOpenAIWSCurrentTurnRetryPayload(
 	return retryPayload, true, nil
 }
 
+func runOpenAIWSBeforeUpstreamSend(
+	hooks *OpenAIWSIngressHooks,
+	turn int,
+	upstreamModel string,
+	payload []byte,
+	fullInput []json.RawMessage,
+	fullInputExists bool,
+	originalModel string,
+) error {
+	if hooks == nil || hooks.BeforeUpstreamSend == nil {
+		return nil
+	}
+	guardErr := hooks.BeforeUpstreamSend(turn, strings.TrimSpace(upstreamModel))
+	if guardErr == nil {
+		return guardErr
+	}
+	retryPayload, retrySafe, retryErr := buildOpenAIWSCurrentTurnRetryPayload(
+		payload,
+		fullInput,
+		fullInputExists,
+		originalModel,
+	)
+	if retryErr != nil {
+		return newOpenAIWSCurrentTurnFailoverError(
+			errors.Join(guardErr, fmt.Errorf("build websocket current-turn retry payload: %w", retryErr)),
+			nil,
+		)
+	}
+	if !retrySafe {
+		retryPayload = nil
+	}
+	return newOpenAIWSCurrentTurnFailoverError(guardErr, retryPayload)
+}
+
 func shouldKeepIngressPreviousResponseID(
 	previousPayload []byte,
 	currentPayload []byte,

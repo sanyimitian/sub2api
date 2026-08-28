@@ -1004,6 +1004,86 @@ export default {
         saved: '429 default cooldown settings saved',
         saveFailed: 'Failed to save 429 default cooldown settings'
       },
+      apiKeyFailureCooldown: {
+        title: 'API Key Failure Cooldown',
+        description: 'Configure how direct, non-pool API Key accounts are avoided after recoverable upstream failures.',
+        reload: 'Reload failure cooldown settings',
+        scopeNotice: 'Scope is fixed by failure semantics and cannot be changed. Account cooldowns apply across every group containing that account; account + model cooldowns affect only the current upstream model. Existing 429/529 settings remain in use for account types outside this policy.',
+        columns: {
+          failure: 'Failure and scope',
+          cooldowns: 'Cooldown ladder',
+          mode: 'After final tier',
+          enabled: 'Enabled'
+        },
+        cooldownsPlaceholder: 'For example: 60, 300, 900',
+        seconds: 'sec',
+        scope: {
+          account: 'Account',
+          accountModel: 'Account + model'
+        },
+        modes: {
+          holdLast: 'Hold final tier',
+          cycle: 'Cycle ladder'
+        },
+        validation: {
+          positiveIntegers: 'Enter at least one positive whole number of seconds, separated by commas.'
+        },
+        saved: 'API Key failure cooldown settings saved',
+        loadFailed: 'Failed to load API Key failure cooldown settings',
+        saveFailed: 'Failed to save API Key failure cooldown settings',
+        families: {
+          rate_limit: {
+            title: 'Rate limit',
+            description: 'For 429 or equivalent upstream throttling; a reliable upstream reset time takes precedence.',
+            toggle: 'Enable rate-limit cooldown'
+          },
+          overload: {
+            title: 'Upstream overload',
+            description: 'For model-specific overload responses such as 529.',
+            toggle: 'Enable upstream-overload cooldown'
+          },
+          transient_upstream: {
+            title: 'Transient upstream failure',
+            description: 'For recoverable 5xx responses, connection timeouts, resets, or empty responses.',
+            toggle: 'Enable transient-upstream cooldown'
+          },
+          temporary_forbidden: {
+            title: 'Temporary forbidden',
+            description: 'For recoverable upstream 403 responses.',
+            toggle: 'Enable temporary-forbidden cooldown'
+          },
+          account_blocked: {
+            title: 'Account restricted',
+            description: 'For upstream responses that explicitly indicate a temporary account restriction.',
+            toggle: 'Enable account-restricted cooldown'
+          },
+          unauthorized: {
+            title: 'Temporary unauthorized',
+            description: 'For recoverable authorization failures; permanently invalid credentials remain with the existing account-error mechanism.',
+            toggle: 'Enable temporary-unauthorized cooldown'
+          },
+          quota_exhausted: {
+            title: 'Quota exhausted',
+            description: 'For explicit upstream quota, balance, or allowance exhaustion.',
+            toggle: 'Enable quota-exhausted cooldown'
+          },
+          model_unsupported: {
+            title: 'Model unavailable',
+            description: 'Avoids only this upstream model on the account, leaving its other models available.',
+            toggle: 'Enable model-unavailable cooldown'
+          },
+          global_upstream: {
+            title: 'Global upstream failure',
+            description: 'For service failures explicitly identified as global by the upstream.',
+            toggle: 'Enable global-upstream cooldown'
+          },
+          unknown: {
+            title: 'Unknown upstream failure',
+            description: 'Used only after all other classifications miss; defaults to a repeating 1, 10, and 30 minute ladder.',
+            toggle: 'Enable unknown-upstream cooldown'
+          }
+        }
+      },
       streamTimeout: {
         title: 'Stream Timeout Handling',
         description: 'Configure account handling strategy when upstream response times out',

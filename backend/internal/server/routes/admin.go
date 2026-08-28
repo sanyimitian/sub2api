@@ -573,6 +573,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// 429默认回避配置
 		adminSettings.GET("/rate-limit-429-cooldown", h.Admin.Setting.GetRateLimit429CooldownSettings)
 		adminSettings.PUT("/rate-limit-429-cooldown", h.Admin.Setting.UpdateRateLimit429CooldownSettings)
+		// 非池 API Key 统一故障冷却配置
+		adminSettings.GET("/api-key-failure-cooldown", h.Admin.Setting.GetAPIKeyFailureCooldownSettings)
+		adminSettings.PUT("/api-key-failure-cooldown", h.Admin.Setting.UpdateAPIKeyFailureCooldownSettings)
 		// 面板 API 限流配置
 		adminSettings.GET("/panel-rate-limit", h.Admin.Setting.GetPanelRateLimitSettings)
 		adminSettings.PUT("/panel-rate-limit", h.Admin.Setting.UpdatePanelRateLimitSettings)

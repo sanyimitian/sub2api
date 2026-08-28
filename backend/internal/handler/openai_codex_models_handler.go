@@ -2,12 +2,14 @@ package handler
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"go.uber.org/zap"
 )
 
 // CodexModels serves the Codex models manifest for Codex clients.
@@ -56,7 +58,9 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	}
 	failedAccountIDs := make(map[int64]struct{})
 	switchCount := 0
+	cooldownGuardVetoCount := 0
 	var lastUpstreamErr error
+	reqLog := requestLogger(c, "handler.openai.codex_models")
 
 	for {
 		account, err := h.gatewayService.SelectAccountForModelWithExclusions(c.Request.Context(), apiKey.GroupID, "", "", failedAccountIDs)
@@ -73,11 +77,32 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		}
 		// 让 ops 错误日志携带实际选中的上游账号，便于定位失效账号（#4544）。
 		setOpsSelectedAccount(c, account.ID, account.Platform)
+		attemptCtx, cooldownAttempt, cooldownBlocked, cooldownErr := beginHandlerAPIKeyCooldownAttempt(
+			c.Request.Context(), h.gatewayService, account, "", true,
+		)
+		if cooldownErr != nil {
+			reqLog.Warn("openai.codex_models.api_key_cooldown_guard_failed", zap.Int64("account_id", account.ID), zap.Error(cooldownErr))
+		}
+		if cooldownBlocked {
+			failedAccountIDs[account.ID] = struct{}{}
+			cooldownGuardVetoCount++
+			if cooldownGuardVetoCount >= maxAPIKeyCooldownGuardVetoAttempts {
+				h.errorResponse(c, http.StatusServiceUnavailable, "upstream_error", "No available OpenAI accounts")
+				return
+			}
+			continue
+		}
+		if cooldownAttempt != nil {
+			cooldownAttempt.MarkRequestSent()
+		}
 
 		// The client ETag represents the final group-specific body, so fetch the
 		// source manifest before applying local filtering and alias metadata.
-		manifest, err := h.gatewayService.FetchCodexModelsManifest(c.Request.Context(), account, c.Query("client_version"), "")
+		manifest, err := h.gatewayService.FetchCodexModelsManifest(attemptCtx, account, c.Query("client_version"), "")
 		if err != nil {
+			if _, observeErr := h.gatewayService.ObserveAPIKeyAttemptError(attemptCtx, account, cooldownAttempt, err, time.Now().UTC()); observeErr != nil {
+				reqLog.Warn("openai.codex_models.api_key_cooldown_observe_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
+			}
 			if c.Request.Context().Err() != nil {
 				return
 			}
@@ -89,6 +114,9 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			}
 			h.errorResponse(c, infraerrors.Code(err), "upstream_error", infraerrors.Message(err))
 			return
+		}
+		if observeErr := h.gatewayService.ObserveAPIKeyAttemptSuccess(attemptCtx, account, cooldownAttempt, time.Now().UTC()); observeErr != nil {
+			reqLog.Warn("openai.codex_models.api_key_cooldown_success_failed", zap.Int64("account_id", account.ID), zap.Error(observeErr))
 		}
 		if err := h.gatewayService.CompleteAPIKeyCodexModelsManifestForClient(manifest, account); err != nil {
 			h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to complete Codex models manifest")

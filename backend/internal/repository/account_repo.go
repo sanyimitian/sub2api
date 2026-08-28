@@ -2254,17 +2254,36 @@ func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, sco
 	client := clientFromContext(ctx, r.client)
 	result, err := client.ExecContext(
 		ctx,
-		`UPDATE accounts SET 
+		`UPDATE accounts AS a SET
 			extra = jsonb_set(
-				jsonb_set(COALESCE(extra, '{}'::jsonb), '{model_rate_limits}'::text[], COALESCE(extra->'model_rate_limits', '{}'::jsonb), true),
+				jsonb_set(
+					COALESCE(a.extra, '{}'::jsonb),
+					'{model_rate_limits}'::text[],
+					COALESCE(a.extra->'model_rate_limits', '{}'::jsonb),
+					true
+				),
 				ARRAY['model_rate_limits', $1]::text[],
-				$2::jsonb,
+				CASE
+					-- Keep the complete existing scope (including its reason and
+					-- generation metadata) when its deadline is already later.
+					WHEN COALESCE(
+						CASE
+							WHEN (a.extra->'model_rate_limits'->$1->>'rate_limit_reset_at') ~
+								'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$'
+							THEN (a.extra->'model_rate_limits'->$1->>'rate_limit_reset_at')::timestamptz
+						END,
+						'epoch'::timestamptz
+					) >= $3::timestamptz
+					THEN COALESCE(a.extra->'model_rate_limits'->$1, '{}'::jsonb)
+					ELSE $2::jsonb
+				END,
 				true
 			),
 			updated_at = NOW()
-		WHERE id = $3 AND deleted_at IS NULL`,
+		WHERE a.id = $4 AND a.deleted_at IS NULL`,
 		scope,
 		raw,
+		resetAt.UTC(),
 		id,
 	)
 	if err != nil {

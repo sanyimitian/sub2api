@@ -260,6 +260,11 @@ type OpenAIWSIngressHooks struct {
 	TurnStarted             func(turn int, startedAt time.Time)
 	BeforeTurn              func(turn int) error
 	BeforeRequest           func(turn int, payload []byte, originalModel string) error
+	// BeforeUpstreamSend runs after local policy and final model mapping, but
+	// before any authenticated dial or request frame for the turn.
+	BeforeUpstreamSend        func(turn int, upstreamModel string) error
+	UpstreamRequestSent       func(turn int)
+	DownstreamResponseStarted func(turn int)
 	// MapRequestModel resolves the current turn's client model to the model
 	// that must be written into the upstream response.create frame.
 	MapRequestModel func(turn int, originalModel string) (string, error)

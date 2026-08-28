@@ -634,6 +634,30 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					return fmt.Errorf("resolve Grok websocket cache identity: %w", err)
 				}
 			}
+			bridgeUpstreamModel := strings.TrimSpace(gjson.GetBytes(bridgePayloadRaw, "model").String())
+			if bridgeUpstreamModel == "" {
+				bridgeUpstreamModel = currentBridgePayload.originalModel
+			}
+			if err := runOpenAIWSBeforeUpstreamSend(
+				hooks,
+				turn,
+				bridgeUpstreamModel,
+				bridgePayloadRaw,
+				turnAccountFailoverInput,
+				turnAccountFailoverInputExists,
+				currentBridgePayload.originalModel,
+			); err != nil {
+				return err
+			}
+			if hooks != nil && hooks.UpstreamRequestSent != nil {
+				hooks.UpstreamRequestSent(turn)
+			}
+			turnWriteClientMessage := func(message []byte) error {
+				if hooks != nil && hooks.DownstreamResponseStarted != nil {
+					hooks.DownstreamResponseStarted(turn)
+				}
+				return writeClientMessage(message)
+			}
 			result, bridgeErr := s.proxyOpenAIWSHTTPBridgeTurn(
 				ctx,
 				c,
@@ -647,7 +671,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				currentBridgePayload.imageInputSize,
 				grokCacheIdentity,
 				turn,
-				writeClientMessage,
+				turnWriteClientMessage,
 			)
 			if bridgeErr != nil && isOpenAIWSSessionPreempted(ctx) {
 				return errOpenAIWSSessionPreempted
@@ -923,6 +947,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				false,
 			)
 		}
+		if hooks != nil && hooks.UpstreamRequestSent != nil {
+			hooks.UpstreamRequestSent(turn)
+		}
 		if debugEnabled {
 			logOpenAIWSModeDebug(
 				"ingress_ws_turn_request_sent account_id=%d turn=%d conn_id=%s payload_bytes=%d",
@@ -1118,6 +1145,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					}
 				}
 				replayCollector.AddEvent(eventType, upstreamMessage)
+				if hooks != nil && hooks.DownstreamResponseStarted != nil {
+					hooks.DownstreamResponseStarted(turn)
+				}
 				if err := writeClientMessage(upstreamMessage); err != nil {
 					if isOpenAIWSClientDisconnectError(err) {
 						clientDisconnected = true
@@ -1204,6 +1234,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	currentPayload := firstPayload.payloadRaw
+	currentAccountIdentitySourceRaw := firstPayload.accountIdentitySourceRaw
 	currentOriginalModel := firstPayload.originalModel
 	currentImageBillingModel := firstPayload.imageBillingModel
 	currentImageSizeTier := firstPayload.imageSizeTier
@@ -1697,6 +1728,21 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			)
 		}
 
+		upstreamModel := strings.TrimSpace(gjson.GetBytes(currentPayload, "model").String())
+		if upstreamModel == "" {
+			upstreamModel = currentOriginalModel
+		}
+		if err := runOpenAIWSBeforeUpstreamSend(
+			hooks,
+			turn,
+			upstreamModel,
+			currentAccountIdentitySourceRaw,
+			currentTurnReplayInput,
+			currentTurnReplayInputExists,
+			currentOriginalModel,
+		); err != nil {
+			return err
+		}
 		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier, currentImageInputSize)
 		if relayErr != nil {
 			lastTurnClean = false
@@ -1854,6 +1900,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 		}
 		currentPayload = nextPayload.payloadRaw
+		currentAccountIdentitySourceRaw = nextPayload.accountIdentitySourceRaw
 		currentOriginalModel = nextPayload.originalModel
 		currentImageBillingModel = nextPayload.imageBillingModel
 		currentImageSizeTier = nextPayload.imageSizeTier

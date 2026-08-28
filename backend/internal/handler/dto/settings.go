@@ -448,6 +448,19 @@ type RateLimit429CooldownSettings struct {
 	CooldownSeconds int  `json:"cooldown_seconds"`
 }
 
+// APIKeyCooldownPolicy is one configurable direct API-key failure ladder.
+type APIKeyCooldownPolicy struct {
+	Enabled   bool   `json:"enabled"`
+	Cooldowns []int  `json:"cooldowns"`
+	Mode      string `json:"mode"`
+}
+
+// APIKeyFailureCooldownSettings is the versioned admin API payload.
+type APIKeyFailureCooldownSettings struct {
+	Version  int                             `json:"version"`
+	Policies map[string]APIKeyCooldownPolicy `json:"policies"`
+}
+
 // PanelRateLimitSettings 面板 API 限流配置 DTO
 type PanelRateLimitSettings struct {
 	Enabled     bool `json:"enabled"`

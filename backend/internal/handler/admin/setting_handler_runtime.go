@@ -154,6 +154,61 @@ func (h *SettingHandler) UpdateRateLimit429CooldownSettings(c *gin.Context) {
 	})
 }
 
+// GetAPIKeyFailureCooldownSettings returns the versioned direct API-key failure policy.
+// GET /api/v1/admin/settings/api-key-failure-cooldown
+func (h *SettingHandler) GetAPIKeyFailureCooldownSettings(c *gin.Context) {
+	settings, err := h.settingService.GetAPIKeyFailureCooldownSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, apiKeyFailureCooldownSettingsDTO(settings))
+}
+
+// UpdateAPIKeyFailureCooldownSettings validates, normalizes, and saves the direct API-key policy.
+// PUT /api/v1/admin/settings/api-key-failure-cooldown
+func (h *SettingHandler) UpdateAPIKeyFailureCooldownSettings(c *gin.Context) {
+	var req dto.APIKeyFailureCooldownSettings
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	settings := &service.APIKeyFailureCooldownSettings{
+		Version:  req.Version,
+		Policies: make(map[service.APIKeyFailureFamily]service.APIKeyCooldownPolicy, len(req.Policies)),
+	}
+	for family, policy := range req.Policies {
+		settings.Policies[service.APIKeyFailureFamily(family)] = service.APIKeyCooldownPolicy{
+			Enabled:   policy.Enabled,
+			Cooldowns: append([]int(nil), policy.Cooldowns...),
+			Mode:      service.APIKeyCooldownMode(policy.Mode),
+		}
+	}
+
+	updated, err := h.settingService.SetAPIKeyFailureCooldownSettings(c.Request.Context(), settings)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, apiKeyFailureCooldownSettingsDTO(updated))
+}
+
+func apiKeyFailureCooldownSettingsDTO(settings *service.APIKeyFailureCooldownSettings) dto.APIKeyFailureCooldownSettings {
+	result := dto.APIKeyFailureCooldownSettings{
+		Version:  settings.Version,
+		Policies: make(map[string]dto.APIKeyCooldownPolicy, len(settings.Policies)),
+	}
+	for family, policy := range settings.Policies {
+		result.Policies[string(family)] = dto.APIKeyCooldownPolicy{
+			Enabled:   policy.Enabled,
+			Cooldowns: append([]int(nil), policy.Cooldowns...),
+			Mode:      string(policy.Mode),
+		}
+	}
+	return result
+}
+
 // GetPanelRateLimitSettings 获取面板 API 限流配置
 // GET /api/v1/admin/settings/panel-rate-limit
 func (h *SettingHandler) GetPanelRateLimitSettings(c *gin.Context) {

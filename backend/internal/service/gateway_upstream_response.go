@@ -330,6 +330,26 @@ func extractUpstreamErrorCode(body []byte) string {
 	return ""
 }
 
+func extractUpstreamErrorType(body []byte) string {
+	if errorType := strings.TrimSpace(gjson.GetBytes(body, "error.type").String()); errorType != "" {
+		return errorType
+	}
+
+	inner := strings.TrimSpace(gjson.GetBytes(body, "error.message").String())
+	if !strings.HasPrefix(inner, "{") {
+		return ""
+	}
+
+	if errorType := strings.TrimSpace(gjson.Get(inner, "error.type").String()); errorType != "" {
+		return errorType
+	}
+
+	if lastBrace := strings.LastIndex(inner, "}"); lastBrace >= 0 {
+		return strings.TrimSpace(gjson.Get(inner[:lastBrace+1], "error.type").String())
+	}
+	return ""
+}
+
 func isCountTokensUnsupported404(statusCode int, body []byte) bool {
 	if statusCode != http.StatusNotFound {
 		return false
