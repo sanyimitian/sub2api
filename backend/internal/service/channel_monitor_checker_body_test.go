@@ -15,6 +15,9 @@ import (
 )
 
 func TestChannelMonitorResponseHeaderTimeoutAllowsGatewayCooldownDecision(t *testing.T) {
+	if monitorRequestTimeout != 45*time.Second {
+		t.Fatalf("monitorRequestTimeout = %s, want 45s", monitorRequestTimeout)
+	}
 	if monitorResponseHeaderTimeout != 35*time.Second {
 		t.Fatalf("monitorResponseHeaderTimeout = %s, want 35s", monitorResponseHeaderTimeout)
 	}

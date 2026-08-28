@@ -209,6 +209,10 @@ func (s *RateLimitService) ObserveAPIKeyAttemptError(ctx context.Context, accoun
 	details := extractAPIKeyUpstreamErrorDetails(upstreamErr)
 	transportError := classifyAPIKeyTransportError(upstreamErr)
 	firstValidContentTimedOut := attempt.FirstValidContentTimedOut()
+	// 上游请求沿用调用方 context 时，调用方主动取消会以 *url.Error
+	// 包装的 context.Canceled 返回。此时不能把它归因给账号；只有本服务
+	// 的首个有效内容保护触发时，才应继续作为可冷却的上游超时处理。
+	callerCanceled := !firstValidContentTimedOut && errors.Is(upstreamErr, context.Canceled)
 	if firstValidContentTimedOut {
 		transportError = APIKeyTransportErrorReadTimeout
 		details.errorCode = "first_valid_content_timeout"
@@ -234,7 +238,7 @@ func (s *RateLimitService) ObserveAPIKeyAttemptError(ctx context.Context, accoun
 		TransportError:            transportError,
 		RequestSent:               attempt.RequestSent(),
 		ReplaySafe:                attempt.ReplaySafe,
-		ClientCanceled:            attempt.ClientCanceled(),
+		ClientCanceled:            attempt.ClientCanceled() || callerCanceled,
 		ClientTimedOut:            attempt.ClientTimedOut(),
 		ResponseStarted:           attempt.ResponseStarted(),
 		FirstValidContentTimedOut: firstValidContentTimedOut,

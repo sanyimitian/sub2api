@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -292,6 +293,21 @@ func TestRateLimitServiceObserveAPIKeyAttemptErrorSeparatesClientCancelAndUpstre
 		require.NoError(t, err)
 		require.Equal(t, APIKeyCooldownDispositionIgnored, decision.Disposition)
 		require.Equal(t, 0, store.observeCalls)
+	})
+
+	t.Run("transport reports caller cancellation after context detaches", func(t *testing.T) {
+		store := &countingAPIKeyCooldownStore{APIKeyCooldownStore: NewMemoryAPIKeyCooldownStore()}
+		service := newAPIKeyCooldownRateLimitServiceWithStore(account, store)
+		attempt, blocked, err := service.BeginAPIKeyCooldownAttempt(context.Background(), account, "gpt-5", true, now)
+		require.NoError(t, err)
+		require.False(t, blocked)
+		attempt.MarkRequestSent()
+
+		upstreamErr := &url.Error{Op: "Post", URL: "https://upstream.example/v1/responses", Err: context.Canceled}
+		decision, err := service.ObserveAPIKeyAttemptError(ContextWithAPIKeyCooldownAttempt(context.Background(), attempt), account, attempt, upstreamErr, now.Add(time.Second))
+		require.NoError(t, err)
+		require.Equal(t, APIKeyCooldownDispositionIgnored, decision.Disposition)
+		require.Equal(t, 0, store.observeCalls, "主动取消不得进入 API Key 冷却链")
 	})
 
 	t.Run("upstream dial timeout", func(t *testing.T) {
