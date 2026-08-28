@@ -118,3 +118,5 @@ Status values are `pending`, `in_progress`, `completed`, `blocked`, or `failed`.
 - TDD：新增 `TestAPIKeyCooldownCoordinatorPersistsAfterAttemptContextCanceled`；修复前测试因 `context canceled` 持久化失败，修复后通过。
 - 允许修改文件：`backend/internal/service/apikey_cooldown_coordinator.go`、`backend/internal/service/apikey_cooldown_coordinator_test.go`、本协调记录。
 - 验证状态：目标测试、相关超时/取消测试、普通与 `unit` 标签后端全量测试、目标竞态检查、`go vet`、后端构建及 OpenSpec 严格校验均通过。普通全量测试首次受环境代理影响，仅阿里云验证码本地回环测试超时；清除代理变量后完整通过。规格核对确认：独立上下文仅在分类结果要求冷却后创建，因此客户端手动取消和客户端自身超时仍不进入冷却链；5 秒边界防止故障处理无限等待。待完成快照事务、提交和部署验证。
+- 最终验证：清除代理变量后 `go test ./...`、`go test -tags=unit ./...`、`go test -tags=integration ./...`、目标 `go test -race`、`go vet`、`go build ./cmd/server`、`git diff --check` 和 `openspec validate add-apikey-failure-cooldown --strict` 均通过；`golangci-lint` 环境未安装，已由 `go vet` 补充静态检查。
+- 部署验证：提交 `6d20b618a085176d4270b9c104d284e0fb1e61f7` 已推送 GitHub 并由服务器快进拉取；应用镜像 `sub2api:current` 重建后，`sub2api` 容器健康，`GET /health` 返回 `200`，PostgreSQL 与 Redis 未重建且保持健康。
