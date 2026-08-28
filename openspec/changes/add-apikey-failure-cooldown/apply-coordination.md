@@ -74,3 +74,37 @@ Status values are `pending`, `in_progress`, `completed`, `blocked`, or `failed`.
 - Reusable apply snapshot search: completed — no local branch matched `add-apikey-failure-cooldown-apply-*`, so no reusable snapshot exists
 - Local snapshot branch/worktree/commit: completed — created branch `add-apikey-failure-cooldown-apply-20260828122520` from original HEAD in `/home/pan/桌面/code/add-apikey-failure-cooldown-apply-20260828122520`; copied all 52 tracked changes and 41 non-ignored untracked files, force-added ignored `docs/API_KEY_FAILURE_COOLDOWN.md`, and retained one local snapshot commit without pushing
 - Binary patch and four-way existence/workspace verification: completed — generated `/home/pan/桌面/code/add-apikey-failure-cooldown-apply-20260828122520.patch`; verified source `main` remains at original HEAD, pre-apply backup branch/worktree exist, snapshot branch/worktree/commit exist with original HEAD as parent and a clean tree, the operations guide is committed, the patch is non-empty, and source tracked-diff/untracked/status hashes remain unchanged
+
+## 2026-08-28 全请求首个有效内容超时增量
+
+### Baseline
+
+- Source branch: `main`
+- Original HEAD: `b2215c9e80dab4902aba02414be8ec24e1b196f4`
+- Starting workspace: no tracked changes; one untracked file `openspec/changes/add-apikey-failure-cooldown/Untitled`
+- Pre-apply backup branch: `add-apikey-failure-cooldown-pre-apply-20260828143358`
+- Pre-apply backup worktree: `/home/pan/桌面/code/add-apikey-failure-cooldown-实施前备份-20260828143358`
+- Backup verification: tracked diff hash is the empty SHA-256; untracked path and content hashes match the source workspace
+- Implementation owner: primary agent, serially in the source branch workspace
+
+### Quality Gates
+
+- Behavior items: `RED -> verify RED -> GREEN -> verify GREEN -> REFACTOR -> re-verify`
+- Focused tests: API Key attempt lifecycle, handler response writer, protocol lifecycle/failover, channel monitor checker
+- Affected scope: `go test` for service and handler packages plus targeted `go test -race`
+- Final gates: `go test ./...`, `go test -tags=unit ./...`, `go test -tags=integration ./...`, `golangci-lint run ./...`, `go build ./cmd/server`, `git diff --check`, strict OpenSpec validation
+
+### Dependency Order and Units
+
+| Unit | Depends on | Expected outcome | Allowed files | Test/validation | Status | Result / spec check |
+|---|---|---|---|---|---|---|
+| 8.1 | existing 5.1 | Attempt-level 29-second guard, typed timeout, context cancellation, valid-content disarm | `backend/internal/service/apikey_cooldown_attempt*.go`, `ratelimit_service.go`, tests | focused service tests | completed | RED verified missing lifecycle API; GREEN verifies typed timeout cancellation, explicit valid-content disarm, success disarm, and existing attempt lifecycle regressions. The fixed production threshold is 29 seconds and the guard remains attempt-scoped. |
+| 8.2 | 8.1 | HTTP/stream/WS valid-content boundaries; timeout maps to account transient cooldown | cooldown classifier/lifecycle, handler writer/hooks, detach helper, tests | focused service/handler tests | completed | RED/GREEN verifies headers, empty writes and SSE comments do not disarm; body/SSE semantic data and WebSocket semantic output do. Timeout is classified as account-scoped `transient_upstream`. |
+| 8.3 | 8.1-8.2 | Current attempt cancellation, safe failover, 504 fallback, current-service monitor behavior and 35-second monitor deadline | gateway/handler/channel monitor files and tests | focused integration/contract tests | completed | Typed context cause propagates as retryable account-scoped 504; safe replay remains governed by existing output/replay checks. Monitor response-header deadline is 35 seconds and its current-service request is not exempt. |
+| 8.4 | 8.1-8.3 | Affected and full gates, race check, spec review, snapshot | tests/docs/OpenSpec/coordination | final gates | completed | Focused tests plus `go test ./...`, unit and integration tags, and targeted race checks passed. `go vet`, build, diff check and strict OpenSpec validation passed. `golangci-lint` was unavailable in this environment (`command not found`); no repository-provided replacement exists. Review confirms 29-second account-only guard, semantic-output boundary, safe failover/504 behavior, monitor 35-second deadline, no migrations, and documented operations. Snapshot below. |
+
+### 2026-08-28 增量最终事务
+
+- 完整验证：代理变量清除后，`go test ./...`、`go test -tags=unit ./...`、`go test -tags=integration ./...`、相关 `go test -race`、`go vet ./...`、`go build ./cmd/server`、`git diff --check` 与 `openspec validate add-apikey-failure-cooldown --strict` 均通过。
+- 静态检查：`golangci-lint run ./...` 未执行，因为环境没有该命令，且 Makefile 未提供替代入口；已以 `go vet ./...` 补充基础静态检查。
+- 本地快照：`add-apikey-failure-cooldown-apply-20260828151801`，工作树 `/home/pan/桌面/code/add-apikey-failure-cooldown-apply-20260828151801`，提交 `addd7cc2a`；二进制补丁为 `/home/pan/桌面/code/add-apikey-failure-cooldown-apply-20260828151801.patch`。该提交以原始 HEAD `b2215c9e80dab4902aba02414be8ec24e1b196f4` 为祖先，包含忽略的运维文档和原有未跟踪文件；源工作树保持未提交状态。

@@ -134,8 +134,9 @@ const (
 	monitorIdleConnTimeout = 30 * time.Second
 	// monitorTLSHandshakeTimeout HTTP transport TLS 握手超时。
 	monitorTLSHandshakeTimeout = 10 * time.Second
-	// monitorResponseHeaderTimeout HTTP transport 等待响应头超时。
-	monitorResponseHeaderTimeout = 30 * time.Second
+	// monitorResponseHeaderTimeout HTTP transport 等待响应头超时。保留 29 秒首个有效内容
+	// 期限后的故障切换余量，使“当前服务 + 我的 Key”的渠道监控能够获得最终结果。
+	monitorResponseHeaderTimeout = 35 * time.Second
 	// monitorPingDiscardMaxBytes ping 时丢弃响应体的最大字节数。
 	monitorPingDiscardMaxBytes = 1024
 

@@ -267,6 +267,13 @@ type openAIWSPassthroughFirstOutputDeadline struct {
 	phase           openAIWSPassthroughDeadlinePhase
 }
 
+func openAIWSPassthroughFirstOutputTimeout(account *Account, configured time.Duration) time.Duration {
+	if IsAPIKeyFailureCooldownApplicable(account) {
+		return APIKeyFirstValidContentTimeout
+	}
+	return configured
+}
+
 type openAIWSPassthroughFirstOutputTimeoutError struct {
 	deadline openAIWSPassthroughFirstOutputDeadline
 }
@@ -927,7 +934,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if current := usageMeta.reasoningEffort.Load(); current != nil {
 				reasoningEffort = *current
 			}
-			timeout := s.openAIFirstOutputTimeout(reasoningEffort)
+			timeout := openAIWSPassthroughFirstOutputTimeout(account, s.openAIFirstOutputTimeout(reasoningEffort))
 			if timeout <= 0 {
 				timeout = s.openAIWSPassthroughIdleTimeout()
 			}
@@ -1411,6 +1418,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			"websocket_first_semantic_output",
 			handshakeHeaders,
 		)
+		if IsAPIKeyFailureCooldownApplicable(account) {
+			failoverErr.Reason = apiKeyFirstValidContentTimeoutReason
+			failoverErr.Scope = GatewayFailureScopeAccount
+			failoverErr.ResponseBody = append([]byte(nil), ErrAPIKeyFirstValidContentTimeout.ResponseBody...)
+		}
 		if turnCount == 0 && !relayExit.WroteDownstream {
 			relayErr = failoverErr
 		} else {

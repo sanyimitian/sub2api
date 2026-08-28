@@ -14,6 +14,15 @@ import (
 	"time"
 )
 
+func TestChannelMonitorResponseHeaderTimeoutAllowsGatewayCooldownDecision(t *testing.T) {
+	if monitorResponseHeaderTimeout != 35*time.Second {
+		t.Fatalf("monitorResponseHeaderTimeout = %s, want 35s", monitorResponseHeaderTimeout)
+	}
+	if monitorRequestTimeout <= monitorResponseHeaderTimeout {
+		t.Fatalf("monitorRequestTimeout = %s must exceed response header timeout %s", monitorRequestTimeout, monitorResponseHeaderTimeout)
+	}
+}
+
 // swapMonitorHTTPClient 临时替换 monitorHTTPClient 为不带 SSRF 校验的普通 client，
 // 让 httptest (127.0.0.1) 能连通。测试结束后恢复。
 func swapMonitorHTTPClient(t *testing.T) {

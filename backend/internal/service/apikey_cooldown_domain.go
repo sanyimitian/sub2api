@@ -133,17 +133,18 @@ type APIKeyFailureObservation struct {
 	ErrorSummary   string
 	TransportError APIKeyTransportError
 
-	RequestSent         bool
-	ReplaySafe          bool
-	ClientCanceled      bool
-	ClientTimedOut      bool
-	ResponseStarted     bool
-	RequestError        bool
-	ContentSafety       bool
-	CustomRuleMatched   bool
-	PermanentCredential bool
-	ExplicitGlobal      bool
-	AccountWideOverload bool
+	RequestSent               bool
+	ReplaySafe                bool
+	ClientCanceled            bool
+	ClientTimedOut            bool
+	ResponseStarted           bool
+	FirstValidContentTimedOut bool
+	RequestError              bool
+	ContentSafety             bool
+	CustomRuleMatched         bool
+	PermanentCredential       bool
+	ExplicitGlobal            bool
+	AccountWideOverload       bool
 }
 
 func (o APIKeyFailureObservation) Applicable() bool {

@@ -208,30 +208,38 @@ func (s *RateLimitService) ObserveAPIKeyAttemptError(ctx context.Context, accoun
 	now = now.UTC()
 	details := extractAPIKeyUpstreamErrorDetails(upstreamErr)
 	transportError := classifyAPIKeyTransportError(upstreamErr)
+	firstValidContentTimedOut := attempt.FirstValidContentTimedOut()
+	if firstValidContentTimedOut {
+		transportError = APIKeyTransportErrorReadTimeout
+		details.errorCode = "first_valid_content_timeout"
+		details.errorType = "upstream_timeout"
+		details.errorSummary = ErrAPIKeyFirstValidContentTimeout.Error()
+	}
 	if details.statusCode > 0 {
 		transportError = APIKeyTransportErrorNone
 	}
 	observation := APIKeyFailureObservation{
-		AttemptID:       attempt.ID,
-		AttemptStarted:  attempt.StartedAt,
-		AttemptToken:    attempt.Token,
-		AccountID:       account.ID,
-		AccountType:     account.Type,
-		PoolMode:        account.IsPoolMode(),
-		Platform:        account.Platform,
-		Model:           attempt.Model,
-		HTTPStatus:      details.statusCode,
-		Headers:         details.headers,
-		ErrorCode:       details.errorCode,
-		ErrorType:       details.errorType,
-		TransportError:  transportError,
-		RequestSent:     attempt.RequestSent(),
-		ReplaySafe:      attempt.ReplaySafe,
-		ClientCanceled:  attempt.ClientCanceled(),
-		ClientTimedOut:  attempt.ClientTimedOut(),
-		ResponseStarted: attempt.ResponseStarted(),
-		RequestError:    details.requestError,
-		ErrorSummary:    SanitizeAPIKeyErrorSummary(details.errorSummary),
+		AttemptID:                 attempt.ID,
+		AttemptStarted:            attempt.StartedAt,
+		AttemptToken:              attempt.Token,
+		AccountID:                 account.ID,
+		AccountType:               account.Type,
+		PoolMode:                  account.IsPoolMode(),
+		Platform:                  account.Platform,
+		Model:                     attempt.Model,
+		HTTPStatus:                details.statusCode,
+		Headers:                   details.headers,
+		ErrorCode:                 details.errorCode,
+		ErrorType:                 details.errorType,
+		TransportError:            transportError,
+		RequestSent:               attempt.RequestSent(),
+		ReplaySafe:                attempt.ReplaySafe,
+		ClientCanceled:            attempt.ClientCanceled(),
+		ClientTimedOut:            attempt.ClientTimedOut(),
+		ResponseStarted:           attempt.ResponseStarted(),
+		FirstValidContentTimedOut: firstValidContentTimedOut,
+		RequestError:              details.requestError,
+		ErrorSummary:              SanitizeAPIKeyErrorSummary(details.errorSummary),
 	}
 	if resetAt, ok := ParseAPIKeyUpstreamReset(details.headers, now); ok {
 		observation.UpstreamReset = &resetAt
@@ -805,6 +813,7 @@ func buildAPIKeyHTTPFailureObservation(ctx context.Context, account *Account, st
 		observation.ClientCanceled = attempt.ClientCanceled()
 		observation.ClientTimedOut = attempt.ClientTimedOut()
 		observation.ResponseStarted = attempt.ResponseStarted()
+		observation.FirstValidContentTimedOut = attempt.FirstValidContentTimedOut()
 	}
 	if resetAt, ok := ParseAPIKeyUpstreamReset(headers, now); ok {
 		observation.UpstreamReset = &resetAt

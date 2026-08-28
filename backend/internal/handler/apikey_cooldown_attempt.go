@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"time"
 
@@ -28,29 +29,46 @@ type apiKeyCooldownAttemptResponseWriter struct {
 	attempt *service.APIKeyCooldownAttempt
 }
 
-func (w *apiKeyCooldownAttemptResponseWriter) markStarted() {
+func (w *apiKeyCooldownAttemptResponseWriter) markStarted(data []byte) {
 	if w != nil && w.attempt != nil {
 		w.attempt.MarkResponseStarted()
+		if apiKeyResponseChunkHasValidContent(data) {
+			w.attempt.MarkValidContent()
+		}
 	}
 }
 
+func apiKeyResponseChunkHasValidContent(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return false
+	}
+	for _, line := range bytes.Split(trimmed, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) > 0 && !bytes.HasPrefix(line, []byte(":")) {
+			return true
+		}
+	}
+	return false
+}
+
 func (w *apiKeyCooldownAttemptResponseWriter) WriteHeader(code int) {
-	w.markStarted()
+	w.markStarted(nil)
 	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *apiKeyCooldownAttemptResponseWriter) Write(data []byte) (int, error) {
-	w.markStarted()
+	w.markStarted(data)
 	return w.ResponseWriter.Write(data)
 }
 
 func (w *apiKeyCooldownAttemptResponseWriter) WriteString(data string) (int, error) {
-	w.markStarted()
+	w.markStarted([]byte(data))
 	return w.ResponseWriter.WriteString(data)
 }
 
 func (w *apiKeyCooldownAttemptResponseWriter) Flush() {
-	w.markStarted()
+	w.markStarted(nil)
 	w.ResponseWriter.Flush()
 }
 

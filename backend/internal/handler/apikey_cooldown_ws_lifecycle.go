@@ -96,6 +96,9 @@ func (t *openAIWSCooldownTurnAttempts) finish(turn int, turnErr error) error {
 	if turnErr == nil {
 		return t.starter.ObserveAPIKeyAttemptSuccess(t.ctx, t.account, attempt, time.Now().UTC())
 	}
+	if service.IsAPIKeyFirstValidContentTimeout(turnErr) {
+		attempt.MarkFirstValidContentTimedOut()
+	}
 	_, err := t.starter.ObserveAPIKeyAttemptError(t.ctx, t.account, attempt, turnErr, time.Now().UTC())
 	return err
 }

@@ -529,14 +529,22 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 	if !stream {
 		return ctx, func() {}
 	}
-	return context.WithoutCancel(ctx), func() {}
+	base := context.WithoutCancel(ctx)
+	if attempt := APIKeyCooldownAttemptFromContext(base); attempt != nil {
+		return attempt.bindFirstValidContentContext(base, APIKeyFirstValidContentTimeout)
+	}
+	return base, func() {}
 }
 
 func detachUpstreamContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		return context.Background(), func() {}
 	}
-	return context.WithoutCancel(ctx), func() {}
+	base := context.WithoutCancel(ctx)
+	if attempt := APIKeyCooldownAttemptFromContext(base); attempt != nil {
+		return attempt.bindFirstValidContentContext(base, APIKeyFirstValidContentTimeout)
+	}
+	return base, func() {}
 }
 
 // billingDeps 扣费逻辑依赖的服务（由各 gateway service 提供）

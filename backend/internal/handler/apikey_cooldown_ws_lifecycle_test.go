@@ -61,10 +61,25 @@ func TestOpenAIWSCooldownTurnAttemptsAreIndependentAndTerminalOnce(t *testing.T)
 	require.False(t, fake.started[0].ResponseStarted())
 	require.False(t, fake.started[1].RequestSent())
 	require.True(t, fake.started[1].ResponseStarted())
+	require.False(t, fake.started[1].ValidContentStarted(), "仅收到 WebSocket 预备帧不能算作有效内容")
 
 	require.NoError(t, turns.finish(1, nil))
 	require.NoError(t, turns.finish(1, errors.New("late duplicate")))
 	require.NoError(t, turns.finish(2, errors.New("upstream reset")))
 	require.Equal(t, []string{"gpt-first"}, fake.success)
 	require.Equal(t, []string{"gpt-second"}, fake.failures)
+}
+
+func TestOpenAIWSCooldownTurnTimeoutMarksFirstValidContentFailure(t *testing.T) {
+	fake := &wsCooldownLifecycleObserverFake{}
+	turns := newOpenAIWSCooldownTurnAttempts(context.Background(), fake, &service.Account{ID: 43, Type: service.AccountTypeAPIKey})
+
+	blocked, err := turns.begin(1, "gpt-timeout")
+	require.NoError(t, err)
+	require.False(t, blocked)
+	turns.markRequestSent(1)
+	turns.markResponseStarted(1)
+
+	require.NoError(t, turns.finish(1, service.ErrAPIKeyFirstValidContentTimeout))
+	require.True(t, fake.started[0].FirstValidContentTimedOut())
 }

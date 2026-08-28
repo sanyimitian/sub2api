@@ -2626,7 +2626,9 @@ func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClien
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    1,
-			Credentials: map[string]any{"api_key": "sk-first", "base_url": firstUpstream.URL},
+			// 该用例验证池模式保留原有可配置的一秒首输出超时；非池 API Key
+			// 现由固定 29 秒首个有效内容期限覆盖，见冷却链路测试。
+			Credentials: map[string]any{"api_key": "sk-first", "base_url": firstUpstream.URL, "pool_mode": true},
 			Extra: map[string]any{
 				"openai_apikey_responses_websockets_v2_enabled": true,
 				"openai_apikey_responses_websockets_v2_mode":    service.OpenAIWSIngressModePassthrough,
@@ -2641,7 +2643,7 @@ func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClien
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    2,
-			Credentials: map[string]any{"api_key": "sk-second", "base_url": secondUpstream.URL},
+			Credentials: map[string]any{"api_key": "sk-second", "base_url": secondUpstream.URL, "pool_mode": true},
 			Extra: map[string]any{
 				"openai_apikey_responses_websockets_v2_enabled": true,
 				"openai_apikey_responses_websockets_v2_mode":    service.OpenAIWSIngressModePassthrough,

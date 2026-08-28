@@ -140,7 +140,9 @@ func passthroughLifecycleAccount() *Account {
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
-		Credentials: map[string]any{"api_key": "sk-test"},
+		// 生命周期测试覆盖的是池模式可配置首输出期限；非池 API Key 的
+		// 固定 29 秒首个有效内容期限由冷却专项测试覆盖。
+		Credentials: map[string]any{"api_key": "sk-test", "pool_mode": true},
 		Extra: map[string]any{
 			"openai_apikey_responses_websockets_v2_mode": OpenAIWSIngressModePassthrough,
 		},

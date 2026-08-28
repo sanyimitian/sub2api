@@ -43,7 +43,10 @@ func ClassifyAPIKeyFailure(observation APIKeyFailureObservation) APIKeyCooldownD
 }
 
 func isExcludedAPIKeyRequestFailure(observation APIKeyFailureObservation) bool {
-	if observation.RequestError || observation.ContentSafety || observation.ClientCanceled || observation.ClientTimedOut || observation.ResponseStarted {
+	if observation.RequestError || observation.ContentSafety || observation.ClientCanceled || observation.ClientTimedOut {
+		return true
+	}
+	if observation.ResponseStarted && !observation.FirstValidContentTimedOut {
 		return true
 	}
 	code := strings.ToLower(strings.TrimSpace(observation.ErrorCode))

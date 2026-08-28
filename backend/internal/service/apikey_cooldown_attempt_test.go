@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -75,6 +76,121 @@ func TestRateLimitServiceBeginAPIKeyCooldownAttemptCarriesTokenAndCompletesSucce
 	require.NoError(t, service.ObserveAPIKeyAttemptSuccess(ctx, account, attempt, event.Until.Add(2*time.Second)))
 	require.NoError(t, service.ObserveAPIKeyAttemptSuccess(ctx, account, attempt, event.Until.Add(3*time.Second)))
 	require.Equal(t, 1, store.resetCalls, "one upstream attempt must report one terminal result")
+}
+
+func TestAPIKeyCooldownAttemptFirstValidContentTimeoutCancelsBoundContext(t *testing.T) {
+	attempt := &APIKeyCooldownAttempt{ID: "attempt-timeout"}
+	ctx, release := attempt.bindFirstValidContentContext(context.Background(), 20*time.Millisecond)
+	defer release()
+
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("first valid content timeout did not cancel the bound context")
+	}
+
+	require.ErrorIs(t, context.Cause(ctx), ErrAPIKeyFirstValidContentTimeout)
+	require.True(t, attempt.FirstValidContentTimedOut())
+	require.False(t, attempt.ValidContentStarted())
+}
+
+func TestAPIKeyCooldownAttemptValidContentDisarmsTimeout(t *testing.T) {
+	attempt := &APIKeyCooldownAttempt{ID: "attempt-valid-content"}
+	ctx, release := attempt.bindFirstValidContentContext(context.Background(), 20*time.Millisecond)
+	defer release()
+
+	attempt.MarkValidContent()
+	time.Sleep(60 * time.Millisecond)
+
+	require.NoError(t, ctx.Err())
+	require.True(t, attempt.ValidContentStarted())
+	require.False(t, attempt.FirstValidContentTimedOut())
+}
+
+func TestAPIKeyCooldownAttemptSuccessDisarmsTimeout(t *testing.T) {
+	attempt := &APIKeyCooldownAttempt{ID: "attempt-success"}
+	ctx, release := attempt.bindFirstValidContentContext(context.Background(), 20*time.Millisecond)
+	defer release()
+
+	require.NoError(t, attempt.completeSuccess(nil))
+	time.Sleep(60 * time.Millisecond)
+
+	require.NoError(t, ctx.Err())
+	require.True(t, attempt.ValidContentStarted())
+	require.False(t, attempt.FirstValidContentTimedOut())
+}
+
+func TestDetachUpstreamContextPreservesFirstValidContentTimeout(t *testing.T) {
+	attempt := &APIKeyCooldownAttempt{ID: "attempt-detached"}
+	bound, releaseBound := attempt.bindFirstValidContentContext(
+		context.WithValue(context.Background(), apiKeyCooldownAttemptContextKey{}, attempt),
+		20*time.Millisecond,
+	)
+	defer releaseBound()
+	detached, releaseDetached := detachUpstreamContext(bound)
+	defer releaseDetached()
+
+	select {
+	case <-detached.Done():
+	case <-time.After(time.Second):
+		t.Fatal("detached upstream context escaped the attempt timeout")
+	}
+	require.ErrorIs(t, context.Cause(detached), ErrAPIKeyFirstValidContentTimeout)
+}
+
+func TestRateLimitServiceFirstValidContentTimeoutCoolsAccountAfterKeepalive(t *testing.T) {
+	now := time.Now().UTC()
+	account := &Account{ID: 320, Type: AccountTypeAPIKey, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true}
+	service := newAPIKeyCooldownRateLimitServiceWithStore(account, NewMemoryAPIKeyCooldownStore())
+	attempt, blocked, err := service.BeginAPIKeyCooldownAttempt(context.Background(), account, "gpt-5", true, now)
+	require.NoError(t, err)
+	require.False(t, blocked)
+	require.NotNil(t, attempt)
+	attempt.MarkRequestSent()
+	attempt.MarkResponseStarted()
+	bound, release := attempt.bindFirstValidContentContext(context.Background(), 20*time.Millisecond)
+	defer release()
+	<-bound.Done()
+
+	decision, err := service.ObserveAPIKeyAttemptError(bound, account, attempt, context.Cause(bound), time.Now().UTC())
+	require.NoError(t, err)
+	require.Equal(t, APIKeyCooldownDispositionCooldown, decision.Disposition)
+	require.Equal(t, APIKeyFailureTransientUpstream, decision.Family)
+	require.Equal(t, APIKeyCooldownScopeAccount, decision.Scope)
+	require.False(t, decision.SafeToReplay, "keepalive already committed downstream state")
+}
+
+func TestAPIKeyFirstValidContentTimeoutPropagatesAsReplayable504(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer upstream.Close()
+
+	attempt := &APIKeyCooldownAttempt{ID: "attempt-http-timeout"}
+	ctx, release := attempt.bindFirstValidContentContext(context.Background(), 20*time.Millisecond)
+	defer release()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstream.URL, nil)
+	require.NoError(t, err)
+	_, err = http.DefaultClient.Do(req)
+	require.Error(t, err)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusGatewayTimeout, failoverErr.StatusCode)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.Contains(t, string(failoverErr.ResponseBody), "first_valid_content_timeout")
+}
+
+func TestOpenAIWSPassthroughFirstOutputTimeoutUsesAPIKeyCooldownDeadline(t *testing.T) {
+	require.Equal(t, APIKeyFirstValidContentTimeout, openAIWSPassthroughFirstOutputTimeout(
+		&Account{Type: AccountTypeAPIKey}, 90*time.Second,
+	))
+	require.Equal(t, 90*time.Second, openAIWSPassthroughFirstOutputTimeout(
+		&Account{Type: AccountTypeOAuth}, 90*time.Second,
+	))
+	require.Equal(t, 90*time.Second, openAIWSPassthroughFirstOutputTimeout(
+		&Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"pool_mode": true}}, 90*time.Second,
+	))
 }
 
 func TestBuildAPIKeyHTTPFailureObservationUsesAttemptLifecycle(t *testing.T) {

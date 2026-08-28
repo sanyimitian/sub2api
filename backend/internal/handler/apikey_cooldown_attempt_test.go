@@ -33,7 +33,7 @@ func TestBeginHandlerAPIKeyCooldownAttemptAddsAttemptToContext(t *testing.T) {
 	require.Same(t, attempt, service.APIKeyCooldownAttemptFromContext(ctx))
 }
 
-func TestInstallAPIKeyCooldownAttemptWriterMarksAndRestoresWriter(t *testing.T) {
+func TestInstallAPIKeyCooldownAttemptWriterSeparatesResponseStartFromValidContent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -42,7 +42,21 @@ func TestInstallAPIKeyCooldownAttemptWriterMarksAndRestoresWriter(t *testing.T) 
 	restore := installAPIKeyCooldownAttemptWriter(c, attempt)
 
 	c.Writer.WriteHeader(200)
+	c.Writer.Flush()
 	require.True(t, attempt.ResponseStarted())
+	require.False(t, attempt.ValidContentStarted())
+
+	_, err := c.Writer.WriteString(": keepalive\n\n")
+	require.NoError(t, err)
+	require.False(t, attempt.ValidContentStarted())
+
+	_, err = c.Writer.Write([]byte("  \n\t"))
+	require.NoError(t, err)
+	require.False(t, attempt.ValidContentStarted())
+
+	_, err = c.Writer.WriteString("data: {\"type\":\"content_block_delta\"}\n\n")
+	require.NoError(t, err)
+	require.True(t, attempt.ValidContentStarted())
 	restore()
 	require.Same(t, original, c.Writer)
 }
