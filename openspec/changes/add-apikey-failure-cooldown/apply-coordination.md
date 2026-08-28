@@ -108,3 +108,13 @@ Status values are `pending`, `in_progress`, `completed`, `blocked`, or `failed`.
 - 完整验证：代理变量清除后，`go test ./...`、`go test -tags=unit ./...`、`go test -tags=integration ./...`、相关 `go test -race`、`go vet ./...`、`go build ./cmd/server`、`git diff --check` 与 `openspec validate add-apikey-failure-cooldown --strict` 均通过。
 - 静态检查：`golangci-lint run ./...` 未执行，因为环境没有该命令，且 Makefile 未提供替代入口；已以 `go vet ./...` 补充基础静态检查。
 - 本地快照：`add-apikey-failure-cooldown-apply-20260828151801`，工作树 `/home/pan/桌面/code/add-apikey-failure-cooldown-apply-20260828151801`，提交 `addd7cc2a`；二进制补丁为 `/home/pan/桌面/code/add-apikey-failure-cooldown-apply-20260828151801.patch`。该提交以原始 HEAD `b2215c9e80dab4902aba02414be8ec24e1b196f4` 为祖先，包含忽略的运维文档和原有未跟踪文件；源工作树保持未提交状态。
+
+## 2026-08-28 冷却持久化上下文修复增量
+
+- 原始分支与提交：`main`，`30b874d339273448d5da2c64256c2dad05ea1e9b`；起始工作区干净。
+- 实施前备份：分支 `add-apikey-failure-cooldown-pre-apply-backup-20260828182419`，工作树 `/home/pan/桌面/code/add-apikey-failure-cooldown-实施前备份-20260828182419`。
+- 变更原因：29 秒首个有效内容守卫取消当前上游请求后，失败观察仍使用已取消的请求上下文执行 Redis/数据库冷却持久化，导致 `context canceled` 丢失账号冷却状态。
+- 实现：统一协调器仅在分类确认需要冷却后，将操作上下文替换为 `context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)`；该上下文覆盖事件观察、账号/模型状态写入和持久化确认。手动取消及客户端自身超时在分类阶段仍直接忽略，不进入冷却链。
+- TDD：新增 `TestAPIKeyCooldownCoordinatorPersistsAfterAttemptContextCanceled`；修复前测试因 `context canceled` 持久化失败，修复后通过。
+- 允许修改文件：`backend/internal/service/apikey_cooldown_coordinator.go`、`backend/internal/service/apikey_cooldown_coordinator_test.go`、本协调记录。
+- 验证状态：目标测试、相关超时/取消测试、普通与 `unit` 标签后端全量测试、目标竞态检查、`go vet`、后端构建及 OpenSpec 严格校验均通过。普通全量测试首次受环境代理影响，仅阿里云验证码本地回环测试超时；清除代理变量后完整通过。规格核对确认：独立上下文仅在分类结果要求冷却后创建，因此客户端手动取消和客户端自身超时仍不进入冷却链；5 秒边界防止故障处理无限等待。待完成快照事务、提交和部署验证。

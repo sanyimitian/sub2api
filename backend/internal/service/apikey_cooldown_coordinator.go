@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const apiKeyCooldownOperationTimeout = 5 * time.Second
+
 // APIKeyCooldownSettingsProvider supplies the current validated runtime policy.
 // It is deliberately narrower than SettingService so the coordinator remains
 // easy to exercise with deterministic test providers.
@@ -56,6 +58,11 @@ func (c *APIKeyCooldownCoordinator) ObserveFailure(ctx context.Context, account 
 	if account.ID <= 0 {
 		return APIKeyCooldownDecision{Disposition: APIKeyCooldownDispositionIgnored}, nil
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), apiKeyCooldownOperationTimeout)
+	defer cancel()
 	now = now.UTC()
 	if previous, ok := c.attemptResult(account.ID, observation.AttemptID, now); ok {
 		return previous, nil

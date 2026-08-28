@@ -150,6 +150,59 @@ func TestAPIKeyCooldownCoordinatorFallsBackToFirstTierWhenStoreFails(t *testing.
 	}
 }
 
+type canceledContextRejectingRepo struct {
+	setTempCalls int
+	persisted    bool
+}
+
+func (r *canceledContextRejectingRepo) SetTempUnschedulable(ctx context.Context, _ int64, _ time.Time, _ string) error {
+	r.setTempCalls++
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.persisted = true
+	return nil
+}
+
+func (r *canceledContextRejectingRepo) SetModelRateLimit(ctx context.Context, _ int64, _ string, _ time.Time, _ ...string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func TestAPIKeyCooldownCoordinatorPersistsAfterAttemptContextCanceled(t *testing.T) {
+	now := time.Unix(12_500, 0).UTC()
+	account := &Account{ID: 115, Type: AccountTypeAPIKey, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true}
+	repo := &canceledContextRejectingRepo{}
+	store := NewMemoryAPIKeyCooldownStore()
+	coordinator := NewAPIKeyCooldownCoordinator(repo, store, newTestAPIKeyCooldownSettingService(t, DefaultAPIKeyFailureCooldownSettings()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	decision, err := coordinator.ObserveFailure(ctx, account, APIKeyFailureObservation{
+		AttemptID: "timed-out-attempt", AccountID: account.ID, AccountType: account.Type,
+		Platform: account.Platform, HTTPStatus: http.StatusGatewayTimeout,
+		TransportError: APIKeyTransportErrorReadTimeout, FirstValidContentTimedOut: true,
+		RequestSent: true,
+	}, now)
+	if err != nil {
+		t.Fatalf("ObserveFailure() error = %v", err)
+	}
+	if !decision.ShouldCooldown() || decision.Generation <= 0 {
+		t.Fatalf("timeout should create a cooldown decision: %+v", decision)
+	}
+	if repo.setTempCalls != 1 || !repo.persisted {
+		t.Fatalf("expected timeout cooldown to persist once with an active context, calls=%d persisted=%v", repo.setTempCalls, repo.persisted)
+	}
+	event, active, err := store.Check(context.Background(), APIKeyCooldownKey{
+		AccountID: account.ID, Family: APIKeyFailureTransientUpstream, Scope: APIKeyCooldownScopeAccount,
+	}, now.Add(time.Second))
+	if err != nil || !active || event.NeedsPersistence {
+		t.Fatalf("expected persisted shared cooldown event, active=%v event=%+v err=%v", active, event, err)
+	}
+}
+
 func TestAPIKeyCooldownCoordinatorSuccessUsesAttemptToken(t *testing.T) {
 	now := time.Unix(13_000, 0).UTC()
 	account := &Account{ID: 12, Type: AccountTypeAPIKey, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true}
