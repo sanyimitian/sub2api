@@ -990,9 +990,13 @@ func ProvideChannelMonitorService(
 	repo ChannelMonitorRepository,
 	encryptor SecretEncryptor,
 	settingService *SettingService,
+	cfg *config.Config,
 ) *ChannelMonitorService {
 	svc := NewChannelMonitorService(repo, encryptor)
 	svc.SetRuntimeReader(settingService)
+	if cfg != nil {
+		svc.SetProbeSigner(NewChannelMonitorProbeSigner(cfg.JWT.Secret))
+	}
 	return svc
 }
 

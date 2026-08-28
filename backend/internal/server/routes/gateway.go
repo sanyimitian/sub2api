@@ -33,6 +33,13 @@ func RegisterGatewayRoutes(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 ) {
+	probeMarker := middleware.ChannelMonitorProbeMarker(func() *service.ChannelMonitorProbeSigner {
+		if cfg == nil {
+			return nil
+		}
+		return service.NewChannelMonitorProbeSigner(cfg.JWT.Secret)
+	}())
+	r.Use(probeMarker)
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
 	clientRequestID := middleware.ClientRequestID()

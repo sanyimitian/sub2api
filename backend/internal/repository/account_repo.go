@@ -2629,6 +2629,51 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 	return nil
 }
 
+// UpdateChannelMonitorPriority serializes temporary priority changes on the
+// account row. The row lock makes the increase cap hold across processes,
+// while the outbox event keeps scheduler snapshots coherent.
+func (r *accountRepository) UpdateChannelMonitorPriority(ctx context.Context, id int64, durationSeconds int, now time.Time, cfg *service.ChannelMonitorCooldownSettings) (*service.Account, error) {
+	if r == nil || r.client == nil || id <= 0 {
+		return nil, service.ErrAccountNotFound
+	}
+	if cfg == nil {
+		cfg = service.DefaultChannelMonitorCooldownSettings()
+	}
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	txCtx := dbent.NewTxContext(ctx, tx)
+	row, err := tx.Client().Account.Query().Where(dbaccount.IDEQ(id)).ForUpdate().Only(txCtx)
+	if err != nil {
+		return nil, translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	account := accountEntityToService(row)
+	state := service.NextChannelMonitorPriorityState(service.ReadChannelMonitorPriorityState(account.Extra), durationSeconds, now.UTC(), cfg)
+	extra := copyJSONMap(account.Extra)
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	extra[service.ChannelMonitorPriorityExtraKey] = state
+	updated, err := tx.Client().Account.UpdateOneID(id).SetExtra(normalizeJSONMap(extra)).Save(txCtx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enqueueSchedulerOutbox(txCtx, tx, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	account.Extra = extra
+	account.UpdatedAt = updated.UpdatedAt
+	if r.schedulerCache != nil {
+		_ = r.schedulerCache.SetAccount(ctx, account)
+	}
+	return account, nil
+}
+
 // UpdateUpstreamBillingProbeSnapshot stores a probe result only while the
 // network identity used by that probe is still current.
 func (r *accountRepository) UpdateUpstreamBillingProbeSnapshot(

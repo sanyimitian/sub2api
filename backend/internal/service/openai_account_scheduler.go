@@ -626,7 +626,7 @@ func openAIAccountSchedulingPriority(account *Account) int {
 	if account == nil {
 		return 0
 	}
-	return account.Priority
+	return account.EffectivePriority()
 }
 
 func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int64, cfg openAIStickyEscapeConfig) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
@@ -689,8 +689,8 @@ func isOpenAIAccountCandidateBetter(left openAIAccountCandidateScore, right open
 	if left.score != right.score {
 		return left.score > right.score
 	}
-	if left.account.Priority != right.account.Priority {
-		return left.account.Priority < right.account.Priority
+	if left.account.EffectivePriority() != right.account.EffectivePriority() {
+		return left.account.EffectivePriority() < right.account.EffectivePriority()
 	}
 	if left.loadInfo.LoadRate != right.loadInfo.LoadRate {
 		return left.loadInfo.LoadRate < right.loadInfo.LoadRate
@@ -1125,8 +1125,8 @@ func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []open
 	ordered := append([]openAIAccountCandidateScore(nil), pool...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		a, b := ordered[i], ordered[j]
-		if a.account.Priority != b.account.Priority {
-			return a.account.Priority < b.account.Priority
+		if a.account.EffectivePriority() != b.account.EffectivePriority() {
+			return a.account.EffectivePriority() < b.account.EffectivePriority()
 		}
 		if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
 			return a.loadInfo.LoadRate < b.loadInfo.LoadRate
@@ -1763,6 +1763,14 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatible(ctx context.C
 // openAISelectionFilterStats so that "no available accounts" errors state why
 // each candidate was dropped instead of failing silently (#4599).
 func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx context.Context, account *Account, req OpenAIAccountScheduleRequest) (bool, string) {
+	if s != nil && s.service != nil && s.service.channelMonitorAccountCooling(ctx, func() int64 {
+		if account == nil {
+			return 0
+		}
+		return account.ID
+	}()) {
+		return false, "channel_monitor_cooling"
+	}
 	if account == nil {
 		return false, "account_nil"
 	}

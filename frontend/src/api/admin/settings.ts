@@ -1310,6 +1310,41 @@ export async function updateRateLimit429CooldownSettings(
   return data;
 }
 
+// ==================== Channel Monitor Cooldown Settings ====================
+
+export interface ChannelMonitorCooldownSettings {
+  version: number;
+  cooldown_minutes: number[];
+  slow_response_threshold_seconds: number;
+  priority_increment: number;
+  max_priority_increase: number;
+  priority_auto_recovery_seconds: number;
+}
+
+export const defaultChannelMonitorCooldownSettings = (): ChannelMonitorCooldownSettings => ({
+  version: 1,
+  cooldown_minutes: [2, 5, 30, 60, 120],
+  slow_response_threshold_seconds: 12,
+  priority_increment: 1,
+  max_priority_increase: 3,
+  priority_auto_recovery_seconds: 3600,
+});
+
+export async function getChannelMonitorCooldownSettings(): Promise<ChannelMonitorCooldownSettings> {
+  const { data } = await apiClient.get<ChannelMonitorCooldownSettings>("/admin/settings/channel-monitor-cooldown");
+  return data;
+}
+
+export async function updateChannelMonitorCooldownSettings(settings: ChannelMonitorCooldownSettings): Promise<ChannelMonitorCooldownSettings> {
+  const { data } = await apiClient.put<ChannelMonitorCooldownSettings>("/admin/settings/channel-monitor-cooldown", settings);
+  return data;
+}
+
+export async function resetChannelMonitorCooldownSettings(): Promise<ChannelMonitorCooldownSettings> {
+  const { data } = await apiClient.post<ChannelMonitorCooldownSettings>("/admin/settings/channel-monitor-cooldown/reset");
+  return data;
+}
+
 // ==================== Panel Rate Limit Settings ====================
 
 /**
@@ -1569,6 +1604,9 @@ export const settingsAPI = {
   updateOverloadCooldownSettings,
   getRateLimit429CooldownSettings,
   updateRateLimit429CooldownSettings,
+  getChannelMonitorCooldownSettings,
+  updateChannelMonitorCooldownSettings,
+  resetChannelMonitorCooldownSettings,
   getPanelRateLimitSettings,
   updatePanelRateLimitSettings,
   getStreamTimeoutSettings,

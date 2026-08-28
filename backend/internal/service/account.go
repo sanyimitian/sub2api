@@ -84,6 +84,16 @@ type Account struct {
 	headerOverrideCacheRawSig         uint64
 }
 
+// EffectivePriority includes the temporary channel-monitor adjustment stored
+// in Extra. Accounts without that state retain the exact baseline priority.
+func (a *Account) EffectivePriority() int {
+	if a == nil {
+		return 0
+	}
+	state := ReadChannelMonitorPriorityState(a.Extra)
+	return a.Priority + state.EffectiveBoost(time.Now().UTC())
+}
+
 type OpenAIEndpointCapability string
 
 const openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"

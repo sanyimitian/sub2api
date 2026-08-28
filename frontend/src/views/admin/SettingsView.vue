@@ -203,6 +203,35 @@
 
         <!-- Tab: Gateway -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
+          <!-- Channel Monitor Cooldown Settings -->
+          <div class="card" data-testid="channel-monitor-cooldown-settings">
+            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t("admin.settings.channelMonitorCooldown.title") }}</h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t("admin.settings.channelMonitorCooldown.description") }}</p>
+            </div>
+            <div class="space-y-4 p-6">
+              <div v-if="channelMonitorCooldownLoading" class="text-sm text-gray-500">{{ t("common.loading") }}</div>
+              <template v-else>
+                <div>
+                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.channelMonitorCooldown.ladder") }}</label>
+                  <div class="flex flex-wrap gap-2">
+                    <input v-for="(_, index) in channelMonitorCooldownForm.cooldown_minutes" :key="index" v-model.number="channelMonitorCooldownForm.cooldown_minutes[index]" type="number" min="1" class="input w-20" :data-testid="`channel-monitor-cooldown-step-${index}`" :aria-label="`${t('admin.settings.channelMonitorCooldown.ladder')} ${index + 1}`" />
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500">{{ t("admin.settings.channelMonitorCooldown.ladderHint") }}</p>
+                </div>
+                <div class="grid gap-4 sm:grid-cols-3">
+                  <label class="text-sm text-gray-700 dark:text-gray-300">{{ t("admin.settings.channelMonitorCooldown.slowThreshold") }}<input v-model.number="channelMonitorCooldownForm.slow_response_threshold_seconds" data-testid="channel-monitor-slow-threshold" type="number" min="1" class="input mt-1 w-full" /></label>
+                  <label class="text-sm text-gray-700 dark:text-gray-300">{{ t("admin.settings.channelMonitorCooldown.priorityIncrement") }}<input v-model.number="channelMonitorCooldownForm.priority_increment" data-testid="channel-monitor-priority-increment" type="number" min="1" class="input mt-1 w-full" /></label>
+                  <label class="text-sm text-gray-700 dark:text-gray-300">{{ t("admin.settings.channelMonitorCooldown.maxIncrease") }}<input v-model.number="channelMonitorCooldownForm.max_priority_increase" data-testid="channel-monitor-max-increase" type="number" min="1" class="input mt-1 w-full" /></label>
+                </div>
+                <label class="block text-sm text-gray-700 dark:text-gray-300">{{ t("admin.settings.channelMonitorCooldown.autoRecovery") }}<input v-model.number="channelMonitorCooldownForm.priority_auto_recovery_seconds" data-testid="channel-monitor-auto-recovery" type="number" min="60" class="input mt-1 w-40" /></label>
+                <div class="flex justify-end gap-2 border-t border-gray-100 pt-4 dark:border-dark-700">
+                  <button type="button" data-testid="channel-monitor-cooldown-reset" class="btn btn-secondary btn-sm" :disabled="channelMonitorCooldownSaving" @click="resetChannelMonitorCooldownSettings">{{ t("admin.settings.channelMonitorCooldown.reset") }}</button>
+                  <button type="button" data-testid="channel-monitor-cooldown-save" class="btn btn-primary btn-sm" :disabled="channelMonitorCooldownSaving" @click="saveChannelMonitorCooldownSettings">{{ channelMonitorCooldownSaving ? t("common.saving") : t("common.save") }}</button>
+                </div>
+              </template>
+            </div>
+          </div>
           <!-- Overload Cooldown (529) Settings -->
           <div class="card">
             <div
@@ -8765,6 +8794,7 @@ import type {
   WebSearchEmulationConfig,
   WebSearchProviderConfig,
   WebSearchTestResult,
+  ChannelMonitorCooldownSettings,
 } from "@/api/admin/settings";
 import type {
   AdminGroup,
@@ -8953,6 +8983,17 @@ const overloadCooldownSaving = ref(false);
 const overloadCooldownForm = reactive({
   enabled: true,
   cooldown_minutes: 10,
+});
+
+const channelMonitorCooldownLoading = ref(true);
+const channelMonitorCooldownSaving = ref(false);
+const channelMonitorCooldownForm = reactive<ChannelMonitorCooldownSettings>({
+  version: 1,
+  cooldown_minutes: [2, 5, 30, 60, 120],
+  slow_response_threshold_seconds: 12,
+  priority_increment: 1,
+  max_priority_increase: 3,
+  priority_auto_recovery_seconds: 3600,
 });
 
 // Rate Limit Cooldown (429) 状态
@@ -11787,6 +11828,33 @@ async function loadOverloadCooldownSettings() {
   }
 }
 
+async function loadChannelMonitorCooldownSettings() {
+  channelMonitorCooldownLoading.value = true;
+  try { Object.assign(channelMonitorCooldownForm, await adminAPI.settings.getChannelMonitorCooldownSettings()); }
+  catch (_error: unknown) { /* keep built-in defaults */ }
+  finally { channelMonitorCooldownLoading.value = false; }
+}
+
+function validChannelMonitorCooldownSettings(): boolean {
+  const ladder = channelMonitorCooldownForm.cooldown_minutes;
+  return ladder.length === 5 && ladder.every((v, i) => Number.isInteger(v) && v > 0 && (i === 0 || v > ladder[i - 1])) && Number.isInteger(channelMonitorCooldownForm.slow_response_threshold_seconds) && channelMonitorCooldownForm.slow_response_threshold_seconds > 0 && Number.isInteger(channelMonitorCooldownForm.priority_increment) && channelMonitorCooldownForm.priority_increment > 0 && Number.isInteger(channelMonitorCooldownForm.max_priority_increase) && channelMonitorCooldownForm.max_priority_increase > 0 && Number.isInteger(channelMonitorCooldownForm.priority_auto_recovery_seconds) && channelMonitorCooldownForm.priority_auto_recovery_seconds >= 60;
+}
+
+async function saveChannelMonitorCooldownSettings() {
+  if (!validChannelMonitorCooldownSettings()) { appStore.showError(t("admin.settings.channelMonitorCooldown.invalid")); return; }
+  channelMonitorCooldownSaving.value = true;
+  try { Object.assign(channelMonitorCooldownForm, await adminAPI.settings.updateChannelMonitorCooldownSettings({ ...channelMonitorCooldownForm })); appStore.showSuccess(t("admin.settings.channelMonitorCooldown.saved")); }
+  catch (error: unknown) { appStore.showError(extractApiErrorMessage(error, t("admin.settings.channelMonitorCooldown.saveFailed"))); }
+  finally { channelMonitorCooldownSaving.value = false; }
+}
+
+async function resetChannelMonitorCooldownSettings() {
+  channelMonitorCooldownSaving.value = true;
+  try { Object.assign(channelMonitorCooldownForm, await adminAPI.settings.resetChannelMonitorCooldownSettings()); appStore.showSuccess(t("admin.settings.channelMonitorCooldown.resetDone")); }
+  catch (error: unknown) { appStore.showError(extractApiErrorMessage(error, t("admin.settings.channelMonitorCooldown.saveFailed"))); }
+  finally { channelMonitorCooldownSaving.value = false; }
+}
+
 async function saveOverloadCooldownSettings() {
   overloadCooldownSaving.value = true;
   try {
@@ -12520,6 +12588,7 @@ onMounted(() => {
   loadUpstreamBillingProbeSettings();
   loadOllamaCloudUsageSettings();
   loadOverloadCooldownSettings();
+  loadChannelMonitorCooldownSettings();
   loadRateLimit429CooldownSettings();
   loadPanelRateLimitSettings();
   loadStreamTimeoutSettings();

@@ -50,6 +50,9 @@ type CheckOptions struct {
 	// BodyOverride 在 merge 模式下做浅合并（key 命中黑名单时静默丢弃），
 	// 在 replace 模式下直接当作完整 body。
 	BodyOverride map[string]any
+	// ProbeMarker is an internal signed marker for current-service probes.
+	// It is never accepted from user-configurable ExtraHeaders.
+	ProbeMarker string
 }
 
 // runCheckForModel 对单个 (provider, model) 做一次完整检测。
@@ -293,6 +296,12 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 		return "", "", 0, err
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
+	if opts != nil && strings.TrimSpace(opts.ProbeMarker) != "" {
+		if headers == nil {
+			headers = make(map[string]string)
+		}
+		headers[ChannelMonitorProbeHeader] = opts.ProbeMarker
+	}
 	full := joinURL(endpoint, adapter.buildPath(model))
 	respBytes, status, err := postRawJSON(ctx, full, body, headers)
 	if err != nil {

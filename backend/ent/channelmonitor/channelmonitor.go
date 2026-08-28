@@ -41,6 +41,8 @@ const (
 	FieldGroupName = "group_name"
 	// FieldEnabled holds the string denoting the enabled field in the database.
 	FieldEnabled = "enabled"
+	// FieldUseCurrentService holds the string denoting the use_current_service field in the database.
+	FieldUseCurrentService = "use_current_service"
 	// FieldIntervalSeconds holds the string denoting the interval_seconds field in the database.
 	FieldIntervalSeconds = "interval_seconds"
 	// FieldJitterSeconds holds the string denoting the jitter_seconds field in the database.
@@ -104,6 +106,7 @@ var Columns = []string{
 	FieldExtraModels,
 	FieldGroupName,
 	FieldEnabled,
+	FieldUseCurrentService,
 	FieldIntervalSeconds,
 	FieldJitterSeconds,
 	FieldLastCheckedAt,
@@ -155,6 +158,8 @@ var (
 	GroupNameValidator func(string) error
 	// DefaultEnabled holds the default value on creation for the "enabled" field.
 	DefaultEnabled bool
+	// DefaultUseCurrentService holds the default value on creation for the "use_current_service" field.
+	DefaultUseCurrentService bool
 	// IntervalSecondsValidator is a validator for the "interval_seconds" field. It is called by the builders before save.
 	IntervalSecondsValidator func(int) error
 	// DefaultJitterSeconds holds the default value on creation for the "jitter_seconds" field.
@@ -264,6 +269,11 @@ func ByGroupName(opts ...sql.OrderTermOption) OrderOption {
 // ByEnabled orders the results by the enabled field.
 func ByEnabled(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldEnabled, opts...).ToFunc()
+}
+
+// ByUseCurrentService orders the results by the use_current_service field.
+func ByUseCurrentService(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUseCurrentService, opts...).ToFunc()
 }
 
 // ByIntervalSeconds orders the results by the interval_seconds field.

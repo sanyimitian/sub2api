@@ -484,6 +484,41 @@ type OpenAIGatewayService struct {
 	// 剥离跨账号回带（openai_codex_turn_state.go）。
 	openaiCodexTurnStateOrigins sync.Map
 	openaiCodexTurnStateWrites  atomic.Uint64
+	channelMonitorCooldown      ChannelMonitorCooldownStore
+	channelMonitorObserver      *ChannelMonitorProbeObserver
+}
+
+// SetChannelMonitorCooldownStore installs the shared account cooldown guard.
+func (s *OpenAIGatewayService) SetChannelMonitorCooldownStore(store ChannelMonitorCooldownStore) {
+	if s != nil {
+		s.channelMonitorCooldown = store
+	}
+}
+func (s *OpenAIGatewayService) SetChannelMonitorProbeObserver(observer *ChannelMonitorProbeObserver) {
+	if s != nil {
+		s.channelMonitorObserver = observer
+	}
+}
+func (s *OpenAIGatewayService) BeginChannelMonitorProbe(ctx context.Context, account *Account, started time.Time) *ChannelMonitorProbeAttempt {
+	if s == nil || s.channelMonitorObserver == nil {
+		return nil
+	}
+	return s.channelMonitorObserver.Begin(ctx, account, started)
+}
+func (s *OpenAIGatewayService) FinishChannelMonitorProbe(ctx context.Context, attempt *ChannelMonitorProbeAttempt, outcome ChannelMonitorProbeOutcome) {
+	if s != nil && s.channelMonitorObserver != nil {
+		s.channelMonitorObserver.Finish(ctx, attempt, outcome)
+	}
+}
+func (s *OpenAIGatewayService) channelMonitorAccountCooling(ctx context.Context, accountID int64) bool {
+	if s == nil || s.channelMonitorCooldown == nil || accountID <= 0 {
+		return false
+	}
+	if _, ok := ChannelMonitorProbeFromContext(ctx); !ok {
+		return false
+	}
+	cooling, err := s.channelMonitorCooldown.IsCooling(ctx, accountID, time.Now().UTC())
+	return err == nil && cooling
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService

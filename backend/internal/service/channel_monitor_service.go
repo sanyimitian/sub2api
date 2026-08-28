@@ -82,6 +82,7 @@ type ChannelMonitorService struct {
 	// 之后构造，构造参数注入会破坏既有依赖顺序）。nil 时 fail-closed：
 	// 配额模式的检测产出「未配置」错误快照，Create/Update 关联账号直接报错。
 	quotaFetcher *ChannelMonitorQuotaFetcher
+	probeSigner  *ChannelMonitorProbeSigner
 }
 
 const maxChannelMonitorNameRunes = 100
@@ -95,6 +96,14 @@ const ChannelMonitorDuplicateOperationIDMetadataKey = "sub2api:duplicate_operati
 // NewChannelMonitorService 创建渠道监控服务实例。
 func NewChannelMonitorService(repo ChannelMonitorRepository, encryptor SecretEncryptor) *ChannelMonitorService {
 	return &ChannelMonitorService{repo: repo, encryptor: encryptor}
+}
+
+// SetProbeSigner enables trusted markers for monitors explicitly configured to
+// use the current service. A nil signer keeps probes external-only.
+func (s *ChannelMonitorService) SetProbeSigner(signer *ChannelMonitorProbeSigner) {
+	if s != nil {
+		s.probeSigner = signer
+	}
 }
 
 // SetRuntimeReader injects the settings reader used to gate active probes.
@@ -164,24 +173,25 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		return nil, fmt.Errorf("encrypt api key: %w", err)
 	}
 	m := &ChannelMonitor{
-		Name:             strings.TrimSpace(p.Name),
-		Provider:         p.Provider,
-		APIMode:          defaultAPIMode(p.APIMode),
-		Endpoint:         normalizeEndpoint(p.Endpoint),
-		APIKey:           encrypted, // 注意：传入 repository 时该字段为密文
-		PrimaryModel:     normalizeMonitorPrimaryModel(p.Provider, checkMode, p.PrimaryModel),
-		ExtraModels:      normalizeModels(p.ExtraModels),
-		GroupName:        strings.TrimSpace(p.GroupName),
-		Enabled:          p.Enabled,
-		IntervalSeconds:  p.IntervalSeconds,
-		JitterSeconds:    p.JitterSeconds,
-		CreatedBy:        p.CreatedBy,
-		TemplateID:       p.TemplateID,
-		ExtraHeaders:     emptyHeadersIfNil(p.ExtraHeaders),
-		BodyOverrideMode: defaultBodyMode(p.BodyOverrideMode),
-		BodyOverride:     p.BodyOverride,
-		CheckMode:        checkMode,
-		AccountID:        cloneInt64Pointer(p.AccountID),
+		Name:              strings.TrimSpace(p.Name),
+		Provider:          p.Provider,
+		APIMode:           defaultAPIMode(p.APIMode),
+		Endpoint:          normalizeEndpoint(p.Endpoint),
+		APIKey:            encrypted, // 注意：传入 repository 时该字段为密文
+		PrimaryModel:      normalizeMonitorPrimaryModel(p.Provider, checkMode, p.PrimaryModel),
+		ExtraModels:       normalizeModels(p.ExtraModels),
+		GroupName:         strings.TrimSpace(p.GroupName),
+		Enabled:           p.Enabled,
+		UseCurrentService: p.UseCurrentService,
+		IntervalSeconds:   p.IntervalSeconds,
+		JitterSeconds:     p.JitterSeconds,
+		CreatedBy:         p.CreatedBy,
+		TemplateID:        p.TemplateID,
+		ExtraHeaders:      emptyHeadersIfNil(p.ExtraHeaders),
+		BodyOverrideMode:  defaultBodyMode(p.BodyOverrideMode),
+		BodyOverride:      p.BodyOverride,
+		CheckMode:         checkMode,
+		AccountID:         cloneInt64Pointer(p.AccountID),
 	}
 	if err := s.repo.Create(ctx, m); err != nil {
 		return nil, fmt.Errorf("create channel monitor: %w", err)
@@ -240,6 +250,7 @@ func (s *ChannelMonitorService) Duplicate(
 		ExtraModels:          append([]string{}, source.ExtraModels...),
 		GroupName:            source.GroupName,
 		Enabled:              false,
+		UseCurrentService:    source.UseCurrentService,
 		IntervalSeconds:      source.IntervalSeconds,
 		JitterSeconds:        source.JitterSeconds,
 		CreatedBy:            createdBy,
@@ -709,13 +720,25 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 		BodyOverrideMode: m.BodyOverrideMode,
 		BodyOverride:     m.BodyOverride,
 	}
+	if m.UseCurrentService && s.probeSigner != nil {
+		// Each model receives an independent request marker, allowing the gateway
+		// observer to correlate account attempts without sharing terminal state.
+		opts = cloneCheckOptions(opts)
+	}
 
 	var eg errgroup.Group
 	var mu sync.Mutex
 	for i, model := range models {
 		i, model := i, model
 		eg.Go(func() error {
-			r := runCheckForModel(ctx, m.Provider, m.Endpoint, m.APIKey, model, opts)
+			modelOpts := opts
+			if m.UseCurrentService && s.probeSigner != nil {
+				modelOpts = cloneCheckOptions(opts)
+				if marker, err := s.probeSigner.Sign(m.ID, fmt.Sprintf("%d-%d", m.ID, time.Now().UnixNano()), time.Now().UTC()); err == nil {
+					modelOpts.ProbeMarker = marker
+				}
+			}
+			r := runCheckForModel(ctx, m.Provider, m.Endpoint, m.APIKey, model, modelOpts)
 			r.PingLatencyMs = pingMs
 			mu.Lock()
 			results[i] = r
@@ -725,6 +748,26 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 	}
 	_ = eg.Wait()
 	return results
+}
+
+func cloneCheckOptions(opts *CheckOptions) *CheckOptions {
+	if opts == nil {
+		return &CheckOptions{}
+	}
+	clone := *opts
+	if opts.ExtraHeaders != nil {
+		clone.ExtraHeaders = make(map[string]string, len(opts.ExtraHeaders))
+		for k, v := range opts.ExtraHeaders {
+			clone.ExtraHeaders[k] = v
+		}
+	}
+	if opts.BodyOverride != nil {
+		clone.BodyOverride = make(map[string]any, len(opts.BodyOverride))
+		for k, v := range opts.BodyOverride {
+			clone.BodyOverride[k] = v
+		}
+	}
+	return &clone
 }
 
 // ---------- 调度器协作 ----------
@@ -923,6 +966,11 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 			}
 		}
 		existing.Endpoint = normalizeEndpoint(*p.Endpoint)
+		// 仅显式提交 use_current_service=true 才能保留能力；手工改地址
+		// 默认清除开关，避免通过相同域名或反向代理地址误启用。
+		if p.UseCurrentService == nil {
+			existing.UseCurrentService = false
+		}
 	}
 	// 模式与字段的组合校验（provider/check_mode/account_id/endpoint 全部应用后）。
 	if err := validateMonitorModeFields(existing); err != nil {
@@ -945,6 +993,9 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 	}
 	if p.Enabled != nil {
 		existing.Enabled = *p.Enabled
+	}
+	if p.UseCurrentService != nil {
+		existing.UseCurrentService = *p.UseCurrentService
 	}
 	if p.IntervalSeconds != nil {
 		if err := validateInterval(*p.IntervalSeconds); err != nil {

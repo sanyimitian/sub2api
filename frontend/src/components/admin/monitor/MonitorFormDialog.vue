@@ -99,8 +99,14 @@
       <div v-if="usesProbePart">
         <label class="input-label">{{ t('admin.channelMonitor.form.endpoint') }} <span class="text-red-500">*</span></label>
         <div class="flex gap-2">
-          <input v-model="form.endpoint" data-testid="monitor-endpoint" type="text" required class="input flex-1" :placeholder="t('admin.channelMonitor.form.endpointPlaceholder')" />
-          <button type="button" @click="useCurrentDomain" class="btn btn-secondary whitespace-nowrap">
+          <input v-model="form.endpoint" data-testid="monitor-endpoint" type="text" required class="input flex-1" :placeholder="t('admin.channelMonitor.form.endpointPlaceholder')" @input="onEndpointInput" />
+          <button
+            type="button"
+            data-testid="monitor-use-current-service"
+            :aria-pressed="form.use_current_service"
+            @click="useCurrentDomain"
+            class="btn btn-secondary whitespace-nowrap"
+          >
             {{ t('admin.channelMonitor.form.useCurrentDomain') }}
           </button>
         </div>
@@ -328,6 +334,7 @@ interface MonitorForm {
   interval_seconds: number
   jitter_seconds: number
   enabled: boolean
+  use_current_service: boolean
   // 高级设置快照
   template_id: number | null
   extra_headers: Record<string, string>
@@ -349,6 +356,7 @@ const form = reactive<MonitorForm>({
   interval_seconds: systemDefaultInterval.value,
   jitter_seconds: 0,
   enabled: true,
+  use_current_service: false,
   template_id: null,
   extra_headers: {},
   body_override_mode: 'off',
@@ -732,6 +740,7 @@ function resetForm() {
   form.interval_seconds = systemDefaultInterval.value
   form.jitter_seconds = 0
   form.enabled = true
+  form.use_current_service = false
   form.template_id = null
   form.extra_headers = {}
   form.body_override_mode = 'off'
@@ -754,6 +763,7 @@ function loadFromMonitor(m: ChannelMonitor) {
   form.interval_seconds = m.interval_seconds || systemDefaultInterval.value
   form.jitter_seconds = m.jitter_seconds || 0
   form.enabled = m.enabled
+  form.use_current_service = !!m.use_current_service
   form.template_id = m.template_id ?? null
   form.extra_headers = { ...(m.extra_headers || {}) }
   form.body_override_mode = m.body_override_mode || 'off'
@@ -776,6 +786,13 @@ watch(
 
 function useCurrentDomain() {
   form.endpoint = window.location.origin
+  form.use_current_service = true
+}
+
+function onEndpointInput() {
+  // Any manual endpoint edit requires an explicit click again before this
+  // monitor can enter the current-service cooldown path.
+  form.use_current_service = false
 }
 
 async function openMyKeyPicker() {
@@ -820,6 +837,7 @@ function buildPayload(): CreateParams {
     extra_models: usesProbePart.value ? form.extra_models : [],
     group_name: form.group_name.trim(),
     enabled: form.enabled,
+    use_current_service: form.use_current_service,
     interval_seconds: form.interval_seconds,
     jitter_seconds: form.jitter_seconds || 0,
     template_id: usesProbePart.value ? form.template_id : null,
