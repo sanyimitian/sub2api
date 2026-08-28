@@ -121,6 +121,28 @@ func TestAPIKeyCooldownAttemptSuccessDisarmsTimeout(t *testing.T) {
 	require.False(t, attempt.FirstValidContentTimedOut())
 }
 
+func TestDetachUpstreamContextDoesNotCancelAlreadyBoundAttempt(t *testing.T) {
+	attempt := &APIKeyCooldownAttempt{ID: "attempt-already-bound"}
+	clientCtx, cancelClient := context.WithCancel(context.Background())
+	bound := ContextWithAPIKeyCooldownAttempt(clientCtx, attempt)
+	detached, release := detachUpstreamContext(bound)
+	release()
+	cancelClient()
+
+	select {
+	case <-detached.Done():
+		t.Fatal("releasing the request-build context canceled an active attempt")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	attempt.MarkValidContent()
+	select {
+	case <-detached.Done():
+		t.Fatal("valid content should disarm the guard without canceling the request")
+	default:
+	}
+}
+
 func TestDetachUpstreamContextPreservesFirstValidContentTimeout(t *testing.T) {
 	attempt := &APIKeyCooldownAttempt{ID: "attempt-detached"}
 	bound, releaseBound := attempt.bindFirstValidContentContext(

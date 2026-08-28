@@ -529,6 +529,9 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 	if !stream {
 		return ctx, func() {}
 	}
+	if _, alreadyBound := ctx.Value(apiKeyCooldownAttemptBoundContextKey{}).(bool); alreadyBound {
+		return ctx, func() {}
+	}
 	base := context.WithoutCancel(ctx)
 	if attempt := APIKeyCooldownAttemptFromContext(base); attempt != nil {
 		return attempt.bindFirstValidContentContext(base, APIKeyFirstValidContentTimeout)
@@ -539,6 +542,9 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 func detachUpstreamContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		return context.Background(), func() {}
+	}
+	if _, alreadyBound := ctx.Value(apiKeyCooldownAttemptBoundContextKey{}).(bool); alreadyBound {
+		return ctx, func() {}
 	}
 	base := context.WithoutCancel(ctx)
 	if attempt := APIKeyCooldownAttemptFromContext(base); attempt != nil {

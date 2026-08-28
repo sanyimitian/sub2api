@@ -209,6 +209,11 @@ func (a *APIKeyCooldownAttempt) completeFailure(observe func() (APIKeyCooldownDe
 
 type apiKeyCooldownAttemptContextKey struct{}
 
+// apiKeyCooldownAttemptBoundContextKey marks contexts that already own the
+// attempt's first-valid-content guard. Detaching such a context must not bind
+// a second guard whose release would cancel the request before dispatch.
+type apiKeyCooldownAttemptBoundContextKey struct{}
+
 func ContextWithAPIKeyCooldownAttempt(ctx context.Context, attempt *APIKeyCooldownAttempt) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -217,8 +222,11 @@ func ContextWithAPIKeyCooldownAttempt(ctx context.Context, attempt *APIKeyCooldo
 		return ctx
 	}
 	ctx = context.WithValue(ctx, apiKeyCooldownAttemptContextKey{}, attempt)
-	ctx, _ = attempt.bindFirstValidContentContext(ctx, APIKeyFirstValidContentTimeout)
-	return ctx
+	// The attempt guard must outlive a client disconnect, while the attempt
+	// retains the original client context for cancellation classification.
+	guardBase := context.WithoutCancel(ctx)
+	guardCtx, _ := attempt.bindFirstValidContentContext(guardBase, APIKeyFirstValidContentTimeout)
+	return context.WithValue(guardCtx, apiKeyCooldownAttemptBoundContextKey{}, true)
 }
 
 func APIKeyCooldownAttemptFromContext(ctx context.Context) *APIKeyCooldownAttempt {
