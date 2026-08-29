@@ -69,6 +69,13 @@
 
 ## 服务器部署验证
 
+### 监控超时与网关终态一致性修复（2026-08-29）
+
+- 现象：监控客户端在等待响应头超时后已记录失败，但网关转发请求仍可能继续执行数分钟；若最终返回成功，probe observer 只看到成功终态，账号不会进入冷却链。
+- 修复：有效的 `ChannelMonitorProbe` 在网关中间件消费时派生与监控请求总超时一致的 45 秒 deadline；保留更早的调用方 deadline，并在请求完成后释放超时定时器。普通、伪造和过期标记不设置该 deadline。
+- 回归测试：`TestChannelMonitorProbeMarkerAddsRequestTimeout` 先在旧实现下失败，修复后通过；受影响包 `go test ./internal/service ./internal/server/middleware ./internal/handler/...` 通过。
+- 规格核对：监控 probe 的失败终态在客户端超时周期内可达 observer，普通 API Key、OAuth、Setup Token、号池及非当前服务请求仍旁路。
+
 ### 管理端状态投影修复
 
 - 发现渠道监控冷却仅存在 Redis 账号级状态，管理端账号 DTO 仍只读取数据库 `temp_unschedulable_*` 字段，导致实际被调度器过滤的账号显示为“正常”。

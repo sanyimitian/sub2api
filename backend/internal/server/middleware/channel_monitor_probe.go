@@ -15,6 +15,7 @@ func ChannelMonitorProbeMarker(signer *service.ChannelMonitorProbeSigner) gin.Ha
 			return
 		}
 		ctx, _ := service.ConsumeChannelMonitorProbeMarker(c.Request.Context(), c.Request, signer, time.Now().UTC())
+		defer service.CancelChannelMonitorProbe(ctx)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}

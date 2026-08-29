@@ -52,3 +52,27 @@ func TestChannelMonitorProbeMiddlewareInjectsContextAndRemovesHeader(t *testing.
 	require.True(t, ok)
 	require.Equal(t, int64(7), probe.MonitorID)
 }
+
+func TestChannelMonitorProbeMarkerAddsRequestTimeout(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	signer := NewChannelMonitorProbeSigner("test-secret")
+	marker, err := signer.Sign(7, "req-timeout", now)
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.test", nil)
+	require.NoError(t, err)
+	req.Header.Set(ChannelMonitorProbeHeader, marker)
+	ctx, ok := ConsumeChannelMonitorProbeMarker(req.Context(), req, signer, now)
+	require.True(t, ok)
+
+	deadline, hasDeadline := ctx.Deadline()
+	require.True(t, hasDeadline)
+	require.Equal(t, now.Add(monitorRequestTimeout), deadline)
+
+	ordinaryReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.test", nil)
+	require.NoError(t, err)
+	ordinaryCtx, ok := ConsumeChannelMonitorProbeMarker(ordinaryReq.Context(), ordinaryReq, signer, now)
+	require.False(t, ok)
+	_, hasDeadline = ordinaryCtx.Deadline()
+	require.False(t, hasDeadline)
+}

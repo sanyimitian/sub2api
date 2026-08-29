@@ -42,6 +42,7 @@ type ChannelMonitorProbe struct {
 }
 
 type channelMonitorProbeContextKey struct{}
+type channelMonitorProbeCancelKey struct{}
 
 // ChannelMonitorProbeSigner signs and verifies internal probe markers. The
 // key should be the deployment's existing JWT/security secret and must be
@@ -157,6 +158,17 @@ func ChannelMonitorProbeFromContext(ctx context.Context) (ChannelMonitorProbe, b
 	return probe, ok && probe.MonitorID > 0 && strings.TrimSpace(probe.RequestID) != ""
 }
 
+// CancelChannelMonitorProbe releases the request-timeout timer installed for
+// a valid probe. It is safe to call for ordinary requests or more than once.
+func CancelChannelMonitorProbe(ctx context.Context) {
+	if ctx == nil {
+		return
+	}
+	if cancel, ok := ctx.Value(channelMonitorProbeCancelKey{}).(context.CancelFunc); ok && cancel != nil {
+		cancel()
+	}
+}
+
 // ConsumeChannelMonitorProbeMarker verifies and consumes the marker from an
 // inbound request. Header removal happens before verification so forged or
 // expired values cannot leak to downstream providers either.
@@ -173,5 +185,16 @@ func ConsumeChannelMonitorProbeMarker(ctx context.Context, req *http.Request, si
 	if !ok {
 		return ctx, false
 	}
-	return WithChannelMonitorProbe(ctx, probe), true
+	ctx = WithChannelMonitorProbe(ctx, probe)
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	// Keep the gateway's upstream attempt within the same total timeout as the
+	// monitor client. An earlier caller deadline remains authoritative.
+	deadline := now.UTC().Add(monitorRequestTimeout)
+	if existing, hasDeadline := ctx.Deadline(); hasDeadline && !existing.After(deadline) {
+		return ctx, true
+	}
+	timeoutCtx, cancel := context.WithDeadline(ctx, deadline)
+	return context.WithValue(timeoutCtx, channelMonitorProbeCancelKey{}, cancel), true
 }
