@@ -75,13 +75,28 @@ func TestChannelMonitorProbeObserverIgnoresOrdinaryAndCanceledRequests(t *testin
 	})
 	attempt := observer.Begin(context.Background(), &Account{ID: 12, Type: AccountTypeAPIKey}, time.Now())
 	require.Nil(t, attempt)
-	ctx := WithChannelMonitorProbe(context.Background(), ChannelMonitorProbe{MonitorID: 1, RequestID: "r"})
-	attempt = observer.Begin(ctx, &Account{ID: 12, Type: AccountTypeAPIKey}, time.Now())
-	require.NotNil(t, attempt)
-	observer.Finish(ctx, attempt, ChannelMonitorProbeOutcome{Err: context.Canceled})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// Ordinary requests never produce a probe attempt, so cancellation is a
+	// no-op and cannot create a cooldown event.
+	observer.Finish(ctx, nil, ChannelMonitorProbeOutcome{Err: context.Canceled})
 	active, err := store.IsCooling(context.Background(), 12, time.Now())
 	require.NoError(t, err)
 	require.False(t, active)
+}
+
+func TestChannelMonitorProbeObserverRecordsProbeClientCancellation(t *testing.T) {
+	store := NewMemoryChannelMonitorCooldownStore()
+	observer := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {
+		return DefaultChannelMonitorCooldownSettings(), nil
+	})
+	ctx := WithChannelMonitorProbe(context.Background(), ChannelMonitorProbe{MonitorID: 1, RequestID: "probe-cancel"})
+	attempt := observer.Begin(ctx, &Account{ID: 13, Type: AccountTypeAPIKey}, time.Now())
+	require.NotNil(t, attempt)
+	observer.Finish(ctx, attempt, ChannelMonitorProbeOutcome{Err: context.Canceled})
+	active, err := store.IsCooling(context.Background(), 13, time.Now())
+	require.NoError(t, err)
+	require.True(t, active)
 }
 
 func TestChannelMonitorProbeObserverRecordsOnlyOneTerminalOutcome(t *testing.T) {

@@ -324,7 +324,12 @@ func (o *ChannelMonitorProbeObserver) Finish(ctx context.Context, attempt *Chann
 		return
 	}
 	attempt.terminal.Do(func() {
-		if errors.Is(outcome.Err, context.Canceled) || (ctx != nil && errors.Is(ctx.Err(), context.Canceled)) {
+		// A valid monitor probe is an internal health check. Its HTTP client
+		// may cancel the server request when the response-header timeout fires;
+		// that cancellation is the probe's failure signal and must enter the
+		// cooldown chain. Ordinary user-request cancellation still bypasses it.
+		_, isProbe := ChannelMonitorProbeFromContext(ctx)
+		if !isProbe && (errors.Is(outcome.Err, context.Canceled) || (ctx != nil && errors.Is(ctx.Err(), context.Canceled))) {
 			return
 		}
 		cfg, _ := o.settings(ctx)
