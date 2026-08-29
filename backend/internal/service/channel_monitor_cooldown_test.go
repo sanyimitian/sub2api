@@ -99,6 +99,21 @@ func TestChannelMonitorProbeObserverRecordsProbeClientCancellation(t *testing.T)
 	require.True(t, active)
 }
 
+func TestChannelMonitorProbeObserverLateSuccessAfterCancellationRecordsFailure(t *testing.T) {
+	store := NewMemoryChannelMonitorCooldownStore()
+	observer := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {
+		return DefaultChannelMonitorCooldownSettings(), nil
+	})
+	ctx, cancel := context.WithCancel(WithChannelMonitorProbe(context.Background(), ChannelMonitorProbe{MonitorID: 1, RequestID: "late-success"}))
+	attempt := observer.Begin(ctx, &Account{ID: 14, Type: AccountTypeAPIKey}, time.Now())
+	require.NotNil(t, attempt)
+	cancel()
+	observer.Finish(ctx, attempt, ChannelMonitorProbeOutcome{})
+	active, err := store.IsCooling(context.Background(), 14, time.Now())
+	require.NoError(t, err)
+	require.True(t, active)
+}
+
 func TestChannelMonitorProbeObserverRecordsOnlyOneTerminalOutcome(t *testing.T) {
 	store := NewMemoryChannelMonitorCooldownStore()
 	observer := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {

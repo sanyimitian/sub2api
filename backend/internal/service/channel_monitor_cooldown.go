@@ -332,6 +332,13 @@ func (o *ChannelMonitorProbeObserver) Finish(ctx context.Context, attempt *Chann
 		if !isProbe && (errors.Is(outcome.Err, context.Canceled) || (ctx != nil && errors.Is(ctx.Err(), context.Canceled))) {
 			return
 		}
+		// The upstream may ignore the canceled request context and return a
+		// late success after the monitor client has already timed out. Preserve
+		// the monitor's observed failure instead of allowing that late success
+		// to clear or skip the cooldown event.
+		if isProbe && outcome.Err == nil && ctx != nil && ctx.Err() != nil {
+			outcome.Err = ctx.Err()
+		}
 		cfg, _ := o.settings(ctx)
 		if cfg == nil {
 			cfg = DefaultChannelMonitorCooldownSettings()
