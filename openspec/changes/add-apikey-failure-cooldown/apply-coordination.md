@@ -90,3 +90,11 @@
 - 恢复原数据挂载后重新连续监测 10 分钟，每分钟检查一次，共 10 次。健康接口、仪表盘快照、用户趋势、用户排行接口每次均返回 HTTP 200。
 - 10 次检查中应用、PostgreSQL、Redis 始终为 `running/healthy`；原库历史用量从 4759 条增长至 4786 条，证明读写持续正常。
 - 监测窗口内未发现 panic、fatal、数据库、迁移、字段或数据表缺失等严重日志。监测使用的临时登录会话已撤销，临时响应文件已清理。
+
+### 本次重新部署验证（2026-08-29）
+
+- 首次构建因服务器 Node 默认堆上限 1536 MiB 触发内存溢出；未执行重启，既有服务持续运行。
+- 临时将服务器构建阶段 Node 堆上限提高到 4096 MiB 后构建成功，随后仅重建 `sub2api` 应用容器；PostgreSQL、Redis 目录挂载和数据均未变更。
+- `ai777-0.06`（ID 29）数据库字段仍为 `schedulable=true` 且 `temp_unschedulable_until=NULL`；Redis 冷却状态为第 5 档，管理端列表投影为 `temp_unschedulable_reason=channel_monitor_cooldown`，详情接口返回 `active=true`。
+- 连续 10 分钟每分钟检查一次：健康接口 10/10 返回 HTTP 200，应用、PostgreSQL、Redis 始终 `running/healthy`，严重日志计数均为 0，冷却 TTL 正常递减。
+- 临时构建修改已恢复，服务器 Git 工作区保持干净。
