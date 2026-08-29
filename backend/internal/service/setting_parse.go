@@ -52,6 +52,10 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("marshal default forwarded client IP headers: %w", err)
 	}
+	channelMonitorCooldownDefaultsJSON, err := json.Marshal(DefaultChannelMonitorCooldownSettings())
+	if err != nil {
+		return fmt.Errorf("marshal default channel monitor cooldown settings: %w", err)
+	}
 
 	// 初始化默认设置
 	defaults := map[string]string{
@@ -191,6 +195,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyChannelMonitorDefaultIntervalSeconds: "60",
 		SettingKeyChannelMonitorHideThroughput:         "true",
 		SettingKeyChannelMonitorShowQuota:              "false",
+		SettingKeyChannelMonitorCooldownSettings:       string(channelMonitorCooldownDefaultsJSON),
 
 		// Grok: safe defaults — no cross-vendor model rewrite unless operators enable it.
 		SettingKeyGrokDefaultTextModel:           "grok-4.6",

@@ -64,6 +64,7 @@ type AccountHandler struct {
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
+	channelMonitorCooldown  service.ChannelMonitorCooldownStore
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -73,6 +74,14 @@ func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamB
 
 func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUsageService) {
 	h.ollamaCloudUsage = usage
+}
+
+// SetChannelMonitorCooldownStore attaches the shared monitor cooldown view used
+// to project temporary scheduling status in the admin account response.
+func (h *AccountHandler) SetChannelMonitorCooldownStore(store service.ChannelMonitorCooldownStore) {
+	if h != nil {
+		h.channelMonitorCooldown = store
+	}
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -217,6 +226,19 @@ const accountListGroupUngroupedQueryValue = "ungrouped"
 
 func (h *AccountHandler) accountResponseFromService(account *service.Account) *dto.Account {
 	out := dto.AccountFromService(account)
+	if h != nil && out != nil && h.channelMonitorCooldown != nil {
+		if cooling, err := h.channelMonitorCooldown.IsCooling(context.Background(), account.ID, time.Now().UTC()); err == nil && cooling {
+			if eventReader, ok := h.channelMonitorCooldown.(interface {
+				Current(context.Context, int64) (service.ChannelMonitorCooldownEvent, error)
+			}); ok {
+				if event, currentErr := eventReader.Current(context.Background(), account.ID); currentErr == nil && event.Until.After(time.Now().UTC()) {
+					until := event.Until
+					out.TempUnschedulableUntil = &until
+					out.TempUnschedulableReason = "channel_monitor_cooldown"
+				}
+			}
+		}
+	}
 	if h != nil && h.ollamaCloudUsage != nil && out != nil {
 		h.ollamaCloudUsage.EnrichState(out.OllamaCloudUsage)
 	}
@@ -2392,10 +2414,17 @@ func (h *AccountHandler) GetTempUnschedulable(c *gin.Context) {
 		return
 	}
 
-	state, err := h.rateLimitService.GetTempUnschedStatus(c.Request.Context(), accountID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
+	var state *service.TempUnschedState
+	if h.rateLimitService != nil {
+		var err error
+		state, err = h.rateLimitService.GetTempUnschedStatus(c.Request.Context(), accountID)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
+	if state == nil {
+		state = h.channelMonitorTempUnschedState(c.Request.Context(), accountID)
 	}
 
 	if state == nil || state.UntilUnix <= time.Now().Unix() {
@@ -2407,6 +2436,26 @@ func (h *AccountHandler) GetTempUnschedulable(c *gin.Context) {
 		"active": true,
 		"state":  state,
 	})
+}
+
+func (h *AccountHandler) channelMonitorTempUnschedState(ctx context.Context, accountID int64) *service.TempUnschedState {
+	if h == nil || h.channelMonitorCooldown == nil || accountID <= 0 {
+		return nil
+	}
+	reader, ok := h.channelMonitorCooldown.(interface {
+		Current(context.Context, int64) (service.ChannelMonitorCooldownEvent, error)
+	})
+	if !ok {
+		return nil
+	}
+	event, err := reader.Current(ctx, accountID)
+	if err != nil || !event.Until.After(time.Now().UTC()) {
+		return nil
+	}
+	return &service.TempUnschedState{
+		UntilUnix:    event.Until.Unix(),
+		ErrorMessage: "channel_monitor_cooldown",
+	}
 }
 
 // ClearTempUnschedulable handles clearing temporary unschedulable status

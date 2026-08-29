@@ -77,6 +77,9 @@ func (ChannelMonitor) Fields() []ent.Field {
 			MaxLen(100),
 		field.Bool("enabled").
 			Default(true),
+		field.Bool("use_current_service").
+			Default(false).
+			Comment("Whether probes target the current service and carry the internal monitor marker"),
 		field.Int("interval_seconds").
 			Range(15, 3600),
 		field.Int("jitter_seconds").

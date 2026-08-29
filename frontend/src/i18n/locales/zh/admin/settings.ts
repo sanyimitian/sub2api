@@ -988,6 +988,21 @@ export default {
         saved: '过载冷却设置保存成功',
         saveFailed: '保存过载冷却设置失败'
       },
+      channelMonitorCooldown: {
+        title: '渠道监控账号冷却',
+        description: '仅作用于启用“使用当前服务”的渠道监控探测请求',
+        ladder: '冷却阶梯（分钟）',
+        ladderHint: '必须填写五个严格递增的正整数',
+        slowThreshold: '慢响应阈值（秒）',
+        priorityIncrement: '优先级增量',
+        maxIncrease: '最多增加次数',
+        autoRecovery: '自动恢复时长（秒）',
+        reset: '恢复默认值',
+        saved: '渠道监控冷却设置保存成功',
+        resetDone: '渠道监控冷却设置已恢复默认值',
+        invalid: '请输入合法的五档递增阶梯和正整数参数',
+        saveFailed: '保存渠道监控冷却设置失败'
+      },
       rateLimit429Cooldown: {
         title: '429 默认回避',
         description: '配置上游返回 429 且没有明确重置时间时的默认账号回避策略',

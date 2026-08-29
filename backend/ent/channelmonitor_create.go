@@ -159,6 +159,20 @@ func (_c *ChannelMonitorCreate) SetNillableEnabled(v *bool) *ChannelMonitorCreat
 	return _c
 }
 
+// SetUseCurrentService sets the "use_current_service" field.
+func (_c *ChannelMonitorCreate) SetUseCurrentService(v bool) *ChannelMonitorCreate {
+	_c.mutation.SetUseCurrentService(v)
+	return _c
+}
+
+// SetNillableUseCurrentService sets the "use_current_service" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableUseCurrentService(v *bool) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetUseCurrentService(*v)
+	}
+	return _c
+}
+
 // SetIntervalSeconds sets the "interval_seconds" field.
 func (_c *ChannelMonitorCreate) SetIntervalSeconds(v int) *ChannelMonitorCreate {
 	_c.mutation.SetIntervalSeconds(v)
@@ -351,6 +365,10 @@ func (_c *ChannelMonitorCreate) defaults() {
 		v := channelmonitor.DefaultEnabled
 		_c.mutation.SetEnabled(v)
 	}
+	if _, ok := _c.mutation.UseCurrentService(); !ok {
+		v := channelmonitor.DefaultUseCurrentService
+		_c.mutation.SetUseCurrentService(v)
+	}
 	if _, ok := _c.mutation.JitterSeconds(); !ok {
 		v := channelmonitor.DefaultJitterSeconds
 		_c.mutation.SetJitterSeconds(v)
@@ -439,6 +457,9 @@ func (_c *ChannelMonitorCreate) check() error {
 	}
 	if _, ok := _c.mutation.Enabled(); !ok {
 		return &ValidationError{Name: "enabled", err: errors.New(`ent: missing required field "ChannelMonitor.enabled"`)}
+	}
+	if _, ok := _c.mutation.UseCurrentService(); !ok {
+		return &ValidationError{Name: "use_current_service", err: errors.New(`ent: missing required field "ChannelMonitor.use_current_service"`)}
 	}
 	if _, ok := _c.mutation.IntervalSeconds(); !ok {
 		return &ValidationError{Name: "interval_seconds", err: errors.New(`ent: missing required field "ChannelMonitor.interval_seconds"`)}
@@ -548,6 +569,10 @@ func (_c *ChannelMonitorCreate) createSpec() (*ChannelMonitor, *sqlgraph.CreateS
 	if value, ok := _c.mutation.Enabled(); ok {
 		_spec.SetField(channelmonitor.FieldEnabled, field.TypeBool, value)
 		_node.Enabled = value
+	}
+	if value, ok := _c.mutation.UseCurrentService(); ok {
+		_spec.SetField(channelmonitor.FieldUseCurrentService, field.TypeBool, value)
+		_node.UseCurrentService = value
 	}
 	if value, ok := _c.mutation.IntervalSeconds(); ok {
 		_spec.SetField(channelmonitor.FieldIntervalSeconds, field.TypeInt, value)
@@ -837,6 +862,18 @@ func (u *ChannelMonitorUpsert) SetEnabled(v bool) *ChannelMonitorUpsert {
 // UpdateEnabled sets the "enabled" field to the value that was provided on create.
 func (u *ChannelMonitorUpsert) UpdateEnabled() *ChannelMonitorUpsert {
 	u.SetExcluded(channelmonitor.FieldEnabled)
+	return u
+}
+
+// SetUseCurrentService sets the "use_current_service" field.
+func (u *ChannelMonitorUpsert) SetUseCurrentService(v bool) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldUseCurrentService, v)
+	return u
+}
+
+// UpdateUseCurrentService sets the "use_current_service" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateUseCurrentService() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldUseCurrentService)
 	return u
 }
 
@@ -1203,6 +1240,20 @@ func (u *ChannelMonitorUpsertOne) SetEnabled(v bool) *ChannelMonitorUpsertOne {
 func (u *ChannelMonitorUpsertOne) UpdateEnabled() *ChannelMonitorUpsertOne {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.UpdateEnabled()
+	})
+}
+
+// SetUseCurrentService sets the "use_current_service" field.
+func (u *ChannelMonitorUpsertOne) SetUseCurrentService(v bool) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetUseCurrentService(v)
+	})
+}
+
+// UpdateUseCurrentService sets the "use_current_service" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateUseCurrentService() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateUseCurrentService()
 	})
 }
 
@@ -1757,6 +1808,20 @@ func (u *ChannelMonitorUpsertBulk) SetEnabled(v bool) *ChannelMonitorUpsertBulk 
 func (u *ChannelMonitorUpsertBulk) UpdateEnabled() *ChannelMonitorUpsertBulk {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.UpdateEnabled()
+	})
+}
+
+// SetUseCurrentService sets the "use_current_service" field.
+func (u *ChannelMonitorUpsertBulk) SetUseCurrentService(v bool) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetUseCurrentService(v)
+	})
+}
+
+// UpdateUseCurrentService sets the "use_current_service" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateUseCurrentService() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateUseCurrentService()
 	})
 }
 

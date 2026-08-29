@@ -74,6 +74,8 @@ export interface ChannelMonitor {
   extra_models: string[]
   group_name: string
   enabled: boolean
+  /** 仅在明确使用当前服务地址并保存后启用监控上下文。 */
+  use_current_service: boolean
   interval_seconds: number
   /** 每次调度在 interval 基础上 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔 */
   jitter_seconds: number
@@ -113,6 +115,7 @@ export interface ListParams {
   page_size?: number
   provider?: Provider
   enabled?: boolean
+  use_current_service?: boolean
   search?: string
 }
 
@@ -142,6 +145,8 @@ export interface CreateParams {
   extra_models?: string[]
   group_name?: string
   enabled?: boolean
+  /** 仅在管理员明确选择当前服务后启用签名探测链。 */
+  use_current_service?: boolean
   interval_seconds: number
   jitter_seconds?: number
   template_id?: number | null

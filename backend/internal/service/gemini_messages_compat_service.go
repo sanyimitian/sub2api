@@ -554,9 +554,9 @@ func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx cont
 			continue
 		}
 
-		if acc.Priority < selected.Priority {
+		if acc.EffectivePriority() < selected.EffectivePriority() {
 			selected = acc
-		} else if acc.Priority == selected.Priority {
+		} else if acc.EffectivePriority() == selected.EffectivePriority() {
 			switch {
 			case acc.LastUsedAt == nil && selected.LastUsedAt != nil:
 				selected = acc

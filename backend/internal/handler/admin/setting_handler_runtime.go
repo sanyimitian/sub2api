@@ -10,6 +10,44 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// GetChannelMonitorCooldownSettings 获取渠道监控冷却配置。
+// GET /api/v1/admin/settings/channel-monitor-cooldown
+func (h *SettingHandler) GetChannelMonitorCooldownSettings(c *gin.Context) {
+	settings, err := h.settingService.GetChannelMonitorCooldownSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
+// UpdateChannelMonitorCooldownSettings 更新渠道监控冷却配置。
+// PUT /api/v1/admin/settings/channel-monitor-cooldown
+func (h *SettingHandler) UpdateChannelMonitorCooldownSettings(c *gin.Context) {
+	var req service.ChannelMonitorCooldownSettings
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	settings, err := h.settingService.SetChannelMonitorCooldownSettings(c.Request.Context(), &req)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, settings)
+}
+
+// ResetChannelMonitorCooldownSettings 恢复渠道监控冷却内置默认值。
+// POST /api/v1/admin/settings/channel-monitor-cooldown/reset
+func (h *SettingHandler) ResetChannelMonitorCooldownSettings(c *gin.Context) {
+	settings, err := h.settingService.ResetChannelMonitorCooldownSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
 // GetAdminAPIKey 获取管理员 API Key 状态
 // GET /api/v1/admin/settings/admin-api-key
 func (h *SettingHandler) GetAdminAPIKey(c *gin.Context) {

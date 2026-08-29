@@ -570,6 +570,10 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// 529过载冷却配置
 		adminSettings.GET("/overload-cooldown", h.Admin.Setting.GetOverloadCooldownSettings)
 		adminSettings.PUT("/overload-cooldown", h.Admin.Setting.UpdateOverloadCooldownSettings)
+		// 渠道监控账号冷却与慢响应优先级配置
+		adminSettings.GET("/channel-monitor-cooldown", h.Admin.Setting.GetChannelMonitorCooldownSettings)
+		adminSettings.PUT("/channel-monitor-cooldown", h.Admin.Setting.UpdateChannelMonitorCooldownSettings)
+		adminSettings.POST("/channel-monitor-cooldown/reset", h.Admin.Setting.ResetChannelMonitorCooldownSettings)
 		// 429默认回避配置
 		adminSettings.GET("/rate-limit-429-cooldown", h.Admin.Setting.GetRateLimit429CooldownSettings)
 		adminSettings.PUT("/rate-limit-429-cooldown", h.Admin.Setting.UpdateRateLimit429CooldownSettings)

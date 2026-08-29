@@ -756,43 +756,79 @@ func (s *GatewayService) TempUnscheduleRetryableError(ctx context.Context, accou
 
 // GatewayService handles API gateway operations
 type GatewayService struct {
-	accountRepo           AccountRepository
-	groupRepo             GroupRepository
-	usageLogRepo          UsageLogRepository
-	usageBillingRepo      UsageBillingRepository
-	userRepo              UserRepository
-	userSubRepo           UserSubscriptionRepository
-	userGroupRateRepo     UserGroupRateRepository
-	cache                 GatewayCache
-	digestStore           *DigestSessionStore
-	cfg                   *config.Config
-	schedulerSnapshot     *SchedulerSnapshotService
-	billingService        *BillingService
-	rateLimitService      *RateLimitService
-	billingCacheService   *BillingCacheService
-	identityService       *IdentityService
-	httpUpstream          HTTPUpstream
-	deferredService       *DeferredService
-	concurrencyService    *ConcurrencyService
-	claudeTokenProvider   *ClaudeTokenProvider
-	sessionLimitCache     SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
-	rpmCache              RPMCache          // RPM 计数缓存（仅 Anthropic OAuth/SetupToken）
-	userGroupRateResolver *userGroupRateResolver
-	userGroupRateCache    *gocache.Cache
-	userGroupRateSF       singleflight.Group
-	modelsListCache       *gocache.Cache
-	modelsListCacheTTL    time.Duration
-	settingService        *SettingService
-	responseHeaderFilter  *responseheaders.CompiledHeaderFilter
-	debugModelRouting     atomic.Bool
-	debugClaudeMimic      atomic.Bool
-	channelService        *ChannelService
-	resolver              *ModelPricingResolver
-	compositeResolver     *CompositeRouteResolver
-	debugGatewayBodyFile  atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
-	tlsFPProfileService   *TLSFingerprintProfileService
-	balanceNotifyService  *BalanceNotifyService
-	userPlatformQuotaRepo UserPlatformQuotaRepository
+	accountRepo            AccountRepository
+	groupRepo              GroupRepository
+	usageLogRepo           UsageLogRepository
+	usageBillingRepo       UsageBillingRepository
+	userRepo               UserRepository
+	userSubRepo            UserSubscriptionRepository
+	userGroupRateRepo      UserGroupRateRepository
+	cache                  GatewayCache
+	digestStore            *DigestSessionStore
+	cfg                    *config.Config
+	schedulerSnapshot      *SchedulerSnapshotService
+	billingService         *BillingService
+	rateLimitService       *RateLimitService
+	billingCacheService    *BillingCacheService
+	identityService        *IdentityService
+	httpUpstream           HTTPUpstream
+	deferredService        *DeferredService
+	concurrencyService     *ConcurrencyService
+	claudeTokenProvider    *ClaudeTokenProvider
+	sessionLimitCache      SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
+	rpmCache               RPMCache          // RPM 计数缓存（仅 Anthropic OAuth/SetupToken）
+	userGroupRateResolver  *userGroupRateResolver
+	userGroupRateCache     *gocache.Cache
+	userGroupRateSF        singleflight.Group
+	modelsListCache        *gocache.Cache
+	modelsListCacheTTL     time.Duration
+	settingService         *SettingService
+	responseHeaderFilter   *responseheaders.CompiledHeaderFilter
+	debugModelRouting      atomic.Bool
+	debugClaudeMimic       atomic.Bool
+	channelService         *ChannelService
+	resolver               *ModelPricingResolver
+	compositeResolver      *CompositeRouteResolver
+	debugGatewayBodyFile   atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
+	tlsFPProfileService    *TLSFingerprintProfileService
+	balanceNotifyService   *BalanceNotifyService
+	userPlatformQuotaRepo  UserPlatformQuotaRepository
+	channelMonitorCooldown ChannelMonitorCooldownStore
+	channelMonitorObserver *ChannelMonitorProbeObserver
+}
+
+// SetChannelMonitorCooldownStore enables the account-level guard for signed
+// channel-monitor probes. Ordinary requests have no probe context and bypass it.
+func (s *GatewayService) SetChannelMonitorCooldownStore(store ChannelMonitorCooldownStore) {
+	if s != nil {
+		s.channelMonitorCooldown = store
+	}
+}
+func (s *GatewayService) SetChannelMonitorProbeObserver(observer *ChannelMonitorProbeObserver) {
+	if s != nil {
+		s.channelMonitorObserver = observer
+	}
+}
+func (s *GatewayService) BeginChannelMonitorProbe(ctx context.Context, account *Account, started time.Time) *ChannelMonitorProbeAttempt {
+	if s == nil || s.channelMonitorObserver == nil {
+		return nil
+	}
+	return s.channelMonitorObserver.Begin(ctx, account, started)
+}
+func (s *GatewayService) FinishChannelMonitorProbe(ctx context.Context, attempt *ChannelMonitorProbeAttempt, outcome ChannelMonitorProbeOutcome) {
+	if s != nil && s.channelMonitorObserver != nil {
+		s.channelMonitorObserver.Finish(ctx, attempt, outcome)
+	}
+}
+func (s *GatewayService) channelMonitorAccountCooling(ctx context.Context, accountID int64) bool {
+	if s == nil || s.channelMonitorCooldown == nil || accountID <= 0 {
+		return false
+	}
+	if _, ok := ChannelMonitorProbeFromContext(ctx); !ok {
+		return false
+	}
+	cooling, err := s.channelMonitorCooldown.IsCooling(ctx, accountID, time.Now().UTC())
+	return err == nil && cooling
 }
 
 // NewGatewayService creates a new GatewayService

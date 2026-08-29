@@ -203,7 +203,6 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 		account := selection.Account
 		setOpsSelectedAccount(c, account.ID, account.Platform)
-
 		// 4. Acquire account concurrency slot
 		accountReleaseFunc := selection.ReleaseFunc
 		if !selection.Acquired {
@@ -259,6 +258,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 
 		// 5. Forward request
+		forwardStart := time.Now()
+		probeAttempt := h.gatewayService.BeginChannelMonitorProbe(c.Request.Context(), account, forwardStart)
 		writerSizeBeforeForward := c.Writer.Size()
 		forwardBody := body
 		if channelMapping.Mapped {
@@ -294,6 +295,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 
 		if err != nil {
+			h.gatewayService.FinishChannelMonitorProbe(c.Request.Context(), probeAttempt, service.ChannelMonitorProbeOutcome{Err: err, Duration: time.Since(forwardStart)})
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				if c.Writer.Size() != writerSizeBeforeForward {
@@ -325,6 +327,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			)
 			return
 		}
+		h.gatewayService.FinishChannelMonitorProbe(c.Request.Context(), probeAttempt, service.ChannelMonitorProbeOutcome{Duration: time.Since(forwardStart)})
 
 		// 6. Record usage
 		userAgent := c.GetHeader("User-Agent")

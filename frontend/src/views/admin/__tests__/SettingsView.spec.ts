@@ -15,6 +15,9 @@ const {
   updateWebSearchEmulationConfig,
   getAdminApiKey,
   getOverloadCooldownSettings,
+  getChannelMonitorCooldownSettings,
+  updateChannelMonitorCooldownSettings,
+  resetChannelMonitorCooldownSettings,
   getRateLimit429CooldownSettings,
   updateRateLimit429CooldownSettings,
   getPanelRateLimitSettings,
@@ -43,6 +46,9 @@ const {
   updateWebSearchEmulationConfig: vi.fn(),
   getAdminApiKey: vi.fn(),
   getOverloadCooldownSettings: vi.fn(),
+  getChannelMonitorCooldownSettings: vi.fn(),
+  updateChannelMonitorCooldownSettings: vi.fn(),
+  resetChannelMonitorCooldownSettings: vi.fn(),
   getRateLimit429CooldownSettings: vi.fn(),
   updateRateLimit429CooldownSettings: vi.fn(),
   getPanelRateLimitSettings: vi.fn().mockResolvedValue({
@@ -90,6 +96,9 @@ vi.mock("@/api", () => ({
       updateWebSearchEmulationConfig,
       getAdminApiKey,
       getOverloadCooldownSettings,
+      getChannelMonitorCooldownSettings,
+      updateChannelMonitorCooldownSettings,
+      resetChannelMonitorCooldownSettings,
       getRateLimit429CooldownSettings,
       updateRateLimit429CooldownSettings,
       getPanelRateLimitSettings,
@@ -633,6 +642,9 @@ describe("admin SettingsView payment visible method controls", () => {
     updateWebSearchEmulationConfig.mockReset();
     getAdminApiKey.mockReset();
     getOverloadCooldownSettings.mockReset();
+    getChannelMonitorCooldownSettings.mockReset();
+    updateChannelMonitorCooldownSettings.mockReset();
+    resetChannelMonitorCooldownSettings.mockReset();
     getRateLimit429CooldownSettings.mockReset();
     updateRateLimit429CooldownSettings.mockReset();
     getStreamTimeoutSettings.mockReset();
@@ -674,6 +686,23 @@ describe("admin SettingsView payment visible method controls", () => {
     getOverloadCooldownSettings.mockResolvedValue({
       enabled: true,
       cooldown_minutes: 10,
+    });
+    getChannelMonitorCooldownSettings.mockResolvedValue({
+      version: 1,
+      cooldown_minutes: [2, 5, 30, 60, 120],
+      slow_response_threshold_seconds: 12,
+      priority_increment: 1,
+      max_priority_increase: 3,
+      priority_auto_recovery_seconds: 3600,
+    });
+    updateChannelMonitorCooldownSettings.mockImplementation(async (payload) => payload);
+    resetChannelMonitorCooldownSettings.mockResolvedValue({
+      version: 1,
+      cooldown_minutes: [2, 5, 30, 60, 120],
+      slow_response_threshold_seconds: 12,
+      priority_increment: 1,
+      max_priority_increase: 3,
+      priority_auto_recovery_seconds: 3600,
     });
     getRateLimit429CooldownSettings.mockResolvedValue({
       enabled: true,
@@ -1930,5 +1959,54 @@ describe("admin SettingsView platform quota matrix", () => {
     const quotas = payload["default_platform_quotas"] as Record<string, Record<string, unknown>>;
     // 不管输入是什么，提交值应为 null（而非 "" 或 NaN）
     expect(quotas["anthropic"]?.["daily"]).toBe(null);
+  });
+});
+
+describe("admin SettingsView channel monitor cooldown settings", () => {
+  beforeEach(() => {
+    getChannelMonitorCooldownSettings.mockReset().mockResolvedValue({
+      version: 1,
+      cooldown_minutes: [2, 5, 30, 60, 120],
+      slow_response_threshold_seconds: 12,
+      priority_increment: 1,
+      max_priority_increase: 3,
+      priority_auto_recovery_seconds: 3600,
+    });
+    updateChannelMonitorCooldownSettings.mockReset().mockImplementation(async (payload) => payload);
+    resetChannelMonitorCooldownSettings.mockReset().mockResolvedValue({
+      version: 1,
+      cooldown_minutes: [2, 5, 30, 60, 120],
+      slow_response_threshold_seconds: 12,
+      priority_increment: 1,
+      max_priority_increase: 3,
+      priority_auto_recovery_seconds: 3600,
+    });
+  });
+
+  it("加载、保存并恢复默认冷却配置", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    expect(getChannelMonitorCooldownSettings).toHaveBeenCalled();
+    await wrapper.get('[data-testid="channel-monitor-cooldown-step-1"]').setValue("6");
+    await wrapper.get('[data-testid="channel-monitor-cooldown-save"]').trigger("click");
+    await flushPromises();
+    expect(updateChannelMonitorCooldownSettings).toHaveBeenCalledWith(expect.objectContaining({ cooldown_minutes: [2, 6, 30, 60, 120] }));
+
+    await wrapper.get('[data-testid="channel-monitor-cooldown-reset"]').trigger("click");
+    await flushPromises();
+    expect(resetChannelMonitorCooldownSettings).toHaveBeenCalled();
+  });
+
+  it("阻止非严格递增阶梯提交", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    await wrapper.get('[data-testid="channel-monitor-cooldown-step-1"]').setValue("2");
+    await wrapper.get('[data-testid="channel-monitor-cooldown-save"]').trigger("click");
+    await flushPromises();
+    expect(updateChannelMonitorCooldownSettings).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenCalled();
   });
 });

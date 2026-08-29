@@ -131,6 +131,7 @@ func TestDuplicateChannelMonitorCopiesConfigurationAndResetsRuntimeState(t *test
 		TemplateID:       &templateID,
 		ExtraHeaders:     map[string]string{"User-Agent": "Codex"},
 		BodyOverrideMode: MonitorBodyOverrideModeMerge,
+		UseCurrentService: true,
 		BodyOverride: map[string]any{
 			"metadata": map[string]any{"source": "original"},
 		},
@@ -158,6 +159,7 @@ func TestDuplicateChannelMonitorCopiesConfigurationAndResetsRuntimeState(t *test
 	require.Equal(t, source.TemplateID, duplicate.TemplateID)
 	require.Equal(t, source.ExtraHeaders, duplicate.ExtraHeaders)
 	require.Equal(t, source.BodyOverrideMode, duplicate.BodyOverrideMode)
+	require.True(t, duplicate.UseCurrentService)
 	require.Equal(t, source.BodyOverride, duplicate.BodyOverride)
 	require.False(t, duplicate.Enabled)
 	require.Nil(t, duplicate.LastCheckedAt)

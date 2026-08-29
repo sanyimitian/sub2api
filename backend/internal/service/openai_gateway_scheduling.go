@@ -1015,6 +1015,10 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			filterStats.exclude("excluded")
 			continue
 		}
+		if s.channelMonitorAccountCooling(ctx, acc.ID) {
+			filterStats.exclude("channel_monitor_cooling")
+			continue
+		}
 
 		fresh := s.resolveFreshSchedulableOpenAIAccountBeforeProfit(ctx, acc, platform, requestedModel, false, requiredCapability)
 		if fresh == nil {
@@ -1076,10 +1080,10 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 func (s *OpenAIGatewayService) isBetterAccount(candidate, current *Account) bool {
 	// 优先级更高（数值更小）
 	// Higher priority (lower value)
-	if candidate.Priority < current.Priority {
+	if candidate.EffectivePriority() < current.EffectivePriority() {
 		return true
 	}
-	if candidate.Priority > current.Priority {
+	if candidate.EffectivePriority() > current.EffectivePriority() {
 		return false
 	}
 
@@ -1251,6 +1255,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			filterStats.exclude("excluded")
 			continue
 		}
+		if s.channelMonitorAccountCooling(ctx, acc.ID) {
+			filterStats.exclude("channel_monitor_cooling")
+			continue
+		}
 		// Scheduler snapshots can be temporarily stale (bucket rebuild is throttled);
 		// re-check schedulability here so recently rate-limited/overloaded accounts
 		// are not selected again before the bucket is rebuilt.
@@ -1311,8 +1319,8 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 		sort.SliceStable(available, func(i, j int) bool {
 			a, b := available[i], available[j]
-			if a.account.Priority != b.account.Priority {
-				return a.account.Priority < b.account.Priority
+			if a.account.EffectivePriority() != b.account.EffectivePriority() {
+				return a.account.EffectivePriority() < b.account.EffectivePriority()
 			}
 			if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
 				return a.loadInfo.LoadRate < b.loadInfo.LoadRate

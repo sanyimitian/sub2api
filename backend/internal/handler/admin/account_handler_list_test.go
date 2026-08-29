@@ -52,6 +52,32 @@ func TestAccountHandlerListIncludesCreatedAt(t *testing.T) {
 	require.Equal(t, 0, offset)
 }
 
+func TestAccountHandlerProjectsChannelMonitorCooldownAsTempUnschedulable(t *testing.T) {
+	h := NewAccountHandler(newStubAdminService(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	store := service.NewMemoryChannelMonitorCooldownStore()
+	h.SetChannelMonitorCooldownStore(store)
+	now := time.Now().UTC()
+	_, err := store.ObserveFailure(nil, 29, now, []int{2, 5, 30, 60, 120})
+	require.NoError(t, err)
+
+	out := h.accountResponseFromService(&service.Account{ID: 29, Name: "ai777-0.06", Status: service.StatusActive, Schedulable: true})
+	require.Equal(t, "channel_monitor_cooldown", out.TempUnschedulableReason)
+	require.NotNil(t, out.TempUnschedulableUntil)
+}
+
+func TestAccountHandlerTempUnschedulableDetailsIncludeChannelMonitorCooldown(t *testing.T) {
+	h := NewAccountHandler(newStubAdminService(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	store := service.NewMemoryChannelMonitorCooldownStore()
+	h.SetChannelMonitorCooldownStore(store)
+	_, err := store.ObserveFailure(nil, 29, time.Now().UTC(), []int{2, 5, 30, 60, 120})
+	require.NoError(t, err)
+
+	state := h.channelMonitorTempUnschedState(nil, 29)
+	require.NotNil(t, state)
+	require.Equal(t, "channel_monitor_cooldown", state.ErrorMessage)
+	require.Greater(t, state.UntilUnix, time.Now().Unix())
+}
+
 func TestAccountHandlerListReturnsSchedulerScoresPerGroup(t *testing.T) {
 	router, adminSvc := setupAccountListRouter()
 	now := time.Now().UTC()

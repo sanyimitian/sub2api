@@ -402,6 +402,26 @@ func TestRunCheckForModel_MergeMode_UserFieldsWinButDenyListProtects(t *testing.
 	// 我们无法直接断言丢弃（http.Client 总会填上），只断言请求成功即可。
 }
 
+func TestRunCheckForModel_CurrentServiceProbeAddsSignedMarkerOnly(t *testing.T) {
+	h := &captureHandler{respondText: "the answer is 42"}
+	endpoint := setupFakeAnthropic(t, h)
+	signer := NewChannelMonitorProbeSigner("marker-secret")
+	marker, err := signer.Sign(9, "probe-1", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", &CheckOptions{ProbeMarker: marker})
+	if h.lastHeaders.Get(ChannelMonitorProbeHeader) != marker {
+		t.Fatalf("expected signed marker header, got %q", h.lastHeaders.Get(ChannelMonitorProbeHeader))
+	}
+
+	h.lastHeaders = nil
+	_ = runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", nil)
+	if got := h.lastHeaders.Get(ChannelMonitorProbeHeader); got != "" {
+		t.Fatalf("external probe must not carry marker, got %q", got)
+	}
+}
+
 func TestRunCheckForModel_ReplaceMode_FullBodyUsedAndChallengeSkipped(t *testing.T) {
 	// replace 模式下我们的 body 完全自定义，challenge 数学题不会出现在请求里，
 	// 上游也不会回正确答案 — 但只要 2xx + 响应文本非空，就算 operational

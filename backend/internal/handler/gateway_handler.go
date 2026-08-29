@@ -460,6 +460,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
+			forwardStart := time.Now().UTC()
+			probeAttempt := h.gatewayService.BeginChannelMonitorProbe(requestCtx, account, forwardStart)
 			if account.Platform == service.PlatformAntigravity {
 				result, err = h.antigravityGatewayService.ForwardGemini(
 					requestCtx,
@@ -479,6 +481,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				accountReleaseFunc()
 			}
 			if err != nil {
+				h.gatewayService.FinishChannelMonitorProbe(requestCtx, probeAttempt, service.ChannelMonitorProbeOutcome{Err: err, Duration: time.Since(forwardStart)})
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
@@ -524,6 +527,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
 				return
 			}
+			h.gatewayService.FinishChannelMonitorProbe(requestCtx, probeAttempt, service.ChannelMonitorProbeOutcome{Duration: time.Since(forwardStart)})
 
 			// RPM 计数递增（Forward 成功后）
 			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
@@ -854,6 +858,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
+			forwardStart := time.Now().UTC()
+			probeAttempt := h.gatewayService.BeginChannelMonitorProbe(requestCtx, account, forwardStart)
 			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
 				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, attemptBody, hasBoundSession)
 			} else {
@@ -869,6 +875,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
+			}
+			if err != nil {
+				h.gatewayService.FinishChannelMonitorProbe(requestCtx, probeAttempt, service.ChannelMonitorProbeOutcome{Err: err, Duration: time.Since(forwardStart)})
+			} else {
+				h.gatewayService.FinishChannelMonitorProbe(requestCtx, probeAttempt, service.ChannelMonitorProbeOutcome{Duration: time.Since(forwardStart)})
 			}
 
 			// 提交 usage 记录。成功路径与"流中断但 Forward 已观测到 usage 的部分结果"

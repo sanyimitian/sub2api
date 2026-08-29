@@ -664,6 +664,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 
 		// Forward request
+		probeAttempt := h.gatewayService.BeginChannelMonitorProbe(c.Request.Context(), account, time.Now().UTC())
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
 		// 用扣除非语义心跳字节的口径快照：心跳注释不构成语义响应，
@@ -687,6 +688,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 		h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, err != nil, cyberBlockBodyHTTP, clientRequestedUsageFields(c, channelMapping, reqModel, ""), service.HashUsageRequestPayload(body))
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
+		if err != nil {
+			h.gatewayService.FinishChannelMonitorProbe(c.Request.Context(), probeAttempt, service.ChannelMonitorProbeOutcome{Err: err, Duration: time.Duration(forwardDurationMs) * time.Millisecond})
+		} else {
+			h.gatewayService.FinishChannelMonitorProbe(c.Request.Context(), probeAttempt, service.ChannelMonitorProbeOutcome{Duration: time.Duration(forwardDurationMs) * time.Millisecond})
+		}
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
 		responseLatencyMs := forwardDurationMs
 		if upstreamLatencyMs > 0 && forwardDurationMs > upstreamLatencyMs {

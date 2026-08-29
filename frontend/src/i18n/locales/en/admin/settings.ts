@@ -994,6 +994,21 @@ export default {
         saved: 'Overload cooldown settings saved',
         saveFailed: 'Failed to save overload cooldown settings'
       },
+      channelMonitorCooldown: {
+        title: 'Channel Monitor Account Cooldown',
+        description: 'Applies only to probes that use the current service',
+        ladder: 'Cooldown ladder (minutes)',
+        ladderHint: 'Enter five strictly increasing positive integers',
+        slowThreshold: 'Slow response threshold (seconds)',
+        priorityIncrement: 'Priority increment',
+        maxIncrease: 'Maximum increases',
+        autoRecovery: 'Automatic recovery (seconds)',
+        reset: 'Restore defaults',
+        saved: 'Channel monitor cooldown settings saved',
+        resetDone: 'Channel monitor cooldown settings restored',
+        invalid: 'Enter a valid increasing five-step ladder and positive integer values',
+        saveFailed: 'Failed to save channel monitor cooldown settings'
+      },
       rateLimit429Cooldown: {
         title: '429 Default Cooldown',
         description: 'Configure the default account cooldown when upstream returns 429 without an explicit reset time',
