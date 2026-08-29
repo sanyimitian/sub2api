@@ -105,3 +105,10 @@
 - `ai777-0.06`（ID 29）数据库字段仍为 `schedulable=true` 且 `temp_unschedulable_until=NULL`；Redis 冷却状态为第 5 档，管理端列表投影为 `temp_unschedulable_reason=channel_monitor_cooldown`，详情接口返回 `active=true`。
 - 连续 10 分钟每分钟检查一次：健康接口 10/10 返回 HTTP 200，应用、PostgreSQL、Redis 始终 `running/healthy`，严重日志计数均为 0，冷却 TTL 正常递减。
 - 临时构建修改已恢复，服务器 Git 工作区保持干净。
+
+### 探测取消后的冷却持久化修复（2026-08-29）
+
+- 发现真实服务器日志中，`plus` 探测在客户端 30 秒超时后由账号 3（`皓悦-0.1`）完成迟到响应；observer 使用已取消的请求 context 写 Redis，导致失败事件未落盘。
+- 修复 `ChannelMonitorProbeObserver`：探测终态保留 marker 值，但使用 `context.WithoutCancel` 执行配置读取、冷却写入和优先级更新。
+- 新增 `TestChannelMonitorProbeObserverPersistsFailureWithCanceledContext`，旧实现先失败，修复后通过；受影响后端测试全通过。
+- 提交 `086c6a8b4 fix: persist probe cooldown after request cancellation` 已推送并部署，服务器仅重建应用容器，数据容器和目录挂载未变更。
