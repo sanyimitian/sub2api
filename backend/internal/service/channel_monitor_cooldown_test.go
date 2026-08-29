@@ -114,6 +114,45 @@ func TestChannelMonitorProbeObserverLateSuccessAfterCancellationRecordsFailure(t
 	require.True(t, active)
 }
 
+func TestChannelMonitorProbeObserverPersistsFailureWithCanceledContext(t *testing.T) {
+	base := NewMemoryChannelMonitorCooldownStore()
+	store := &cancelAwareChannelMonitorCooldownStore{inner: base}
+	observer := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {
+		return DefaultChannelMonitorCooldownSettings(), nil
+	})
+	ctx, cancel := context.WithCancel(WithChannelMonitorProbe(context.Background(), ChannelMonitorProbe{MonitorID: 1, RequestID: "canceled-store"}))
+	attempt := observer.Begin(ctx, &Account{ID: 15, Type: AccountTypeAPIKey}, time.Now())
+	require.NotNil(t, attempt)
+	cancel()
+	observer.Finish(ctx, attempt, ChannelMonitorProbeOutcome{Err: context.Canceled})
+	active, err := base.IsCooling(context.Background(), 15, time.Now())
+	require.NoError(t, err)
+	require.True(t, active)
+}
+
+type cancelAwareChannelMonitorCooldownStore struct {
+	inner ChannelMonitorCooldownStore
+}
+
+func (s *cancelAwareChannelMonitorCooldownStore) ObserveFailure(ctx context.Context, accountID int64, now time.Time, ladder []int) (ChannelMonitorCooldownEvent, error) {
+	if err := ctx.Err(); err != nil {
+		return ChannelMonitorCooldownEvent{}, err
+	}
+	return s.inner.ObserveFailure(ctx, accountID, now, ladder)
+}
+
+func (s *cancelAwareChannelMonitorCooldownStore) ObserveSuccess(ctx context.Context, accountID int64, generation int64, now time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.inner.ObserveSuccess(ctx, accountID, generation, now)
+}
+
+func (s *cancelAwareChannelMonitorCooldownStore) IsCooling(ctx context.Context, accountID int64, now time.Time) (bool, error) {
+	return s.inner.IsCooling(ctx, accountID, now)
+}
+
+
 func TestChannelMonitorProbeObserverRecordsOnlyOneTerminalOutcome(t *testing.T) {
 	store := NewMemoryChannelMonitorCooldownStore()
 	observer := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {

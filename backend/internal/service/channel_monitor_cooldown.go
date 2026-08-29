@@ -339,7 +339,15 @@ func (o *ChannelMonitorProbeObserver) Finish(ctx context.Context, attempt *Chann
 		if isProbe && outcome.Err == nil && ctx != nil && ctx.Err() != nil {
 			outcome.Err = ctx.Err()
 		}
-		cfg, _ := o.settings(ctx)
+		// Probe requests are expected to be canceled when the client-side
+		// response-header timeout fires. Keep the trusted probe values while
+		// detaching persistence from that cancellation so Redis/database writes
+		// can record the failure.
+		operationCtx := ctx
+		if isProbe && ctx != nil {
+			operationCtx = context.WithoutCancel(ctx)
+		}
+		cfg, _ := o.settings(operationCtx)
 		if cfg == nil {
 			cfg = DefaultChannelMonitorCooldownSettings()
 		}
@@ -349,20 +357,20 @@ func (o *ChannelMonitorProbeObserver) Finish(ctx context.Context, attempt *Chann
 		}
 		if outcome.Err == nil {
 			if o.store != nil {
-				_ = o.store.ObserveSuccess(ctx, attempt.AccountID, attempt.generation, now)
+				_ = o.store.ObserveSuccess(operationCtx, attempt.AccountID, attempt.generation, now)
 			}
 			if o.priority != nil {
-				_ = o.priority.Observe(ctx, attempt.AccountID, int(outcome.Duration/time.Second), now, cfg)
+				_ = o.priority.Observe(operationCtx, attempt.AccountID, int(outcome.Duration/time.Second), now, cfg)
 			}
 			return
 		}
 		if o.store != nil {
-			if e, err := o.store.ObserveFailure(ctx, attempt.AccountID, now, cfg.CooldownMinutes); err == nil {
+			if e, err := o.store.ObserveFailure(operationCtx, attempt.AccountID, now, cfg.CooldownMinutes); err == nil {
 				attempt.generation = e.Generation
 			}
 		}
 		if o.priority != nil {
-			_ = o.priority.Observe(ctx, attempt.AccountID, int(outcome.Duration/time.Second), now, cfg)
+			_ = o.priority.Observe(operationCtx, attempt.AccountID, int(outcome.Duration/time.Second), now, cfg)
 		}
 	})
 }
