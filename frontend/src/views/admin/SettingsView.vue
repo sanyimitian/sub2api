@@ -7762,6 +7762,37 @@
                 </div>
                 <Toggle v-model="form.payment_enabled" />
               </div>
+              <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">{{
+                      t("admin.settings.payment.redeemPurchaseEnabled")
+                    }}</label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.payment.redeemPurchaseEnabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle
+                    v-model="form.purchase_subscription_enabled"
+                    data-testid="redeem-purchase-enabled-toggle"
+                  />
+                </div>
+                <div class="mt-4">
+                  <label class="input-label">{{
+                    t("admin.settings.payment.redeemPurchaseUrl")
+                  }}</label>
+                  <input
+                    v-model="form.purchase_subscription_url"
+                    type="url"
+                    class="input"
+                    data-testid="redeem-purchase-url"
+                    :placeholder="t('admin.settings.payment.redeemPurchaseUrlPlaceholder')"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.payment.redeemPurchaseUrlHint") }}
+                  </p>
+                </div>
+              </div>
               <template v-if="form.payment_enabled">
                 <!-- Row 1: Product name -->
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -9494,10 +9525,14 @@ type SettingsForm = Omit<
   | "wechat_connect_open_enabled"
   | "wechat_connect_mp_enabled"
   | "wechat_connect_mobile_enabled"
+  | "purchase_subscription_enabled"
+  | "purchase_subscription_url"
 > & {
   /** Form always binds a concrete boolean (SystemSettings marks this optional). */
   channel_monitor_hide_throughput: boolean;
   channel_monitor_show_quota: boolean;
+  purchase_subscription_enabled: boolean;
+  purchase_subscription_url: string;
   smtp_password: string;
   turnstile_secret_key: string;
   tencent_captcha_app_secret_key: string;
@@ -9584,6 +9619,8 @@ const form = reactive<SettingsForm>({
   backend_mode_enabled: false,
   hide_ccs_import_button: false,
   payment_enabled: false,
+  purchase_subscription_enabled: false,
+  purchase_subscription_url: "",
   risk_control_enabled: false,
   cyber_session_block_enabled: false,
   cyber_session_block_ttl_seconds: 3600,
@@ -11386,6 +11423,8 @@ async function saveSettings() {
       ),
       // Payment configuration
       payment_enabled: form.payment_enabled,
+      purchase_subscription_enabled: form.purchase_subscription_enabled,
+      purchase_subscription_url: form.purchase_subscription_url.trim(),
       risk_control_enabled: form.risk_control_enabled,
       cyber_session_block_enabled: form.cyber_session_block_enabled,
       cyber_session_block_ttl_seconds:

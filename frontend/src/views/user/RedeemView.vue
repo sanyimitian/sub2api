@@ -19,6 +19,29 @@
         </div>
       </div>
 
+      <a
+        v-if="redeemPurchaseEnabled && redeemPurchaseUrl"
+        :href="redeemPurchaseUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="card block border-primary-200 bg-primary-50 transition-colors hover:border-primary-300 hover:bg-primary-100 dark:border-primary-900/60 dark:bg-primary-950/30 dark:hover:bg-primary-950/50"
+        :aria-label="t('redeem.purchaseLinkTitle')"
+      >
+        <div class="flex items-start gap-4 p-5">
+          <div class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-100 text-primary-600 dark:bg-primary-900/50 dark:text-primary-300">
+            <Icon name="creditCard" size="md" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <h2 class="font-semibold text-gray-900 dark:text-white">{{ t('redeem.purchaseLinkTitle') }}</h2>
+            <p class="mt-1 text-sm leading-relaxed text-gray-600 dark:text-gray-300">{{ t('redeem.purchaseLinkDescription') }}</p>
+            <span class="mt-3 inline-flex items-center text-sm font-medium text-primary-700 dark:text-primary-300">
+              {{ t('redeem.purchaseLinkAction') }}
+              <Icon name="externalLink" size="sm" class="ml-1.5" />
+            </span>
+          </div>
+        </div>
+      </a>
+
       <!-- Redeem Form -->
       <div class="card">
         <div class="p-6">
@@ -358,6 +381,8 @@ const appStore = useAppStore()
 const subscriptionStore = useSubscriptionStore()
 
 const user = computed(() => authStore.user)
+const redeemPurchaseEnabled = computed(() => appStore.cachedPublicSettings?.purchase_subscription_enabled === true)
+const redeemPurchaseUrl = computed(() => appStore.cachedPublicSettings?.purchase_subscription_url?.trim() || '')
 
 const redeemCode = ref('')
 const submitting = ref(false)

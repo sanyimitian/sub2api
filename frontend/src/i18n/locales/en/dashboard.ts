@@ -703,6 +703,9 @@ export default {
   redeem: {
     title: 'Redeem Code',
     description: 'Enter your redeem code to add balance or increase concurrency',
+    purchaseLinkTitle: 'Buy a Redeem Code',
+    purchaseLinkDescription: 'To add API usage credit, purchase a redeem code first, then return here to redeem it.',
+    purchaseLinkAction: 'Go to redeem code purchase',
     currentBalance: 'Current Balance',
     concurrency: 'Concurrency',
     requests: 'requests',

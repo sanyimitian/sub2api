@@ -485,6 +485,8 @@ const baseSettingsResponse = {
   antigravity_user_agent_version: "",
   openai_codex_user_agent: "",
   payment_enabled: true,
+  purchase_subscription_enabled: false,
+  purchase_subscription_url: "",
   payment_min_amount: 1,
   payment_max_amount: 10000,
   payment_daily_limit: 50000,
@@ -761,6 +763,26 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({ compact_home_enabled: true }),
+    );
+  });
+
+  it("saves the redeem code purchase redirect settings", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    const enabled = wrapper.get('[data-testid="redeem-purchase-enabled-toggle"]');
+    const url = wrapper.get('[data-testid="redeem-purchase-url"]');
+    await enabled.setValue(true);
+    await url.setValue("https://buy.example.com/redeem");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        purchase_subscription_enabled: true,
+        purchase_subscription_url: "https://buy.example.com/redeem",
+      }),
     );
   });
 

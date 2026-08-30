@@ -707,6 +707,9 @@ export default {
   redeem: {
     title: '兑换码',
     description: '输入兑换码以充值余额或增加并发数',
+    purchaseLinkTitle: '购买兑换码',
+    purchaseLinkDescription: '如需充值 API 使用额度，请先购买兑换码；购买完成后返回本页面输入兑换码即可完成充值。',
+    purchaseLinkAction: '前往购买兑换码',
     currentBalance: '当前余额',
     concurrency: '并发数',
     requests: '请求',
