@@ -370,7 +370,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { useSubscriptionStore } from '@/stores/subscriptions'
-import { redeemAPI, authAPI, type RedeemHistoryItem } from '@/api'
+import { redeemAPI, type RedeemHistoryItem } from '@/api'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime } from '@/utils/format'
@@ -504,8 +504,10 @@ const handleRedeem = async () => {
 onMounted(async () => {
   fetchHistory()
   try {
-    const settings = await authAPI.getPublicSettings()
-    contactInfo.value = settings.contact_info || ''
+    // Refresh public settings so recently saved purchase links are available
+    // even when the app shell was opened before the administrator updated them.
+    const settings = await appStore.fetchPublicSettings(true)
+    contactInfo.value = settings?.contact_info || ''
   } catch (error) {
     console.error('Failed to load contact info:', error)
   }
