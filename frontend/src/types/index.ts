@@ -1162,6 +1162,9 @@ export interface Account {
   } | null
   scheduler_scores?: AccountSchedulerGroupScore[] | null
   priority: number
+  effective_priority?: number
+  temporary_priority_boost?: number
+  temporary_priority_reset_at?: string | null
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
   status: 'active' | 'inactive' | 'error'
   error_message: string | null

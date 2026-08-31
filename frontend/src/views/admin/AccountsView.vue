@@ -378,8 +378,28 @@
               @probe="handleProbeUpstreamBilling(row)"
             />
           </template>
-          <template #cell-priority="{ value }">
-            <span class="text-sm text-gray-700 dark:text-gray-300">{{ value }}</span>
+          <template #cell-priority="{ row, value }">
+            <div class="flex min-w-[7rem] flex-col gap-1">
+              <div class="flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300">
+                <span class="font-mono">{{ row.effective_priority ?? value }}</span>
+                <span
+                  v-if="(row.temporary_priority_boost ?? 0) > 0"
+                  class="inline-flex items-center rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+                  :title="t('admin.accounts.columns.temporaryPriority')"
+                >
+                  {{ t('admin.accounts.columns.temporaryPriorityShort') }} +{{ row.temporary_priority_boost }}
+                </span>
+              </div>
+              <span v-if="temporaryPriorityRemaining(row)" class="text-[11px] text-amber-700 dark:text-amber-300">
+                {{ t('admin.accounts.columns.temporaryPriorityRemaining', { remaining: temporaryPriorityRemaining(row) }) }}
+              </span>
+              <span v-else-if="(row.temporary_priority_boost ?? 0) > 0" class="text-[11px] text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.columns.temporaryPriorityResetting') }}
+              </span>
+              <span v-if="(row.temporary_priority_boost ?? 0) > 0" class="text-[11px] text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.columns.basePriority', { value: row.priority }) }}
+              </span>
+            </div>
           </template>
           <template #header-scheduler_score="{ column }">
             <div class="flex items-center">
@@ -615,6 +635,8 @@ const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
 const upstreamBillingNow = ref(Date.now())
 let lastUpstreamBillingSortRefreshMinute = -1
 useIntervalFn(() => { upstreamBillingNow.value = Date.now() }, 60_000)
+const temporaryPriorityNow = ref(Date.now())
+useIntervalFn(() => { temporaryPriorityNow.value = Date.now() }, 1_000)
 
 // Account tools dropdown
 const showAccountToolsDropdown = ref(false)
@@ -911,6 +933,19 @@ const formatSchedulerScore = (value: unknown): string => {
   const num = Number(value)
   if (!Number.isFinite(num)) return '-'
   return num.toFixed(6).replace(/\.?0+$/, '')
+}
+
+const temporaryPriorityRemaining = (account: Account): string => {
+  const resetAt = account.temporary_priority_reset_at
+  if (!resetAt || (account.temporary_priority_boost ?? 0) <= 0) return ''
+  const remainingSeconds = Math.max(0, Math.ceil((Date.parse(resetAt) - temporaryPriorityNow.value) / 1000))
+  if (remainingSeconds <= 0) return ''
+  const hours = Math.floor(remainingSeconds / 3600)
+  const minutes = Math.floor((remainingSeconds % 3600) / 60)
+  const seconds = remainingSeconds % 60
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
 }
 
 const formatStickySchedulerScore = (score: AccountSchedulerGroupScore): string => {

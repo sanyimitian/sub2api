@@ -3,6 +3,7 @@ package dto
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -56,6 +57,23 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 
 	// 原始 service.Account 不应被改动
 	require.Equal(t, "rt-secret", src.Credentials["refresh_token"])
+}
+
+func TestAccountFromServiceShallow_ExposesTemporaryPriority(t *testing.T) {
+	now := time.Now().UTC()
+	src := &service.Account{
+		ID: 7, Priority: 4,
+		Extra: map[string]any{service.ChannelMonitorPriorityExtraKey: service.ChannelMonitorPriorityState{
+			Boost: 2, Increases: 2, FirstIncreasedAt: now.Add(-10 * time.Second), RecoverySeconds: 3600,
+		}},
+	}
+
+	got := AccountFromServiceShallow(src)
+	require.Equal(t, 4, got.Priority)
+	require.Equal(t, 6, got.EffectivePriority)
+	require.Equal(t, 2, got.TemporaryPriorityBoost)
+	require.NotNil(t, got.TemporaryPriorityResetAt)
+	require.WithinDuration(t, now.Add(3590*time.Second), *got.TemporaryPriorityResetAt, 2*time.Second)
 }
 
 func TestAccountFromServiceShallow_RedactsOllamaCloudManagedExtra(t *testing.T) {

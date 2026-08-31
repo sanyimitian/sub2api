@@ -231,46 +231,64 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	}
 	redactedCreds, credsStatus := RedactCredentials(a.Credentials)
 	extra := redactAccountManagedExtra(a.Extra)
+	now := time.Now().UTC()
+	priorityState := service.ReadChannelMonitorPriorityState(a.Extra)
+	temporaryPriorityBoost := priorityState.EffectiveBoost(now)
+	effectivePriority := a.Priority + temporaryPriorityBoost
+	var temporaryPriorityResetAt *time.Time
+	if temporaryPriorityBoost > 0 && !priorityState.FirstIncreasedAt.IsZero() {
+		recoverySeconds := priorityState.RecoverySeconds
+		if recoverySeconds <= 0 {
+			recoverySeconds = service.DefaultChannelMonitorCooldownSettings().PriorityAutoRecoverySeconds
+		}
+		resetAt := priorityState.FirstIncreasedAt.Add(time.Duration(recoverySeconds) * time.Second)
+		if resetAt.After(now) {
+			temporaryPriorityResetAt = &resetAt
+		}
+	}
 	var ollamaCloudUsage *service.OllamaCloudUsageState
 	if state := service.OllamaCloudUsageStateFromAccount(a); state.Eligible {
 		ollamaCloudUsage = state
 	}
 	out := &Account{
-		ID:                      a.ID,
-		Name:                    a.Name,
-		Notes:                   a.Notes,
-		Platform:                a.Platform,
-		Type:                    a.Type,
-		Credentials:             redactedCreds,
-		CredentialsStatus:       credsStatus,
-		Extra:                   extra,
-		OllamaCloudUsage:        ollamaCloudUsage,
-		ProxyID:                 a.ProxyID,
-		ProxyFallbackOriginID:   a.ProxyFallbackOriginID,
-		ProxyFallbackOriginName: a.ProxyFallbackOriginName,
-		Concurrency:             a.Concurrency,
-		LoadFactor:              a.LoadFactor,
-		Priority:                a.Priority,
-		RateMultiplier:          a.BillingRateMultiplier(),
-		Status:                  a.Status,
-		ErrorMessage:            a.ErrorMessage,
-		LastUsedAt:              a.LastUsedAt,
-		ExpiresAt:               timeToUnixSeconds(a.ExpiresAt),
-		AutoPauseOnExpired:      a.AutoPauseOnExpired,
-		CreatedAt:               a.CreatedAt,
-		UpdatedAt:               a.UpdatedAt,
-		Schedulable:             a.Schedulable,
-		RateLimitedAt:           a.RateLimitedAt,
-		RateLimitResetAt:        a.RateLimitResetAt,
-		OverloadUntil:           a.OverloadUntil,
-		TempUnschedulableUntil:  a.TempUnschedulableUntil,
-		TempUnschedulableReason: a.TempUnschedulableReason,
-		SessionWindowStart:      a.SessionWindowStart,
-		SessionWindowEnd:        a.SessionWindowEnd,
-		SessionWindowStatus:     a.SessionWindowStatus,
-		GroupIDs:                a.GroupIDs,
-		ParentAccountID:         a.ParentAccountID,
-		QuotaDimension:          a.QuotaDimension,
+		ID:                       a.ID,
+		Name:                     a.Name,
+		Notes:                    a.Notes,
+		Platform:                 a.Platform,
+		Type:                     a.Type,
+		Credentials:              redactedCreds,
+		CredentialsStatus:        credsStatus,
+		Extra:                    extra,
+		OllamaCloudUsage:         ollamaCloudUsage,
+		ProxyID:                  a.ProxyID,
+		ProxyFallbackOriginID:    a.ProxyFallbackOriginID,
+		ProxyFallbackOriginName:  a.ProxyFallbackOriginName,
+		Concurrency:              a.Concurrency,
+		LoadFactor:               a.LoadFactor,
+		Priority:                 a.Priority,
+		EffectivePriority:        effectivePriority,
+		TemporaryPriorityBoost:   temporaryPriorityBoost,
+		TemporaryPriorityResetAt: temporaryPriorityResetAt,
+		RateMultiplier:           a.BillingRateMultiplier(),
+		Status:                   a.Status,
+		ErrorMessage:             a.ErrorMessage,
+		LastUsedAt:               a.LastUsedAt,
+		ExpiresAt:                timeToUnixSeconds(a.ExpiresAt),
+		AutoPauseOnExpired:       a.AutoPauseOnExpired,
+		CreatedAt:                a.CreatedAt,
+		UpdatedAt:                a.UpdatedAt,
+		Schedulable:              a.Schedulable,
+		RateLimitedAt:            a.RateLimitedAt,
+		RateLimitResetAt:         a.RateLimitResetAt,
+		OverloadUntil:            a.OverloadUntil,
+		TempUnschedulableUntil:   a.TempUnschedulableUntil,
+		TempUnschedulableReason:  a.TempUnschedulableReason,
+		SessionWindowStart:       a.SessionWindowStart,
+		SessionWindowEnd:         a.SessionWindowEnd,
+		SessionWindowStatus:      a.SessionWindowStatus,
+		GroupIDs:                 a.GroupIDs,
+		ParentAccountID:          a.ParentAccountID,
+		QuotaDimension:           a.QuotaDimension,
 	}
 
 	// 提取 5h 窗口费用控制和会话数量控制配置（仅 Anthropic OAuth/SetupToken 账号有效）
