@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="llmbridge 使用指南：兑换额度、创建 API Key，并配置 Claude Code、Codex 和兼容客户端。"
+    />
+    <title>llmbridge 使用指南</title>
+    <link rel="icon" href="/logo.svg" />
+    <link rel="stylesheet" href="/guide-assets/guide.css" />
+    <script src="/guide-assets/guide.js" defer></script>
+  </head>
+  <body>
+    <button class="menu-toggle" type="button" aria-label="打开文档目录" aria-expanded="false" aria-controls="doc-sidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="nav-overlay" aria-hidden="true"></div>
+
+    <aside class="sidebar" id="doc-sidebar" aria-label="文档目录" aria-hidden="false">
+      <div class="brand-block">
+        <a class="brand-name" href="/">llmbridge</a>
+        <span>AI API 网关使用指南</span>
+      </div>
+      <a class="back-link" href="/">
+        <span aria-hidden="true">←</span>
+        返回主站
+      </a>
+      <div class="sidebar-label">目录</div>
+      <nav class="toc">
+        <a href="#account" data-section="account">一、兑换与创建 Key</a>
+        <a href="#switch" data-section="switch">二、CC Switch 配置</a>
+        <a href="#claude" data-section="claude">三、Claude Code</a>
+        <a href="#codex" data-section="codex">四、Codex 配置</a>
+        <a href="#api" data-section="api">五、直接调用 API</a>
+        <a href="#faq" data-section="faq">六、常见问题</a>
+      </nav>
+      <div class="sidebar-footer">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span>文档随版本持续更新</span>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="page-header">
+        <div class="eyebrow"><span class="eyebrow-dot"></span> llmbridge 使用文档</div>
+        <h1>llmbridge 使用指南</h1>
+        <p class="lead">从兑换额度、创建 API Key，到连接 Claude Code 或 Codex，按顺序操作即可。</p>
+        <div class="header-actions">
+          <a class="site-badge" href="/" target="_blank" rel="noopener">
+            <span class="badge-mark">↗</span>
+            打开当前站点
+          </a>
+          <button class="theme-button" type="button" data-theme-toggle>
+            <span class="theme-icon" aria-hidden="true">☾</span>
+            <span data-theme-label>深色模式</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="doc-section" id="account">
+        <div class="section-title">
+          <span class="section-number">1</span>
+          <h2>兑换额度与创建 API Key</h2>
+        </div>
+
+        <h3>第一步：购买兑换码并兑换额度</h3>
+        <p>先从 <a href="https://wzyp.cn/shop/Y7F3IMDX/15tttf" target="_blank" rel="noopener">兑换码购买页面</a> 获取兑换码，再登录 llmbridge，打开「兑换」页面。</p>
+        <ol class="step-list">
+          <li><span>1</span><div>复制购买后得到的完整兑换码。</div></li>
+          <li><span>2</span><div>点击站内的「兑换」，粘贴兑换码。</div></li>
+          <li><span>3</span><div>再次点击「兑换」，提示成功后额度就会到账。</div></li>
+        </ol>
+        <div class="route-links" aria-label="相关页面快捷入口">
+          <a href="/redeem"><span>↗</span>兑换</a>
+          <a href="/keys"><span>↗</span>API Key</a>
+          <a href="/key-usage"><span>↗</span>查询用量</a>
+        </div>
+        <div class="callout warning">
+          <span class="callout-icon" aria-hidden="true">!</span>
+          <p><strong>兑换码不是 API Key。</strong>兑换码只用来增加额度，调用模型还需要下一步创建的 API Key。</p>
+        </div>
+
+        <h3>第二步：创建 API Key</h3>
+        <p>打开「API 密钥」，点击「创建密钥」，按下面顺序操作：</p>
+        <ol class="step-list">
+          <li><span>1</span><div>填写容易识别的名称，例如 <code>claude-work</code>。</div></li>
+          <li><span>2</span><div>选择支持你要使用模型的分组，具体以页面显示为准。</div></li>
+          <li><span>3</span><div>创建后立即复制完整 Key，并妥善保存。</div></li>
+        </ol>
+        <figure class="screenshot usage-shot">
+          <img src="/guide-assets/llmbridge-key-usage-zh.png" alt="llmbridge API Key 用量查询中文页面" loading="lazy" />
+          <figcaption>输入 Key 可以查询实时消费金额与使用状态</figcaption>
+        </figure>
+      </section>
+
+      <section class="doc-section" id="switch">
+        <div class="section-title">
+          <span class="section-number">2</span>
+          <h2>CC Switch 配置</h2>
+        </div>
+
+        <p>CC Switch 用来保存和切换 Claude Code、Codex 等客户端的连接配置。若您使用 Codex、Claude 客户端，或 VS Code、Trae、Cursor 等 IDE 的 Codex 插件或 Claude Code 插件，强烈建议使用 CC Switch 一键配置。</p>
+        <p><a href="https://github.com/farion1231/cc-switch" target="_blank" rel="noopener">从 CC Switch 项目主页下载安装</a>。具体操作详情可以参考下方视频链接。</p>
+        <div class="video-links" aria-label="CC Switch 视频教程">
+          <a href="https://www.bilibili.com/video/BV1XPNR6dECG" target="_blank" rel="noopener"><span aria-hidden="true">▶</span>下载与安装视频</a>
+          <a href="https://www.bilibili.com/video/BV1ePNR6oETR" target="_blank" rel="noopener"><span aria-hidden="true">▶</span>Claude Code 配置视频</a>
+          <a href="https://www.bilibili.com/video/BV15ANR6tEpB" target="_blank" rel="noopener"><span aria-hidden="true">▶</span>Codex 配置视频</a>
+        </div>
+
+        <h3>供应商填写内容</h3>
+        <p>手动添加供应商时，只需要填下面三项：</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>字段</th><th>填写内容</th></tr></thead>
+            <tbody>
+              <tr><td>供应商名称</td><td><code>llmbridge</code></td></tr>
+              <tr><td>API Key</td><td>第一章创建的完整 Key，一般以 <code>sk-</code> 开头</td></tr>
+              <tr><td>请求地址</td><td><strong>Claude Code：</strong><code>https://llmbridge.top</code><br /><strong>Codex：</strong><code>https://llmbridge.top/v1</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout warning">
+          <span class="callout-icon" aria-hidden="true">!</span>
+          <p><strong>两个地址不要混用。</strong>切换配置后，请完全关闭客户端和终端，再重新打开，否则可能仍在使用旧配置。</p>
+        </div>
+
+        <h3>从网站一键导入</h3>
+        <ol class="step-list">
+          <li><span>1</span><div>打开「API 密钥」，在对应密钥右侧点击「导入到 CCS」。</div></li>
+        </ol>
+        <figure class="screenshot">
+          <img src="/guide-assets/llmbridge-keys-import-ccs.png" alt="在 llmbridge API 密钥页面点击导入到 CCS" loading="lazy" />
+          <figcaption>在密钥右侧点击「导入到 CCS」</figcaption>
+        </figure>
+        <ol class="step-list" start="2">
+          <li><span>2</span><div>CC Switch 会显示即将导入的内容，确认站点地址和供应商名称无误后点击「导入」。</div></li>
+        </ol>
+        <figure class="screenshot screenshot-dialog">
+          <img src="/guide-assets/cc-switch-import-confirm.png" alt="CC Switch 确认导入 llmbridge 供应商配置" loading="lazy" />
+          <figcaption>确认信息无误后点击「导入」</figcaption>
+        </figure>
+        <ol class="step-list" start="3">
+          <li><span>3</span><div>进入 CC Switch 的 Codex 标签，找到导入的 llmbridge 供应商并点击「启用」。</div></li>
+        </ol>
+        <figure class="screenshot screenshot-wide">
+          <img src="/guide-assets/cc-switch-enable-provider.png" alt="在 CC Switch 中启用 llmbridge 供应商" loading="lazy" />
+          <figcaption>点击「启用」后，再重新打开 Codex</figcaption>
+        </figure>
+      </section>
+
+      <section class="doc-section" id="claude">
+        <div class="section-title">
+          <span class="section-number">3</span>
+          <h2>Claude Code 使用</h2>
+        </div>
+
+        <div class="tabs" data-tabs>
+          <div class="tab-bar" role="tablist" aria-label="Claude Code 系统选择">
+            <button class="tab-button is-active" type="button" role="tab" aria-selected="true" data-tab="windows">Windows</button>
+            <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="mac">macOS / Linux</button>
+          </div>
+          <div class="tab-panel is-active" data-panel="windows" role="tabpanel">
+            <h3>1. 安装所需软件</h3>
+            <p>安装 <a href="https://nodejs.org/" target="_blank" rel="noopener">Node.js 长期支持版</a> 和 <a href="https://git-scm.com/install/windows" target="_blank" rel="noopener">Git for Windows</a>，安装时保持默认选项即可。然后打开 PowerShell，运行：</p>
+            <div class="code-block"><button class="copy-button" type="button" aria-label="复制安装命令">复制</button><pre><code>npm install -g @anthropic-ai/claude-code</code></pre></div>
+            <h3>2. 连接 llmbridge</h3>
+            <p>使用 CC Switch 时，选择第二章创建的 <code>llmbridge</code> 配置即可。不使用 CC Switch 时，在 PowerShell 运行：</p>
+            <div class="code-block"><button class="copy-button" type="button" aria-label="复制环境变量命令">复制</button><pre><code>[Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "https://llmbridge.top", "User")
+[Environment]::SetEnvironmentVariable("ANTHROPIC_AUTH_TOKEN", "把这里换成你的API-Key", "User")</code></pre></div>
+            <h3>3. 启动</h3>
+            <p>关闭并重新打开 PowerShell，进入项目目录后运行 <code>claude</code>。能正常进入对话界面即表示配置成功。</p>
+          </div>
+          <div class="tab-panel" data-panel="mac" role="tabpanel" hidden>
+            <h3>1. 安装 Claude Code</h3>
+            <p>先安装 <a href="https://nodejs.org/" target="_blank" rel="noopener">Node.js 长期支持版</a>，再打开终端运行：</p>
+            <div class="code-block"><button class="copy-button" type="button" aria-label="复制安装命令">复制</button><pre><code>npm install -g @anthropic-ai/claude-code
+claude --version</code></pre></div>
+            <h3>2. 连接 llmbridge</h3>
+            <p>使用 CC Switch 时直接选择 <code>llmbridge</code> 配置。不使用时，将下面内容加入 <code>~/.zshrc</code>；Linux 的 bash 用户改为 <code>~/.bashrc</code>。</p>
+            <div class="code-block"><button class="copy-button" type="button" aria-label="复制环境变量配置">复制</button><pre><code>export ANTHROPIC_BASE_URL="https://llmbridge.top"
+export ANTHROPIC_AUTH_TOKEN="把这里换成你的API-Key"</code></pre></div>
+            <h3>3. 启动</h3>
+            <p>重新打开终端，进入项目目录后运行 <code>claude</code>。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="doc-section" id="codex">
+        <div class="section-title">
+          <span class="section-number">4</span>
+          <h2>Codex 配置</h2>
+        </div>
+
+        <p>安装 <a href="https://openai.com/codex/" target="_blank" rel="noopener">Codex</a> 后，建议直接通过 CC Switch 添加 OpenAI 兼容供应商，也可以在其他支持自定义接口地址的客户端中填写：</p>
+        <div class="endpoint-box">
+          <div><span>供应商名称</span><code>llmbridge</code></div>
+          <div><span>Base URL</span><code>https://llmbridge.top/v1</code></div>
+          <div><span>API Key</span><code>第一章创建的 API Key</code></div>
+          <div><span>模型</span><code>选择页面中实际可用的模型</code></div>
+        </div>
+        <div class="callout info">
+          <span class="callout-icon" aria-hidden="true">i</span>
+          <p>ChatGPT 官方网页和官方客户端不能直接填写第三方接口地址。需要使用 llmbridge 时，请选择 Codex 或支持自定义 OpenAI 接口地址的客户端。</p>
+        </div>
+        <p>保存后完全退出并重新打开客户端，再发送一条短消息。能收到回复即表示连接成功。</p>
+      </section>
+
+      <section class="doc-section" id="api">
+        <div class="section-title">
+          <span class="section-number">5</span>
+          <h2>直接调用 API</h2>
+        </div>
+        <p>自己的程序可以直接调用 OpenAI 兼容接口。请把 Key 和模型名换成控制台中的实际内容。</p>
+        <h3>curl 示例</h3>
+        <div class="code-block"><button class="copy-button" type="button" aria-label="复制 curl 示例">复制</button><pre><code>curl https://llmbridge.top/v1/chat/completions \
+  -H 'Authorization: Bearer 你的API-Key' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"你的模型名","messages":[{"role":"user","content":"你好，请用一句话介绍自己。"}]}'</code></pre></div>
+        <h3>OpenAI SDK 示例</h3>
+        <div class="code-block"><button class="copy-button" type="button" aria-label="复制 SDK 示例">复制</button><pre><code>from openai import OpenAI
+
+client = OpenAI(
+    api_key="你的API-Key",
+    base_url="https://llmbridge.top/v1",
+)
+
+response = client.chat.completions.create(
+    model="你的模型名",
+    messages=[{"role": "user", "content": "你好"}],
+)
+print(response.choices[0].message.content)</code></pre></div>
+        <div class="callout warning">
+          <span class="callout-icon" aria-hidden="true">!</span>
+          <p>生产环境不要把 API Key 写进前端代码、公开仓库或聊天截图。建议使用环境变量，例如 <code>OPENAI_API_KEY</code>，并为不同项目创建不同的 Key。</p>
+        </div>
+      </section>
+
+      <section class="doc-section" id="faq">
+        <div class="section-title">
+          <span class="section-number">6</span>
+          <h2>常见问题</h2>
+        </div>
+
+        <details open>
+          <summary>请求失败、超时或返回 404</summary>
+          <div class="details-body"><ol class="check-list"><li>Claude 地址应为 <code>https://llmbridge.top</code>。</li><li>Codex 地址应为 <code>https://llmbridge.top/v1</code>，不要重复添加 <code>/v1</code>。</li><li>确认 API Key 完整、额度充足，并且所选分组支持当前模型。</li></ol></div>
+        </details>
+        <details>
+          <summary>CC Switch 切换后没有生效</summary>
+          <div class="details-body"><p>先退出 AI 工具和终端，再在 CC Switch 中切换，最后重新打开工具。已经打开的进程不会自动读取新的环境变量。</p></div>
+        </details>
+        <details>
+          <summary>模型不可用或不知道模型名称</summary>
+          <div class="details-body"><p>不要照抄其他教程中的模型名。请使用 llmbridge 页面或管理员提供的可用模型名称，并确认 API Key 所属分组支持它。</p></div>
+        </details>
+        <details>
+          <summary>API Key 泄露了怎么办</summary>
+          <div class="details-body"><p>立即在「API Keys」中禁用或删除旧 Key，再创建新 Key。不要把完整 Key 发给任何人，也不要放进截图或公开代码。</p></div>
+        </details>
+
+        <div class="support-box">
+          <div><span class="support-icon">?</span><div><strong>仍然无法调用？</strong><p>请把请求时间、客户端、状态码和脱敏后的错误信息发给管理员。不要发送完整 API Key。</p></div></div>
+          <a href="/" class="support-link">返回站点 <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+
+      <footer class="doc-footer">
+        <span>llmbridge 使用指南</span>
+        <span>页面截图来自 <a href="https://llmbridge.top/" target="_blank" rel="noopener">llmbridge.top</a></span>
+      </footer>
+    </main>
+  </body>
+</html>

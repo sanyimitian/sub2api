@@ -627,7 +627,7 @@ export default {
         contactInfoPlaceholder: '例如：QQ: 123456789',
         contactInfoHint: '填写客服联系方式，将展示在兑换页面、个人资料等位置',
         docUrl: '文档链接',
-        docUrlHint: '文档网站的链接。留空则隐藏文档链接。',
+        docUrlHint: '文档网站的链接。留空则使用内置使用指南。',
         docUrlPlaceholder: 'https://docs.example.com',
         siteLogo: '站点Logo',
         uploadImage: '上传图片',
