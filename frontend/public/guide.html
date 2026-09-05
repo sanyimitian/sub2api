@@ -102,7 +102,7 @@
         </div>
 
         <p>CC Switch 用来保存和切换 Claude Code、Codex 等客户端的连接配置。若您使用 Codex、Claude 客户端，或 VS Code、Trae、Cursor 等 IDE 的 Codex 插件或 Claude Code 插件，强烈建议使用 CC Switch 一键配置。</p>
-        <p><a href="https://github.com/farion1231/cc-switch" target="_blank" rel="noopener">从 CC Switch 项目主页下载安装</a>。具体操作详情可以参考下方视频链接。</p>
+        <p><a href="https://ccswitch.io/zh/download" target="_blank" rel="noopener">官方下载</a>　<a href="https://github.com/farion1231/cc-switch" target="_blank" rel="noopener">前往 CC Switch 项目主页下载</a>。具体操作详情可以参考下方视频链接。</p>
         <div class="video-links" aria-label="CC Switch 视频教程">
           <a href="https://www.bilibili.com/video/BV1XPNR6dECG" target="_blank" rel="noopener"><span aria-hidden="true">▶</span>下载与安装视频</a>
           <a href="https://www.bilibili.com/video/BV1ePNR6oETR" target="_blank" rel="noopener"><span aria-hidden="true">▶</span>Claude Code 配置视频</a>
@@ -193,7 +193,30 @@ export ANTHROPIC_AUTH_TOKEN="把这里换成你的API-Key"</code></pre></div>
           <h2>Codex 配置</h2>
         </div>
 
-        <p>安装 <a href="https://openai.com/codex/" target="_blank" rel="noopener">Codex</a> 后，建议直接通过 CC Switch 添加 OpenAI 兼容供应商，也可以在其他支持自定义接口地址的客户端中填写：</p>
+        <p>请按您的系统选择 Codex 官方版本下载。下载链接会自动指向最新版。</p>
+        <div class="download-rows" aria-label="Codex 官方下载链接">
+          <div class="download-row">
+            <span class="download-platform">Windows</span>
+            <a href="https://github.com/openai/codex/releases/latest/download/codex-x86_64-pc-windows-msvc.exe" target="_blank" rel="noopener"><span aria-hidden="true">↓</span>终端版（x64）</a>
+            <a href="https://github.com/openai/codex/releases/latest/download/codex-aarch64-pc-windows-msvc.exe" target="_blank" rel="noopener"><span aria-hidden="true">↓</span>终端版（ARM64）</a>
+            <a href="https://marketplace.visualstudio.com/_apis/public/gallery/publishers/openai/vsextensions/chatgpt/latest/vspackage" target="_blank" rel="noopener"><span aria-hidden="true">↓</span>VS Code 插件版</a>
+          </div>
+          <div class="download-row">
+            <span class="download-platform">macOS</span>
+            <a href="https://github.com/openai/codex/releases/latest/download/codex-aarch64-apple-darwin.dmg" target="_blank" rel="noopener"><span aria-hidden="true">↓</span>桌面版（Apple 芯片）</a>
+            <a href="https://github.com/openai/codex/releases/latest/download/codex-x86_64-apple-darwin.dmg" target="_blank" rel="noopener"><span aria-hidden="true">↓</span>桌面版（Intel）</a>
+            <a href="https://github.com/openai/codex/releases/latest/download/codex-x86_64-apple-darwin.tar.gz" target="_blank" rel="noopener"><span aria-hidden="true">↓</span>终端版</a>
+            <a href="https://marketplace.visualstudio.com/_apis/public/gallery/publishers/openai/vsextensions/chatgpt/latest/vspackage" target="_blank" rel="noopener"><span aria-hidden="true">↓</span>VS Code 插件版</a>
+          </div>
+          <div class="download-row">
+            <span class="download-platform">Linux</span>
+            <a href="https://github.com/openai/codex/releases/latest/download/codex-x86_64-unknown-linux-musl.tar.gz" target="_blank" rel="noopener"><span aria-hidden="true">↓</span>终端版（x64）</a>
+            <a href="https://github.com/openai/codex/releases/latest/download/codex-aarch64-unknown-linux-musl.tar.gz" target="_blank" rel="noopener"><span aria-hidden="true">↓</span>终端版（ARM64）</a>
+            <a href="https://marketplace.visualstudio.com/_apis/public/gallery/publishers/openai/vsextensions/chatgpt/latest/vspackage" target="_blank" rel="noopener"><span aria-hidden="true">↓</span>VS Code 插件版</a>
+          </div>
+        </div>
+        <p class="muted-note">如果官方地址无法访问(可能需要魔法)，可<a href="https://1832852070.share.123pan.cn/123pan/kCPdTd-csuwA" target="_blank" rel="noopener">前往123网盘下载</a>。</p>
+        <p>安装完成后，建议直接通过 CC Switch 添加 OpenAI 兼容供应商，也可以在其他支持自定义接口地址的客户端中填写：</p>
         <div class="endpoint-box">
           <div><span>供应商名称</span><code>llmbridge</code></div>
           <div><span>Base URL</span><code>https://llmbridge.top/v1</code></div>

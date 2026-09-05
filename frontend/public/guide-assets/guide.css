@@ -140,6 +140,12 @@ pre code { border: 0; border-radius: 0; background: transparent; padding: 0; col
 .route-links a { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); padding: 7px 10px; color: var(--ink-soft); font-size: 0.8rem; font-weight: 650; text-decoration: none; }
 .route-links a:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
 .route-links a span { color: var(--accent); font-size: 0.95rem; }
+.download-rows { margin: 14px 0 18px; }
+.download-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.download-platform { flex: 0 0 58px; color: var(--ink); font-size: 0.82rem; font-weight: 750; }
+.download-row a { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); padding: 7px 10px; color: var(--ink-soft); font-size: 0.8rem; font-weight: 650; text-decoration: none; }
+.download-row a:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+.download-row a span { color: var(--accent); font-size: 0.95rem; }
 
 .video-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 22px; }
 .video-links a { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); padding: 8px 11px; color: var(--ink-soft); font-size: 0.82rem; font-weight: 650; text-decoration: none; }
