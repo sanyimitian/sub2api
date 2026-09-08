@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -104,14 +105,19 @@ func (s *memoryChannelMonitorCooldownStore) Current(_ context.Context, accountID
 
 // ChannelMonitorProbeOutcome is the one terminal observation for an attempt.
 type ChannelMonitorProbeOutcome struct {
-	Err        error
-	HTTPStatus int
-	Duration   time.Duration
+	Err            error
+	HTTPStatus     int
+	Duration       time.Duration
+	TransportState ChannelMonitorTransportState
 }
 type ChannelMonitorProbeAttempt struct {
 	AccountID  int64
 	StartedAt  time.Time
 	generation int64
+	monitorID  int64
+	requestID  string
+	ledger     ChannelMonitorRequestLedgerStore
+	state      *channelMonitorProbeLedgerState
 	terminal   sync.Once
 }
 
@@ -279,6 +285,7 @@ type ChannelMonitorProbeObserver struct {
 	store    ChannelMonitorCooldownStore
 	priority *channelMonitorPriorityAdjuster
 	settings func(context.Context) (*ChannelMonitorCooldownSettings, error)
+	ledger   ChannelMonitorRequestLedgerStore
 }
 
 type channelMonitorCooldownGenerationReader interface {
@@ -292,6 +299,31 @@ func NewChannelMonitorProbeObserver(store ChannelMonitorCooldownStore, priority 
 		}
 	}
 	return &ChannelMonitorProbeObserver{store: store, priority: priority, settings: settings}
+}
+
+// SetRequestLedger installs the shared Redis request-attempt ledger. Keeping
+// this setter preserves the constructor contract used by existing callers and
+// tests while allowing the server wire to share one store across gateways and
+// the checker service.
+func (o *ChannelMonitorProbeObserver) SetRequestLedger(ledger ChannelMonitorRequestLedgerStore) {
+	if o != nil {
+		o.ledger = ledger
+	}
+}
+
+func (o *ChannelMonitorProbeObserver) disableLedger(ctx context.Context, attempt *ChannelMonitorProbeAttempt, stage string, err error) {
+	if attempt == nil {
+		return
+	}
+	if attempt.state != nil {
+		attempt.state.disabled.Store(true)
+	}
+	slog.ErrorContext(ctx, "channel monitor cooldown request disabled",
+		"monitor_id", attempt.monitorID,
+		"request_id", attempt.requestID,
+		"stage", stage,
+		"error", err,
+	)
 }
 
 // ChannelMonitorCooldownSettingsProvider exposes the validated runtime policy
@@ -311,11 +343,32 @@ func (o *ChannelMonitorProbeObserver) Begin(ctx context.Context, account *Accoun
 	if account.Type != AccountTypeAPIKey || account.IsPoolMode() {
 		return nil
 	}
-	attempt := &ChannelMonitorProbeAttempt{AccountID: account.ID, StartedAt: started}
+	probe, ok := ChannelMonitorProbeFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	state := channelMonitorProbeLedgerStateFromContext(ctx)
+	if state != nil && state.disabled.Load() {
+		return nil
+	}
+	attempt := &ChannelMonitorProbeAttempt{AccountID: account.ID, StartedAt: started, monitorID: probe.MonitorID, requestID: probe.RequestID, ledger: o.ledger, state: state}
+	if attempt.ledger == nil {
+		o.disableLedger(ctx, attempt, "ledger_unconfigured", errors.New("request ledger is not configured"))
+		return nil
+	}
 	if reader, ok := o.store.(channelMonitorCooldownGenerationReader); ok {
-		if event, err := reader.Current(ctx, account.ID); err == nil {
-			attempt.generation = event.Generation
+		event, err := reader.Current(ctx, account.ID)
+		if err != nil {
+			o.disableLedger(ctx, attempt, "read_generation", err)
+			return nil
 		}
+		attempt.generation = event.Generation
+	}
+	operationCtx, cancel := channelMonitorLedgerOperationContext(ctx, false)
+	defer cancel()
+	if _, err := attempt.ledger.RegisterAttempt(operationCtx, attempt.monitorID, attempt.requestID, attempt.AccountID, attempt.generation, ChannelMonitorRequestLedgerTTL); err != nil {
+		o.disableLedger(ctx, attempt, "register_attempt", err)
+		return nil
 	}
 	return attempt
 }
@@ -339,40 +392,75 @@ func (o *ChannelMonitorProbeObserver) Finish(ctx context.Context, attempt *Chann
 		if isProbe && outcome.Err == nil && ctx != nil && ctx.Err() != nil {
 			outcome.Err = ctx.Err()
 		}
-		// Probe requests are expected to be canceled when the client-side
-		// response-header timeout fires. Keep the trusted probe values while
-		// detaching persistence from that cancellation so Redis/database writes
-		// can record the failure.
-		operationCtx := ctx
-		if isProbe && ctx != nil {
-			operationCtx = context.WithoutCancel(ctx)
-		}
-		cfg, _ := o.settings(operationCtx)
-		if cfg == nil {
-			cfg = DefaultChannelMonitorCooldownSettings()
-		}
 		now := time.Now().UTC()
 		if outcome.Duration <= 0 && !attempt.StartedAt.IsZero() {
 			outcome.Duration = now.Sub(attempt.StartedAt)
 		}
-		if outcome.Err == nil {
-			if o.store != nil {
-				_ = o.store.ObserveSuccess(operationCtx, attempt.AccountID, attempt.generation, now)
-			}
-			if o.priority != nil {
-				_ = o.priority.Observe(operationCtx, attempt.AccountID, int(outcome.Duration/time.Second), now, cfg)
-			}
+		if attempt.state != nil && attempt.state.disabled.Load() {
 			return
 		}
-		if o.store != nil {
-			if e, err := o.store.ObserveFailure(operationCtx, attempt.AccountID, now, cfg.CooldownMinutes); err == nil {
-				attempt.generation = e.Generation
-			}
+		state := outcome.TransportState
+		if outcome.Err != nil {
+			state = ChannelMonitorTransportFailed
+		} else if state == "" {
+			state = ChannelMonitorTransportSucceeded
 		}
-		if o.priority != nil {
-			_ = o.priority.Observe(operationCtx, attempt.AccountID, int(outcome.Duration/time.Second), now, cfg)
+		operationCtx, cancel := channelMonitorLedgerOperationContext(ctx, true)
+		defer cancel()
+		if err := attempt.ledger.RecordTransport(operationCtx, attempt.monitorID, attempt.requestID, attempt.AccountID, state, int(outcome.Duration/time.Second)); err != nil {
+			o.disableLedger(ctx, attempt, "record_transport", err)
 		}
 	})
+}
+
+// Finalize atomically attributes the final checker result to every complete
+// target attempt in the request ledger. Errors are diagnostic-only: monitor
+// status and the original gateway response are never changed.
+func (o *ChannelMonitorProbeObserver) Finalize(ctx context.Context, monitorID int64, requestID, finalStatus string) {
+	if o == nil || o.ledger == nil || monitorID <= 0 || requestID == "" {
+		return
+	}
+	operationCtx, cancel := channelMonitorLedgerOperationContext(ctx, true)
+	defer cancel()
+	cfg, _ := o.settings(operationCtx)
+	if cfg == nil {
+		cfg = DefaultChannelMonitorCooldownSettings()
+	}
+	now := time.Now().UTC()
+	result, err := o.ledger.Finalize(operationCtx, monitorID, requestID, finalStatus, now, cfg.CooldownMinutes)
+	if err != nil {
+		slog.ErrorContext(ctx, "channel monitor cooldown request disabled",
+			"monitor_id", monitorID,
+			"request_id", requestID,
+			"stage", "final_attribution",
+			"error", err,
+		)
+		return
+	}
+	if !result.Claimed || o.priority == nil {
+		return
+	}
+	probeCtx := WithChannelMonitorProbe(operationCtx, ChannelMonitorProbe{MonitorID: monitorID, RequestID: requestID})
+	for _, attempt := range result.Ledger.Attempts {
+		if err := o.priority.Observe(probeCtx, attempt.AccountID, attempt.DurationSeconds, now, cfg); err != nil {
+			slog.ErrorContext(ctx, "channel monitor priority observation failed",
+				"monitor_id", monitorID,
+				"request_id", requestID,
+				"account_id", attempt.AccountID,
+				"stage", "final_priority",
+				"error", err,
+			)
+		}
+	}
+}
+
+func channelMonitorLedgerOperationContext(ctx context.Context, detach bool) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	} else if detach {
+		ctx = context.WithoutCancel(ctx)
+	}
+	return context.WithTimeout(ctx, 500*time.Millisecond)
 }
 
 func (s ChannelMonitorCooldownSettings) Validate() error {

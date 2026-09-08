@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -43,6 +44,14 @@ type ChannelMonitorProbe struct {
 
 type channelMonitorProbeContextKey struct{}
 type channelMonitorProbeCancelKey struct{}
+type channelMonitorProbeLedgerStateKey struct{}
+
+// channelMonitorProbeLedgerState is request-scoped health state. It is not a
+// persistence fallback: it only prevents later callbacks in the same request
+// from retrying a Redis operation after that request has been disabled.
+type channelMonitorProbeLedgerState struct {
+	disabled atomic.Bool
+}
 
 // ChannelMonitorProbeSigner signs and verifies internal probe markers. The
 // key should be the deployment's existing JWT/security secret and must be
@@ -146,7 +155,8 @@ func WithChannelMonitorProbe(ctx context.Context, probe ChannelMonitorProbe) con
 	if probe.MonitorID <= 0 || strings.TrimSpace(probe.RequestID) == "" {
 		return ctx
 	}
-	return context.WithValue(ctx, channelMonitorProbeContextKey{}, probe)
+	ctx = context.WithValue(ctx, channelMonitorProbeContextKey{}, probe)
+	return context.WithValue(ctx, channelMonitorProbeLedgerStateKey{}, &channelMonitorProbeLedgerState{})
 }
 
 // ChannelMonitorProbeFromContext returns the trusted probe identity, if any.
@@ -156,6 +166,14 @@ func ChannelMonitorProbeFromContext(ctx context.Context) (ChannelMonitorProbe, b
 	}
 	probe, ok := ctx.Value(channelMonitorProbeContextKey{}).(ChannelMonitorProbe)
 	return probe, ok && probe.MonitorID > 0 && strings.TrimSpace(probe.RequestID) != ""
+}
+
+func channelMonitorProbeLedgerStateFromContext(ctx context.Context) *channelMonitorProbeLedgerState {
+	if ctx == nil {
+		return nil
+	}
+	state, _ := ctx.Value(channelMonitorProbeLedgerStateKey{}).(*channelMonitorProbeLedgerState)
+	return state
 }
 
 // CancelChannelMonitorProbe releases the request-timeout timer installed for

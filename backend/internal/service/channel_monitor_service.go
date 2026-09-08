@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -81,8 +82,9 @@ type ChannelMonitorService struct {
 	// quotaFetcher 由 wire 通过 SetQuotaFetcher 注入（accountUsage/CN 服务在本服务
 	// 之后构造，构造参数注入会破坏既有依赖顺序）。nil 时 fail-closed：
 	// 配额模式的检测产出「未配置」错误快照，Create/Update 关联账号直接报错。
-	quotaFetcher *ChannelMonitorQuotaFetcher
-	probeSigner  *ChannelMonitorProbeSigner
+	quotaFetcher  *ChannelMonitorQuotaFetcher
+	probeSigner   *ChannelMonitorProbeSigner
+	probeObserver *ChannelMonitorProbeObserver
 }
 
 const maxChannelMonitorNameRunes = 100
@@ -103,6 +105,14 @@ func NewChannelMonitorService(repo ChannelMonitorRepository, encryptor SecretEnc
 func (s *ChannelMonitorService) SetProbeSigner(signer *ChannelMonitorProbeSigner) {
 	if s != nil {
 		s.probeSigner = signer
+	}
+}
+
+// SetProbeObserver installs the same observer used by both gateway services so
+// checker results finalize the Redis ledger created by the selected accounts.
+func (s *ChannelMonitorService) SetProbeObserver(observer *ChannelMonitorProbeObserver) {
+	if s != nil {
+		s.probeObserver = observer
 	}
 }
 
@@ -732,13 +742,21 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 		i, model := i, model
 		eg.Go(func() error {
 			modelOpts := opts
+			requestID := ""
 			if m.UseCurrentService && s.probeSigner != nil {
 				modelOpts = cloneCheckOptions(opts)
-				if marker, err := s.probeSigner.Sign(m.ID, fmt.Sprintf("%d-%d", m.ID, time.Now().UnixNano()), time.Now().UTC()); err == nil {
+				requestID = uuid.NewString()
+				if marker, err := s.probeSigner.Sign(m.ID, requestID, time.Now().UTC()); err == nil {
 					modelOpts.ProbeMarker = marker
+				} else {
+					slog.ErrorContext(ctx, "channel monitor probe marker signing failed", "monitor_id", m.ID, "request_id", requestID, "error", err)
+					requestID = ""
 				}
 			}
 			r := runCheckForModel(ctx, m.Provider, m.Endpoint, m.APIKey, model, modelOpts)
+			if requestID != "" && s.probeObserver != nil {
+				s.probeObserver.Finalize(ctx, m.ID, requestID, r.Status)
+			}
 			r.PingLatencyMs = pingMs
 			mu.Lock()
 			results[i] = r

@@ -3,12 +3,121 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+type testChannelMonitorLedger struct {
+	mu      sync.Mutex
+	store   ChannelMonitorCooldownStore
+	ledgers map[string]*ChannelMonitorRequestLedger
+	claimed map[string]bool
+}
+
+func newTestChannelMonitorLedger(store ChannelMonitorCooldownStore) *testChannelMonitorLedger {
+	return &testChannelMonitorLedger{store: store, ledgers: make(map[string]*ChannelMonitorRequestLedger), claimed: make(map[string]bool)}
+}
+
+func (s *testChannelMonitorLedger) key(monitorID int64, requestID string) string {
+	return fmt.Sprintf("%d:%s", monitorID, requestID)
+}
+func (s *testChannelMonitorLedger) RegisterAttempt(_ context.Context, monitorID int64, requestID string, accountID, generation int64, _ time.Duration) (ChannelMonitorLedgerAttempt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := s.key(monitorID, requestID)
+	ledger := s.ledgers[key]
+	if ledger == nil {
+		ledger = &ChannelMonitorRequestLedger{MonitorID: monitorID, RequestID: requestID}
+		s.ledgers[key] = ledger
+	}
+	for _, attempt := range ledger.Attempts {
+		if attempt.AccountID == accountID {
+			return attempt, nil
+		}
+	}
+	attempt := ChannelMonitorLedgerAttempt{AccountID: accountID, Generation: generation, TransportState: ChannelMonitorTransportUnknown}
+	ledger.Attempts = append(ledger.Attempts, attempt)
+	return attempt, nil
+}
+func (s *testChannelMonitorLedger) RecordTransport(_ context.Context, monitorID int64, requestID string, accountID int64, state ChannelMonitorTransportState, durationSeconds int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ledger := s.ledgers[s.key(monitorID, requestID)]
+	if ledger == nil {
+		return errors.New("ledger not found")
+	}
+	for i := range ledger.Attempts {
+		if ledger.Attempts[i].AccountID == accountID {
+			if ledger.Attempts[i].TransportState != ChannelMonitorTransportFailed || state == ChannelMonitorTransportFailed {
+				ledger.Attempts[i].TransportState = state
+			}
+			ledger.Attempts[i].DurationSeconds = durationSeconds
+			ledger.Attempts[i].Terminal = true
+			return nil
+		}
+	}
+	return errors.New("attempt not found")
+}
+func (s *testChannelMonitorLedger) Read(_ context.Context, monitorID int64, requestID string) (ChannelMonitorRequestLedger, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ledger := s.ledgers[s.key(monitorID, requestID)]
+	if ledger == nil {
+		return ChannelMonitorRequestLedger{}, errors.New("ledger not found")
+	}
+	return *ledger, nil
+}
+func (s *testChannelMonitorLedger) Finalize(ctx context.Context, monitorID int64, requestID, status string, now time.Time, ladder []int) (ChannelMonitorFinalAttribution, error) {
+	s.mu.Lock()
+	key := s.key(monitorID, requestID)
+	ledger := s.ledgers[key]
+	if ledger == nil {
+		s.mu.Unlock()
+		return ChannelMonitorFinalAttribution{}, errors.New("ledger not found")
+	}
+	if s.claimed[key] {
+		result := ChannelMonitorFinalAttribution{Ledger: *ledger}
+		s.mu.Unlock()
+		return result, nil
+	}
+	for _, attempt := range ledger.Attempts {
+		if !attempt.Terminal {
+			s.mu.Unlock()
+			return ChannelMonitorFinalAttribution{}, errors.New("ledger incomplete")
+		}
+	}
+	copyLedger := *ledger
+	copyLedger.Attempts = append([]ChannelMonitorLedgerAttempt(nil), ledger.Attempts...)
+	ledger.Completed = true
+	ledger.FinalStatus = status
+	s.claimed[key] = true
+	s.mu.Unlock()
+	failed := status == MonitorStatusFailed || status == MonitorStatusError
+	for _, attempt := range copyLedger.Attempts {
+		if failed || attempt.TransportState == ChannelMonitorTransportFailed {
+			if _, err := s.store.ObserveFailure(ctx, attempt.AccountID, now, ladder); err != nil {
+				return ChannelMonitorFinalAttribution{}, err
+			}
+		} else if attempt.TransportState == ChannelMonitorTransportSucceeded {
+			if err := s.store.ObserveSuccess(ctx, attempt.AccountID, attempt.Generation, now); err != nil {
+				return ChannelMonitorFinalAttribution{}, err
+			}
+		}
+	}
+	return ChannelMonitorFinalAttribution{Ledger: copyLedger, Claimed: true}, nil
+}
+
+func newTestChannelMonitorObserver(store ChannelMonitorCooldownStore) *ChannelMonitorProbeObserver {
+	o := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {
+		return DefaultChannelMonitorCooldownSettings(), nil
+	})
+	o.SetRequestLedger(newTestChannelMonitorLedger(store))
+	return o
+}
 
 func TestChannelMonitorCooldownMemoryStoreLadderAndMerge(t *testing.T) {
 	store := NewMemoryChannelMonitorCooldownStore()
@@ -70,9 +179,7 @@ func TestChannelMonitorCooldownZeroGenerationSuccessCannotClearFailure(t *testin
 
 func TestChannelMonitorProbeObserverIgnoresOrdinaryAndCanceledRequests(t *testing.T) {
 	store := NewMemoryChannelMonitorCooldownStore()
-	observer := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {
-		return DefaultChannelMonitorCooldownSettings(), nil
-	})
+	observer := newTestChannelMonitorObserver(store)
 	attempt := observer.Begin(context.Background(), &Account{ID: 12, Type: AccountTypeAPIKey}, time.Now())
 	require.Nil(t, attempt)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -87,13 +194,12 @@ func TestChannelMonitorProbeObserverIgnoresOrdinaryAndCanceledRequests(t *testin
 
 func TestChannelMonitorProbeObserverRecordsProbeClientCancellation(t *testing.T) {
 	store := NewMemoryChannelMonitorCooldownStore()
-	observer := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {
-		return DefaultChannelMonitorCooldownSettings(), nil
-	})
+	observer := newTestChannelMonitorObserver(store)
 	ctx := WithChannelMonitorProbe(context.Background(), ChannelMonitorProbe{MonitorID: 1, RequestID: "probe-cancel"})
 	attempt := observer.Begin(ctx, &Account{ID: 13, Type: AccountTypeAPIKey}, time.Now())
 	require.NotNil(t, attempt)
 	observer.Finish(ctx, attempt, ChannelMonitorProbeOutcome{Err: context.Canceled})
+	observer.Finalize(ctx, 1, "probe-cancel", MonitorStatusError)
 	active, err := store.IsCooling(context.Background(), 13, time.Now())
 	require.NoError(t, err)
 	require.True(t, active)
@@ -101,14 +207,13 @@ func TestChannelMonitorProbeObserverRecordsProbeClientCancellation(t *testing.T)
 
 func TestChannelMonitorProbeObserverLateSuccessAfterCancellationRecordsFailure(t *testing.T) {
 	store := NewMemoryChannelMonitorCooldownStore()
-	observer := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {
-		return DefaultChannelMonitorCooldownSettings(), nil
-	})
+	observer := newTestChannelMonitorObserver(store)
 	ctx, cancel := context.WithCancel(WithChannelMonitorProbe(context.Background(), ChannelMonitorProbe{MonitorID: 1, RequestID: "late-success"}))
 	attempt := observer.Begin(ctx, &Account{ID: 14, Type: AccountTypeAPIKey}, time.Now())
 	require.NotNil(t, attempt)
 	cancel()
 	observer.Finish(ctx, attempt, ChannelMonitorProbeOutcome{})
+	observer.Finalize(ctx, 1, "late-success", MonitorStatusError)
 	active, err := store.IsCooling(context.Background(), 14, time.Now())
 	require.NoError(t, err)
 	require.True(t, active)
@@ -117,14 +222,13 @@ func TestChannelMonitorProbeObserverLateSuccessAfterCancellationRecordsFailure(t
 func TestChannelMonitorProbeObserverPersistsFailureWithCanceledContext(t *testing.T) {
 	base := NewMemoryChannelMonitorCooldownStore()
 	store := &cancelAwareChannelMonitorCooldownStore{inner: base}
-	observer := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {
-		return DefaultChannelMonitorCooldownSettings(), nil
-	})
+	observer := newTestChannelMonitorObserver(store)
 	ctx, cancel := context.WithCancel(WithChannelMonitorProbe(context.Background(), ChannelMonitorProbe{MonitorID: 1, RequestID: "canceled-store"}))
 	attempt := observer.Begin(ctx, &Account{ID: 15, Type: AccountTypeAPIKey}, time.Now())
 	require.NotNil(t, attempt)
 	cancel()
 	observer.Finish(ctx, attempt, ChannelMonitorProbeOutcome{Err: context.Canceled})
+	observer.Finalize(ctx, 1, "canceled-store", MonitorStatusError)
 	active, err := base.IsCooling(context.Background(), 15, time.Now())
 	require.NoError(t, err)
 	require.True(t, active)
@@ -152,16 +256,14 @@ func (s *cancelAwareChannelMonitorCooldownStore) IsCooling(ctx context.Context, 
 	return s.inner.IsCooling(ctx, accountID, now)
 }
 
-
 func TestChannelMonitorProbeObserverRecordsOnlyOneTerminalOutcome(t *testing.T) {
 	store := NewMemoryChannelMonitorCooldownStore()
-	observer := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {
-		return DefaultChannelMonitorCooldownSettings(), nil
-	})
+	observer := newTestChannelMonitorObserver(store)
 	ctx := WithChannelMonitorProbe(context.Background(), ChannelMonitorProbe{MonitorID: 1, RequestID: "r"})
 	attempt := observer.Begin(ctx, &Account{ID: 12, Type: AccountTypeAPIKey}, time.Now())
 	observer.Finish(ctx, attempt, ChannelMonitorProbeOutcome{Err: errors.New("boom")})
 	observer.Finish(ctx, attempt, ChannelMonitorProbeOutcome{})
+	observer.Finalize(ctx, 1, "r", MonitorStatusError)
 	event, err := store.Current(context.Background(), 12)
 	require.NoError(t, err)
 	require.Equal(t, 1, event.Streak)
@@ -169,9 +271,7 @@ func TestChannelMonitorProbeObserverRecordsOnlyOneTerminalOutcome(t *testing.T) 
 
 func TestChannelMonitorProbeObserverBypassesNonTargetAccountTypes(t *testing.T) {
 	store := NewMemoryChannelMonitorCooldownStore()
-	observer := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {
-		return DefaultChannelMonitorCooldownSettings(), nil
-	})
+	observer := newTestChannelMonitorObserver(store)
 	ctx := ctxWithProbe()
 	accounts := []*Account{
 		{ID: 1, Type: AccountTypeOAuth},
@@ -186,13 +286,13 @@ func TestChannelMonitorProbeObserverBypassesNonTargetAccountTypes(t *testing.T) 
 
 func TestChannelMonitorProbeObserverLateSuccessCannotClearNewFailure(t *testing.T) {
 	store := NewMemoryChannelMonitorCooldownStore()
-	observer := NewChannelMonitorProbeObserver(store, nil, func(context.Context) (*ChannelMonitorCooldownSettings, error) {
-		return DefaultChannelMonitorCooldownSettings(), nil
-	})
+	observer := newTestChannelMonitorObserver(store)
 	ctx := ctxWithProbe()
 	account := &Account{ID: 16, Type: AccountTypeAPIKey}
 	oldAttempt := observer.Begin(ctx, account, time.Now())
-	observer.Finish(ctx, observer.Begin(ctx, account, time.Now()), ChannelMonitorProbeOutcome{Err: errors.New("new failure")})
+	newAttempt := observer.Begin(ctx, account, time.Now())
+	observer.Finish(ctx, newAttempt, ChannelMonitorProbeOutcome{Err: errors.New("new failure")})
+	observer.Finalize(ctx, 1, "r", MonitorStatusError)
 	before, err := store.Current(context.Background(), account.ID)
 	require.NoError(t, err)
 	observer.Finish(ctx, oldAttempt, ChannelMonitorProbeOutcome{})
