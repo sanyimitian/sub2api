@@ -109,6 +109,11 @@ export const FeatureFlags = {
     mode: 'opt-out',
     label: 'Subscription',
   }),
+  publicTransit: defineFlag({
+    key: 'public_transit_page_enabled',
+    mode: 'opt-in',
+    label: 'Public Transit Page',
+  }),
   modelPlaza: defineFlag({
     key: 'model_plaza_enabled',
     mode: 'opt-in',

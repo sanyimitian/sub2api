@@ -23,6 +23,17 @@
 
       <!-- Right: Announcements + Docs + Language + Subscriptions + Balance + User Dropdown -->
       <div class="flex min-w-0 items-center gap-1 sm:gap-3">
+        <!-- Public data shortcut: keep this discoverable without adding another
+             primary navigation item to the admin sidebar. -->
+        <router-link
+          v-if="authStore.isAdmin"
+          to="/admin/public-transit"
+          class="hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white sm:flex"
+        >
+          <Icon name="globe" size="sm" />
+          <span class="hidden sm:inline">{{ t('publicTransit.nav') }}</span>
+        </router-link>
+
         <!-- Announcement Bell -->
         <AnnouncementBell v-if="user" />
 

@@ -122,11 +122,21 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 // 可用渠道与模型广场共用。
 func fillGlobalPricingFallback(pricingService *PricingService, models []SupportedModel) {
 	for i := range models {
-		if pricingService != nil && pricingNeedsFallback(models[i].Pricing) {
-			if lp := pricingService.GetModelPricing(models[i].Name); lp != nil {
-				models[i].Pricing = synthesizePricingFromLiteLLM(lp, models[i].Pricing)
-			}
+		if !pricingNeedsFallback(models[i].Pricing) {
+			models[i].PricingSource = ModelPriceSourceCustom
+			continue
 		}
+		if pricingService == nil {
+			models[i].PricingSource = ModelPriceSourceUnknown
+			continue
+		}
+		lp := pricingService.GetModelPricing(models[i].Name)
+		if lp == nil {
+			models[i].PricingSource = ModelPriceSourceUnknown
+			continue
+		}
+		models[i].Pricing = synthesizePricingFromLiteLLM(lp, models[i].Pricing)
+		models[i].PricingSource = ModelPriceSourceStandard
 	}
 }
 

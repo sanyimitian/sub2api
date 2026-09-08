@@ -18,6 +18,8 @@ English | [中文](README_CN.md) | [日本語](README_JA.md)
 
 </div>
 
+> This branch also includes a configurable public transit data page, mutually exclusive V1/V2 monitoring views, and a unified public snapshot API. See the [Chinese integration and production deployment guide](README_PUBLIC_TRANSIT_CN.md) for ready-to-use Agent prompts.
+
 ## ⚠️ Important Notice
 
 Please read the following carefully before using this project:

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -32,6 +33,11 @@ var frontendFS embed.FS
 // PublicSettingsProvider is an interface to fetch public settings
 type PublicSettingsProvider interface {
 	GetPublicSettingsForInjection(ctx context.Context) (any, error)
+}
+
+type PublicTransitPageSettingsProvider interface {
+	PublicSettingsProvider
+	GetPublicTransitRuntime(ctx context.Context) service.PublicTransitRuntime
 }
 
 // FrontendServer serves the embedded frontend with settings injection
@@ -98,6 +104,12 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 			return
 		}
 
+		if strings.TrimRight(path, "/") == service.PublicTransitPagePath && !s.publicTransitPageEnabled(c.Request.Context()) {
+			c.String(http.StatusNotFound, "Public transit page is disabled")
+			c.Abort()
+			return
+		}
+
 		cleanPath := strings.TrimPrefix(path, "/")
 		if cleanPath == "" {
 			cleanPath = "index.html"
@@ -119,6 +131,17 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 		s.fileServer.ServeHTTP(c.Writer, c.Request)
 		c.Abort()
 	}
+}
+
+func (s *FrontendServer) publicTransitPageEnabled(ctx context.Context) bool {
+	if s == nil || s.settings == nil {
+		return false
+	}
+	provider, ok := s.settings.(PublicTransitPageSettingsProvider)
+	if !ok {
+		return false
+	}
+	return provider.GetPublicTransitRuntime(ctx).PageEnabled
 }
 
 func (s *FrontendServer) fileExists(path string) bool {
@@ -388,6 +411,7 @@ func redirectLegacyHome(c *gin.Context) bool {
 func shouldBypassEmbeddedFrontend(path string) bool {
 	trimmed := strings.TrimSpace(path)
 	return strings.HasPrefix(trimmed, "/api/") ||
+		strings.HasPrefix(trimmed, "/.well-known/") ||
 		strings.HasPrefix(trimmed, "/v1/") ||
 		strings.HasPrefix(trimmed, "/v1beta/") ||
 		strings.HasPrefix(trimmed, "/backend-api/") ||

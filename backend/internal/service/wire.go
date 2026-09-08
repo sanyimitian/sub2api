@@ -964,6 +964,7 @@ var ProviderSet = wire.NewSet(
 	NewGroupCapacityService,
 	NewChannelService,
 	wire.Bind(new(ChannelCacheInvalidator), new(*ChannelService)),
+	ProvidePublicTransitService,
 	NewModelPricingResolver,
 	NewModelPlazaService,
 	NewContentModerationService,
@@ -980,6 +981,26 @@ var ProviderSet = wire.NewSet(
 	NewChannelMonitorRequestTemplateService,
 	ProvideUserPlatformQuotaUsageFlusher,
 )
+
+// ProvidePublicTransitService wires the optional passive-monitor repository
+// without changing NewPublicTransitService's constructor contract.
+func ProvidePublicTransitService(
+	channelService *ChannelService,
+	monitorService *ChannelMonitorService,
+	settingService *SettingService,
+	paymentConfig *PaymentConfigService,
+	groupRepo GroupRepository,
+	usageRepo UsageLogRepository,
+	opsRepo OpsRepository,
+	monitorV2 *ChannelMonitorV2Service,
+) *PublicTransitService {
+	svc := NewPublicTransitService(channelService, monitorService, settingService, paymentConfig, groupRepo, usageRepo)
+	svc.SetChannelMonitorV2Service(monitorV2)
+	if passiveRepo, ok := any(opsRepo).(PublicTransitPassiveMonitorRepository); ok {
+		svc.SetPassiveMonitorRepository(passiveRepo)
+	}
+	return svc
+}
 
 // ProvideUserPlatformQuotaUsageFlusher 创建并启动 UserPlatformQuotaUsageFlusher。
 func ProvideUserPlatformQuotaUsageFlusher(cfg *config.Config, cache BillingCache, quotaRepo UserPlatformQuotaRepository, tw *TimingWheelService) *UserPlatformQuotaUsageFlusher {

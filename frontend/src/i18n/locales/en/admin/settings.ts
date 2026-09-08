@@ -60,6 +60,9 @@ export default {
             subscriptionOnly: 'The purchase page only offers subscription plans and the sidebar entry reads "Subscription"; balance top-up orders are rejected. Redeem codes, affiliate payouts and other balance credits are unaffected.',
           },
         },
+        publicTransit: {
+          title: 'Public Transit Export', description: 'Expose a standard public snapshot API and optional visual page.', configureLink: 'Open public data page', previewLink: 'Preview in admin', apiEnabled: 'Public data API', apiEnabledHint: 'Exposes discovery and snapshot endpoints without private credentials.', pageEnabled: 'Public data page', pageEnabledHint: 'Expose /public/transit for visitors.'
+        },
         modelPlaza: {
           title: 'Model Plaza',
           description: 'A public page showcasing available models and pricing by group. Disabled by default.',

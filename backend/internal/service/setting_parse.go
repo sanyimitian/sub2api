@@ -201,6 +201,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 		// Available channels feature (default disabled; opt-in)
 		SettingKeyAvailableChannelsEnabled: "false",
+		SettingKeyPublicTransitEnabled:     "true",
+		SettingKeyPublicTransitPageEnabled: "false",
 
 		// Subscription feature (default enabled; opt-out)
 		SettingKeySubscriptionEnabled: "true",
@@ -826,6 +828,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Available channels feature (default: disabled; strict true)
 	result.AvailableChannelsEnabled = settings[SettingKeyAvailableChannelsEnabled] == "true"
+	result.PublicTransitEnabled = !isFalseSettingValue(settings[SettingKeyPublicTransitEnabled])
+	result.PublicTransitPageEnabled = publicTransitPageEnabledFromSettings(settings)
 
 	// Subscription feature (default: enabled; only an explicit false disables)
 	result.SubscriptionEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionEnabled])
@@ -1038,6 +1042,17 @@ func isTrueSettingValue(value string) bool {
 	default:
 		return false
 	}
+}
+
+func publicTransitPageEnabledFromSettings(settings map[string]string) bool {
+	if settings == nil || isFalseSettingValue(settings[SettingKeyPublicTransitEnabled]) {
+		return false
+	}
+	value, exists := settings[SettingKeyPublicTransitPageEnabled]
+	if exists {
+		return value == "true"
+	}
+	return settings[SettingKeyPublicTransitEnabled] == "true"
 }
 
 func normalizeVisibleMethodSettingSource(method, source string, enabled bool) (string, error) {

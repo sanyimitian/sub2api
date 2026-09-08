@@ -49,6 +49,15 @@
             <Icon name="grid" size="md" />
             <span class="hidden sm:inline">{{ t('nav.modelPlaza') }}</span>
           </router-link>
+          <router-link
+            v-if="showPublicTransitEntry"
+            to="/public/transit"
+            class="flex h-10 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+            :title="t('publicTransit.nav')"
+          >
+            <Icon name="globe" size="md" />
+            <span class="hidden sm:inline">{{ t('publicTransit.nav') }}</span>
+          </router-link>
           <button
             class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-dark-400 dark:hover:bg-dark-800"
             :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
@@ -150,6 +159,17 @@
           >
             <Icon name="grid" size="md" />
             <span class="hidden sm:inline">{{ t('nav.modelPlaza') }}</span>
+          </router-link>
+
+          <!-- Public transit data is a public, no-login destination. -->
+          <router-link
+            v-if="showPublicTransitEntry"
+            to="/public/transit"
+            class="inline-flex items-center gap-1.5 rounded-lg p-2 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+            :title="t('publicTransit.nav')"
+          >
+            <Icon name="globe" size="md" />
+            <span class="hidden sm:inline">{{ t('publicTransit.nav') }}</span>
           </router-link>
 
           <!-- Theme Toggle -->
@@ -543,6 +563,9 @@ const modelPlazaRequiresAuth = computed(
 )
 const showModelPlazaEntry = computed(
   () => modelPlazaEnabled.value && (isAuthenticated.value || !modelPlazaRequiresAuth.value),
+)
+const showPublicTransitEntry = computed(
+  () => !appStore.publicSettingsLoaded || appStore.cachedPublicSettings?.public_transit_page_enabled !== false,
 )
 const isAdmin = computed(() => authStore.isAdmin)
 const dashboardPath = computed(() => isAdmin.value ? '/admin/dashboard' : '/dashboard')

@@ -729,6 +729,39 @@ func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayS
 	return r.getAllGroupUsageSummaryFromRollups(ctx, todayStart)
 }
 
+func (r *usageLogRepository) GetGroupCacheUsageSummary(ctx context.Context, since24h, since7d time.Time) ([]usagestats.GroupCacheUsageSummary, error) {
+	query := `SELECT g.id,
+		COALESCE(SUM(CASE WHEN ul.created_at >= $1 THEN ul.input_tokens ELSE 0 END),0), COALESCE(SUM(CASE WHEN ul.created_at >= $1 THEN ul.cache_creation_tokens ELSE 0 END),0), COALESCE(SUM(CASE WHEN ul.created_at >= $1 THEN ul.cache_read_tokens ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN ul.created_at >= $2 THEN ul.input_tokens ELSE 0 END),0), COALESCE(SUM(CASE WHEN ul.created_at >= $2 THEN ul.cache_creation_tokens ELSE 0 END),0), COALESCE(SUM(CASE WHEN ul.created_at >= $2 THEN ul.cache_read_tokens ELSE 0 END),0),
+		COALESCE(SUM(ul.input_tokens),0), COALESCE(SUM(ul.cache_creation_tokens),0), COALESCE(SUM(ul.cache_read_tokens),0)
+		FROM groups g LEFT JOIN usage_logs ul ON ul.group_id = g.id GROUP BY g.id`
+	rows, err := r.sql.QueryContext(ctx, query, since24h, since7d)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var results []usagestats.GroupCacheUsageSummary
+	for rows.Next() {
+		var row usagestats.GroupCacheUsageSummary
+		if err := rows.Scan(&row.GroupID, &row.Last24h.InputTokens, &row.Last24h.CacheCreationTokens, &row.Last24h.CacheReadTokens, &row.Last7d.InputTokens, &row.Last7d.CacheCreationTokens, &row.Last7d.CacheReadTokens, &row.Total.InputTokens, &row.Total.CacheCreationTokens, &row.Total.CacheReadTokens); err != nil {
+			return nil, err
+		}
+		row.Last24h.CacheHitRate = cacheHitRate(row.Last24h.InputTokens, row.Last24h.CacheCreationTokens, row.Last24h.CacheReadTokens)
+		row.Last7d.CacheHitRate = cacheHitRate(row.Last7d.InputTokens, row.Last7d.CacheCreationTokens, row.Last7d.CacheReadTokens)
+		row.Total.CacheHitRate = cacheHitRate(row.Total.InputTokens, row.Total.CacheCreationTokens, row.Total.CacheReadTokens)
+		results = append(results, row)
+	}
+	return results, rows.Err()
+}
+
+func cacheHitRate(inputTokens, cacheCreationTokens, cacheReadTokens int64) float64 {
+	total := inputTokens + cacheCreationTokens + cacheReadTokens
+	if total <= 0 || cacheReadTokens <= 0 {
+		return 0
+	}
+	return float64(cacheReadTokens) / float64(total) * 100
+}
+
 // resolveModelDimensionExpression maps model source type to a safe SQL expression.
 func resolveModelDimensionExpression(modelType string) string {
 	return resolveModelDimensionExpressionWithAlias(modelType, "")

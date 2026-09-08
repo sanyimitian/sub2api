@@ -588,6 +588,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.SubscriptionEnabled != after.SubscriptionEnabled {
 		changed = append(changed, "subscription_enabled")
 	}
+	if before.PublicTransitEnabled != after.PublicTransitEnabled {
+		changed = append(changed, "public_transit_enabled")
+	}
+	if before.PublicTransitPageEnabled != after.PublicTransitPageEnabled {
+		changed = append(changed, "public_transit_page_enabled")
+	}
 	if before.ModelPlazaEnabled != after.ModelPlazaEnabled {
 		changed = append(changed, "model_plaza_enabled")
 	}
