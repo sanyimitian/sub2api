@@ -563,6 +563,17 @@ func TestSettingService_UpdateSettings_AntigravityUserAgentVersion(t *testing.T)
 	require.Equal(t, "1.23.2", repo.updates[SettingKeyAntigravityUserAgentVersion])
 }
 
+func TestSettingService_UpdateSettings_TrimsRedeemCodePurchaseURL(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		RedeemCodePurchaseURL: " https://buy.example.com/recommended-redeem ",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://buy.example.com/recommended-redeem", repo.updates[SettingKeyRedeemCodePurchaseURL])
+}
+
 func TestSettingService_InitializeDefaultSettingsPersistsConfiguredForwardedClientIPHeaders(t *testing.T) {
 	repo := &forwardedIPMigrationRepoStub{values: map[string]string{}}
 	cfg := &config.Config{}

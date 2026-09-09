@@ -1,0 +1,57 @@
+{
+  "exported_at": "2026-09-09T02:08:32Z",
+  "proxies": [],
+  "accounts": [
+    {
+      "name": "amandarodriguez9180@outlook.com",
+      "platform": "openai",
+      "type": "oauth",
+      "credentials": {
+        "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Im1GbmJENFYtS0kwRVhEeWM0UV92ZGFuVGhFd0c0OHZhSXN1ektTSnRuOXMiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOlsiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS92MSJdLCJjbGllbnRfaWQiOiJhcHBfRU1vYW1FRVo3M2YwQ2tYYVhwN2hyYW5uIiwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImFtciI6WyJvdHAiLCJ1cm46b3BlbmFpOmFtcjpvdHBfcGhvbmUiXSwiY2hhdGdwdF9jb21wdXRlX3Jlc2lkZW5jeSI6Im5vX2NvbnN0cmFpbnQiLCJjaGF0Z3B0X2RhdGFfcmVzaWRlbmN5Ijoibm9fY29uc3RyYWludCIsImxvY2FsaG9zdCI6dHJ1ZSwicG9pZCI6Im9yZy1BRFFDYTlKNDUyMk1ySWczZUp1RUFzVVkiLCJ1c2VyX2lkIjoidXNlci1KTmFOTXk4UFFHOXZFd3lsejFKdlhJMmoifSwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9wcm9maWxlIjp7ImVtYWlsIjoiYW1hbmRhcm9kcmlndWV6OTE4MEBvdXRsb29rLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJuYW1lIjoiRW1tYSBEYXZpcyJ9LCJpc3MiOiJodHRwczovL2F1dGgub3BlbmFpLmNvbSIsInB3ZF9hdXRoX3RpbWUiOjE3ODg4NDEzMzMzMzgsInNjcCI6WyJvcGVuaWQiLCJlbWFpbCIsInByb2ZpbGUiLCJvZmZsaW5lX2FjY2VzcyJdLCJzZXNzaW9uX2lkIjoiYXV0aHNlc3NfTXlNNFZKMVdtOEFaNkpsbHAwSkVTbGZuIiwic2wiOnRydWUsInN1YiI6ImF1dGgwfDROZlM4SlVmQmZTdFdMaXFFZHYxQmVPUiIsImlhdCI6MTc4ODg0MTQyMCwiZXhwIjoxNzg5NzA1NDIwLCJqdGkiOiI3NTU3NDFjOTNlYWY0NTliYjY4MWYzYjZkZjI3MjkyMiIsIm5iZiI6MTc4ODg0MTQyMH0.qVO0ym03xkho03HlZ2Z6xGTTXOqE82PnA9EYZ0u22bZj_FpHDmvBvrPbjHJP3HKt_eHK83YmImj85vad1NYrmWKKwf0AHX5l1u17udsFfkSYhngPhXpEW8l838UM7CZo7QzX3QrnGDTJygth7mBuLrjh01mHesXoAHvACq2Fb7FJLEZZwXJRlXT-Ue3Pb0qpvejM6PncHrdyGIVGvWvgABXngPzLHWmNZ_RgXuYjwtDUVdUXFyTddWMgljLNnLyynh34_S7lW9F3UpvmHlI4YPE9X-1jpGd1z4Af9dCAMkqj4LsWstqy6L8TT4rRD5wWUuNPEdnOKIa0tEWFzhfHeg",
+        "chatgpt_user_id": "user-JNaNMy8PQG9vEwylz1JvXI2j",
+        "email": "amandarodriguez9180@outlook.com",
+        "expires_at": "2026-09-18T04:23:40.000Z",
+        "expires_in": 787010,
+        "id_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Im1GbmJENFYtS0kwRVhEeWM0UV92ZGFuVGhFd0c0OHZhSXN1ektTSnRuOXMiLCJ0eXAiOiJKV1QifQ.eyJhbXIiOlsib3RwIiwidXJuOm9wZW5haTphbXI6b3RwX3Bob25lIl0sImF1ZCI6WyJhcHBfRU1vYW1FRVo3M2YwQ2tYYVhwN2hyYW5uIl0sImF1dGhfcHJvdmlkZXIiOiJwYXNzd29yZCIsImF1dGhfdGltZSI6MTc4ODg0MTQxOSwiZW1haWwiOiJhbWFuZGFyb2RyaWd1ZXo5MTgwQG91dGxvb2suY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJncm91cHMiOltdLCJsb2NhbGhvc3QiOnRydWUsIm9yZ2FuaXphdGlvbnMiOlt7ImlkIjoib3JnLUFEUUNhOUo0NTIyTXJJZzNlSnVFQXNVWSIsImlzX2RlZmF1bHQiOnRydWUsInJvbGUiOiJvd25lciIsInRpdGxlIjoiUGVyc29uYWwifV0sInVzZXJfaWQiOiJ1c2VyLUpOYU5NeThQUUc5dkV3eWx6MUp2WEkyaiJ9LCJpc3MiOiJodHRwczovL2F1dGgub3BlbmFpLmNvbSIsIm5hbWUiOiJFbW1hIERhdmlzIiwicmF0IjoxNzg4ODQxMzk1LCJzaWQiOiJhdXRoc2Vzc19NeU00VkoxV204QVo2SmxscDBKRVNsZm4iLCJzdWIiOiJhdXRoMHw0TmZTOEpVZkJmU3RXTGlxRWR2MUJlT1IiLCJpYXQiOjE3ODg4NDE0MjAsImV4cCI6MTc4ODg0NTAyMCwianRpIjoiMjEwNmUwMDU3MGEzNDk3NGJhYmMzMDg1Nzc5ZTkwNDciLCJhdF9oYXNoIjoiY3ZfYVZ2bi14UFI0cGRuRlY0OVNNUSJ9.BPBRL4SoLlBEEOyhq_gKqekmSw1kaQFCLEk0sEKOY9LQAzvC2nH89QfaO62bqCplJAcHtmaZPiCwKRF7o-FPlyTYMAx-8v5mn2FOW3eYlr0MS1wfZFlQFUFgw9qrOYNXmMSk7Yp-ft4-OaF4TIvXQ_gtFcjAIuYFOV1rw8hG7BB70By1Lz2rTLavTY3TUsle1WQqv4_hwkRr1k0VMaecMvpm_McmpaHfMbzH_QIc9Vp5qejdmvk8tPkIuv7FzKf_0CZRmSyIkdYmH-WqyKA2n18ApCWxiNjVVhTjJNj071OX7NlCEzCL0ov0J7i69R0O8fboTGWZA1sfNwKxNdNaQw",
+        "model_mapping": {
+          "gpt-5.6-luna": "gpt-5.6-luna"
+        },
+        "organization_id": "org-ADQCa9J4522MrIg3eJuEAsUY",
+        "refresh_token": "rt.1.AAAu0OnuihsAO1VAD6M937_B44UK7lS0_19QEZUmLo_bbqfbFh-3hMkN1HaXCA0Y9EjyOcjhBuF6PC-G5P-_7ij77JqW4kGRTQxOZBQuPSKFGwQ9d1LU8zutnqruYgEl7kEtI0UtSWE6wkTo3-IHSWbrTPsEQ3O9TfHjvTMvIHkfa9N5hNrqLptwewYV96o"
+      },
+      "extra": {
+        "auto_pause_7d_threshold": 0.5,
+        "auto_reset_credit_5h_threshold": 1,
+        "auto_reset_credit_7d_threshold": 1,
+        "auto_reset_credit_enabled": false,
+        "codex_5h_reset_after_seconds": 0,
+        "codex_5h_reset_at": "2026-09-09T10:07:30+08:00",
+        "codex_5h_used_percent": 0,
+        "codex_5h_window_minutes": 0,
+        "codex_7d_reset_after_seconds": 2590955,
+        "codex_7d_reset_at": "2026-10-09T09:50:05+08:00",
+        "codex_7d_used_percent": 0,
+        "codex_7d_window_minutes": 43200,
+        "codex_primary_over_secondary_percent": 0,
+        "codex_primary_reset_after_seconds": 2590955,
+        "codex_primary_used_percent": 0,
+        "codex_primary_window_minutes": 43200,
+        "codex_secondary_reset_after_seconds": 0,
+        "codex_secondary_used_percent": 0,
+        "codex_secondary_window_minutes": 0,
+        "codex_usage_updated_at": "2026-09-09T10:07:30+08:00",
+        "email": "amandarodriguez9180@outlook.com",
+        "email_key": "amandarodriguez9180_outlook_com",
+        "openai_long_context_billing_enabled": true,
+        "openai_oauth_responses_websockets_v2_enabled": false,
+        "openai_oauth_responses_websockets_v2_mode": "off",
+        "original_email": "amandarodriguez9180@outlook.com----lDB+NSNX8plGVFA4Zb----9e5f94bc-e8a4-4e73-b8be-63364c29d753----M.C519_BAY.0.U.MsaArtifacts.-Cg*3tA1*hDtxHITz3AoXVcIdz0iKyTajV0gW6OyO!90hgZHfkbuZGT0seEOO!CyI7XunG!fJKGwF*bfN23lSUZJNQM0wGcvokkmChaFMHt1OV80Dv2JQMiPxfk1hEdnHfCglyUSye3P6sj*PS2a4KxiNDakEA86IB!13Y4ihzyOfrju3!sKbXJ43sbdrHEBjpsirFTAKk!US4u*usYp*XHJJfEHq2DlRTa4Qx!!FUpWXUaW!saeS5D4qkOhhnmQ5wEw00cY2WPB9amu3yBS!Wf7CxNmCIA*0hbE7XY3jPVbE1Rfkdj6XYQMNXWhwpG3lOXLe0JEUAC*84M4B0HCLWBOTAfgW4Q8wSjvOMUIWDFk2M3s3yHc21s*fvhWlxccGGVXkiOaBh1Kds!wTip7nVV5ki0*Q*sVc2oJMHFq8szkp",
+        "privacy_mode": "training_off"
+      },
+      "concurrency": 1,
+      "priority": 1,
+      "rate_multiplier": 0.001,
+      "auto_pause_on_expired": true
+    }
+  ]
+}

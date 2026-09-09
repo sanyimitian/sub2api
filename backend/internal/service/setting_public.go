@@ -191,6 +191,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyHideCcsImportButton,
 		SettingKeyPurchaseSubscriptionEnabled,
 		SettingKeyPurchaseSubscriptionURL,
+		SettingKeyRedeemCodePurchaseURL,
 		SettingKeyTableDefaultPageSize,
 		SettingKeyTablePageSizeOptions,
 		SettingKeyCustomMenuItems,
@@ -332,6 +333,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		HideCcsImportButton:                 settings[SettingKeyHideCcsImportButton] == "true",
 		PurchaseSubscriptionEnabled:         settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
 		PurchaseSubscriptionURL:             strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
+		RedeemCodePurchaseURL:               strings.TrimSpace(settings[SettingKeyRedeemCodePurchaseURL]),
 		TableDefaultPageSize:                tableDefaultPageSize,
 		TablePageSizeOptions:                tablePageSizeOptions,
 		CustomMenuItems:                     settings[SettingKeyCustomMenuItems],
@@ -582,6 +584,7 @@ type PublicSettingsInjectionPayload struct {
 	HideCcsImportButton                 bool                     `json:"hide_ccs_import_button"`
 	PurchaseSubscriptionEnabled         bool                     `json:"purchase_subscription_enabled"`
 	PurchaseSubscriptionURL             string                   `json:"purchase_subscription_url"`
+	RedeemCodePurchaseURL               string                   `json:"redeem_code_purchase_url"`
 	TableDefaultPageSize                int                      `json:"table_default_page_size"`
 	TablePageSizeOptions                []int                    `json:"table_page_size_options"`
 	CustomMenuItems                     json.RawMessage          `json:"custom_menu_items"`
@@ -671,6 +674,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		HideCcsImportButton:                 settings.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:         settings.PurchaseSubscriptionEnabled,
 		PurchaseSubscriptionURL:             settings.PurchaseSubscriptionURL,
+		RedeemCodePurchaseURL:               settings.RedeemCodePurchaseURL,
 		TableDefaultPageSize:                settings.TableDefaultPageSize,
 		TablePageSizeOptions:                settings.TablePageSizeOptions,
 		CustomMenuItems:                     filterUserVisibleMenuItems(settings.CustomMenuItems),

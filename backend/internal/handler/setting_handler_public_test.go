@@ -82,6 +82,31 @@ func TestSettingHandler_GetPublicSettings_ExposesForceEmailOnThirdPartySignup(t 
 	require.True(t, resp.Data.ForceEmailOnThirdPartySignup)
 }
 
+func TestSettingHandler_GetPublicSettings_ExposesRedeemCodePurchaseURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := NewSettingHandler(service.NewSettingService(&settingHandlerPublicRepoStub{
+		values: map[string]string{
+			service.SettingKeyRedeemCodePurchaseURL: "https://buy.example.com/recommended-redeem",
+		},
+	}, &config.Config{}), "test-version")
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/settings/public", nil)
+	h.GetPublicSettings(c)
+
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			RedeemCodePurchaseURL string `json:"redeem_code_purchase_url"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.Equal(t, 0, resp.Code)
+	require.Equal(t, "https://buy.example.com/recommended-redeem", resp.Data.RedeemCodePurchaseURL)
+}
+
 func TestSettingHandler_GetPublicSettings_ExposesTencentCaptchaConfiguration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

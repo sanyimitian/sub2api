@@ -1,0 +1,28 @@
+{
+  "exported_at": "2026-09-09T01:46:49.289Z",
+  "proxies": [],
+  "accounts": [
+    {
+      "name": "frankrodriguez7498@outlook.com",
+      "platform": "openai",
+      "type": "oauth",
+      "concurrency": 10,
+      "priority": 1,
+      "credentials": {
+        "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Im1GbmJENFYtS0kwRVhEeWM0UV92ZGFuVGhFd0c0OHZhSXN1ektTSnRuOXMiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOlsiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS92MSJdLCJjbGllbnRfaWQiOiJhcHBfRU1vYW1FRVo3M2YwQ2tYYVhwN2hyYW5uIiwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImFtciI6WyJvdHAiLCJ1cm46b3BlbmFpOmFtcjpvdHBfcGhvbmUiXSwiY2hhdGdwdF9jb21wdXRlX3Jlc2lkZW5jeSI6Im5vX2NvbnN0cmFpbnQiLCJjaGF0Z3B0X2RhdGFfcmVzaWRlbmN5Ijoibm9fY29uc3RyYWludCIsImxvY2FsaG9zdCI6dHJ1ZSwicG9pZCI6Im9yZy1zazM2S2k2UVhub0F4eWJaNmFlRHh3cFAiLCJ1c2VyX2lkIjoidXNlci1pVUtqQWJKVmY2VVR5Qjh4b0ZwV2tuREQifSwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9wcm9maWxlIjp7ImVtYWlsIjoiZnJhbmtyb2RyaWd1ZXo3NDk4QG91dGxvb2suY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsIm5hbWUiOiJKYW1lcyBIYWxsIn0sImlzcyI6Imh0dHBzOi8vYXV0aC5vcGVuYWkuY29tIiwicHdkX2F1dGhfdGltZSI6MTc4ODg0MTE3MzY1NCwic2NwIjpbIm9wZW5pZCIsImVtYWlsIiwicHJvZmlsZSIsIm9mZmxpbmVfYWNjZXNzIl0sInNlc3Npb25faWQiOiJhdXRoc2Vzc191QTFub3JYVTBpQTFFbWUzcTA4UHdQUjkiLCJzbCI6dHJ1ZSwic3ViIjoiYXV0aDB8VlVpWTRwNHZGemxKTEM0NzllTGtKV3JqIiwiaWF0IjoxNzg4ODQxMjU5LCJleHAiOjE3ODk3MDUyNTksImp0aSI6ImVjNzZlY2JmMWZhODRjOTFhNzQ0YzIzNTVhYzZkMGFmIiwibmJmIjoxNzg4ODQxMjU5fQ.lR9BwYq-YscE37oWsaZxwt86EeoSf_ducg1WzOrDUxS0NDHaiNHdeFNO7BxYPSzvrIpLVqkJDW0nKcBfcNcKNkZPy0ck6rhuoTlGQD8SqvM1umR46owMnOXbSdCXztEPV58nyoyx0MvwjVPNb3wAD7oZmux2vJPoga8pPoofwBddXJGvOS_HRDWx9IrUwkSPeX8f6VbJL_5e6b0edEwkymAYbNA-fDk7yipC_BlLLpl93rWqYhNwbSg7mhDGxri-ElDfdNgfwhLNkWLEYm4yB95rRxVo7nd6vmkxoAxmqyU4RpK1Q7x5eyERi2g8GRaXoVJjh9T9Kj_a8TQAezDR5g",
+        "chatgpt_user_id": "user-iUKjAbJVf6UTyB8xoFpWknDD",
+        "email": "frankrodriguez7498@outlook.com",
+        "expires_at": "2026-09-18T04:20:59.000Z",
+        "expires_in": 786849,
+        "id_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Im1GbmJENFYtS0kwRVhEeWM0UV92ZGFuVGhFd0c0OHZhSXN1ektTSnRuOXMiLCJ0eXAiOiJKV1QifQ.eyJhbXIiOlsib3RwIiwidXJuOm9wZW5haTphbXI6b3RwX3Bob25lIl0sImF1ZCI6WyJhcHBfRU1vYW1FRVo3M2YwQ2tYYVhwN2hyYW5uIl0sImF1dGhfcHJvdmlkZXIiOiJwYXNzd29yZCIsImF1dGhfdGltZSI6MTc4ODg0MTI1OCwiZW1haWwiOiJmcmFua3JvZHJpZ3Vlejc0OThAb3V0bG9vay5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7Imdyb3VwcyI6W10sImxvY2FsaG9zdCI6dHJ1ZSwib3JnYW5pemF0aW9ucyI6W3siaWQiOiJvcmctc2szNktpNlFYbm9BeHliWjZhZUR4d3BQIiwiaXNfZGVmYXVsdCI6dHJ1ZSwicm9sZSI6Im93bmVyIiwidGl0bGUiOiJQZXJzb25hbCJ9XSwidXNlcl9pZCI6InVzZXItaVVLakFiSlZmNlVUeUI4eG9GcFdrbkREIn0sImlzcyI6Imh0dHBzOi8vYXV0aC5vcGVuYWkuY29tIiwibmFtZSI6IkphbWVzIEhhbGwiLCJyYXQiOjE3ODg4NDEyMzQsInNpZCI6ImF1dGhzZXNzX3VBMW5vclhVMGlBMUVtZTNxMDhQd1BSOSIsInN1YiI6ImF1dGgwfFZVaVk0cDR2RnpsSkxDNDc5ZUxrSldyaiIsImlhdCI6MTc4ODg0MTI1OSwiZXhwIjoxNzg4ODQ0ODU5LCJqdGkiOiJmMGY3ODZlZDkxOGQ0N2NhYWQwNjI1NzNmNTg3NjQ4MSIsImF0X2hhc2giOiJzcVhDNlRBaTJtUFZyNmhqcnZzeElBIn0.m4gC4xJKGlHQR_4xwNycPNQPrfR8Gksb6hBZkW0mx2OXKw16Q30H4Kwnpc4Mwv5FD1h20Qp60N-U_rOfrEwvg17_t-K69H1HBk9AeYBkPR3XodHA68clOFIfVojE6g95gLLmawnhSUKAWc3QXrlREpu6ufprpAi5gRIobWyIz4fUBz3MCKr2TUxGo-_TnGowms8BnqVWmgzS2T8GcHdL5rt8RI9SUCR4v5wXGzT5yok7Yzwhc-RXSzZOcE2ssjktH4kdO4nZTSjdzKejv4-Wt8InoOglvSpZckdL3k-x5_EPIExkMiImhloIPLnImLx-QZ3C1JlTeIeTiYVwv7GnEw",
+        "organization_id": "org-sk36Ki6QXnoAxybZ6aeDxwpP",
+        "refresh_token": "rt.1.AABNhYs-OgM0xJ4Cwg7YOx2kBx_CCKIshj9HkOmTwMoxBfX21Ps-_q8oDPf3PHGbthuG6Lqd2DT23_WvnXnok51uo_9Vs-9y2HqOc001cT1hAryW0S-Eyga9cNDZuKntl6dAac5CLI8ZHSmHjI1wbkOTDOB98ioPn1gfOzS0NHFwD3HYP1yDRCagSRmPjRI"
+      },
+      "extra": {
+        "email": "frankrodriguez7498@outlook.com",
+        "email_key": "frankrodriguez7498_outlook_com",
+        "original_email": "frankrodriguez7498@outlook.com----iEiz7FfN6*_OyZ&r5O----9e5f94bc-e8a4-4e73-b8be-63364c29d753----M.C511_BL2.0.U.MsaArtifacts.-CjD7*hEPWcTCVCltCdgsGPhS477QaVU1T56KmM0xOePcJXveFcoU9KjLprsCu!sQi9tLBMq*IAQ5!VuALmU2QzhTfgUVvqWSCNkItE8Et2nBsqu201r4XsJU0b!1u3bhw0kPi1S6UrphGTGuONcKhGJ6GXB8RJAlCAJp8WxDNFriGiLDRMuNBOv9lV57ikAO0mVKcdSeikUalW0txTukwmZ5BRzqanseLQ4hhvox5Yaeji06hgHxVNmceA0CaIcQ!q6qpHJH1kAqv9SUsB!vFXNB445zv6BU8uv2M2ycEDYXQzn90wCExGJZgkBGAGTOevupNXUBlqxpFINsB6*vARqgTmgeoPeSwp519PqgHXPgdO7!MZRI*c8a17C!o47VfN0XrTyBMDeKFf8WRsOJ9Zs$"
+      }
+    }
+  ]
+}

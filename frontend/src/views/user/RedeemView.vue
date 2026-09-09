@@ -20,6 +20,32 @@
       </div>
 
       <a
+        v-if="recommendedRedeemPurchaseUrl"
+        :href="recommendedRedeemPurchaseUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="card block border-emerald-200 bg-emerald-50 transition-colors hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:hover:bg-emerald-950/50"
+        :aria-label="t('redeem.recommendedPurchaseLinkTitle')"
+      >
+        <div class="flex items-start gap-4 p-5">
+          <div class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+            <Icon name="gift" size="md" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <h2 class="font-semibold text-gray-900 dark:text-white">{{ t('redeem.recommendedPurchaseLinkTitle') }}</h2>
+              <span class="rounded-md bg-emerald-200/70 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-100">{{ t('redeem.recommendedPurchaseBadge') }}</span>
+            </div>
+            <p class="mt-1 text-sm leading-relaxed text-gray-600 dark:text-gray-300">{{ t('redeem.recommendedPurchaseLinkDescription') }}</p>
+            <span class="mt-3 inline-flex items-center text-sm font-medium text-emerald-800 dark:text-emerald-300">
+              {{ t('redeem.purchaseLinkAction') }}
+              <Icon name="externalLink" size="sm" class="ml-1.5" />
+            </span>
+          </div>
+        </div>
+      </a>
+
+      <a
         v-if="redeemPurchaseEnabled && redeemPurchaseUrl"
         :href="redeemPurchaseUrl"
         target="_blank"
@@ -383,6 +409,7 @@ const subscriptionStore = useSubscriptionStore()
 const user = computed(() => authStore.user)
 const redeemPurchaseEnabled = computed(() => appStore.cachedPublicSettings?.purchase_subscription_enabled === true)
 const redeemPurchaseUrl = computed(() => appStore.cachedPublicSettings?.purchase_subscription_url?.trim() || '')
+const recommendedRedeemPurchaseUrl = computed(() => appStore.cachedPublicSettings?.redeem_code_purchase_url?.trim() || '')
 
 const redeemCode = ref('')
 const submitting = ref(false)

@@ -351,6 +351,7 @@ export const useAppStore = defineStore('app', () => {
         payment_enabled: false,
         purchase_subscription_enabled: false,
         purchase_subscription_url: '',
+        redeem_code_purchase_url: '',
         table_default_page_size: 20,
         table_page_size_options: [10, 20, 50, 100],
         custom_menu_items: [],

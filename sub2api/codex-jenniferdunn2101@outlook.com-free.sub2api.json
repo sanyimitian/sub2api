@@ -1,0 +1,28 @@
+{
+  "exported_at": "2026-09-09T01:46:49.289Z",
+  "proxies": [],
+  "accounts": [
+    {
+      "name": "jenniferdunn2101@outlook.com",
+      "platform": "openai",
+      "type": "oauth",
+      "concurrency": 10,
+      "priority": 1,
+      "credentials": {
+        "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Im1GbmJENFYtS0kwRVhEeWM0UV92ZGFuVGhFd0c0OHZhSXN1ektTSnRuOXMiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOlsiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS92MSJdLCJjbGllbnRfaWQiOiJhcHBfRU1vYW1FRVo3M2YwQ2tYYVhwN2hyYW5uIiwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImFtciI6WyJwd2QiLCJ1cm46b3BlbmFpOmFtcjpwYXNzd29yZCJdLCJjaGF0Z3B0X2NvbXB1dGVfcmVzaWRlbmN5Ijoibm9fY29uc3RyYWludCIsImNoYXRncHRfZGF0YV9yZXNpZGVuY3kiOiJub19jb25zdHJhaW50IiwibG9jYWxob3N0Ijp0cnVlLCJwb2lkIjoib3JnLUJzdXh5bGNMMVk2amFOTkgwVkZDY09iTCIsInVzZXJfaWQiOiJ1c2VyLWRDc3dBYWJramZXSDRZOXlOR1NCQVkxTyJ9LCJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJqZW5uaWZlcmR1bm4yMTAxQG91dGxvb2suY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsIm5hbWUiOiJHcmFjZSBDbGFyayJ9LCJpc3MiOiJodHRwczovL2F1dGgub3BlbmFpLmNvbSIsInB3ZF9hdXRoX3RpbWUiOjE3ODg4NDEyMjM1MzgsInNjcCI6WyJvcGVuaWQiLCJlbWFpbCIsInByb2ZpbGUiLCJvZmZsaW5lX2FjY2VzcyJdLCJzZXNzaW9uX2lkIjoiYXV0aHNlc3NfbU12dVo5TXprYWVONEhiOFZrcWQ2Z3pUIiwic2wiOnRydWUsInN1YiI6ImF1dGgwfG9OUkxnTzFVWGszTEZjdTN2RVdmNk9WcSIsImlhdCI6MTc4ODg0MTI0NCwiZXhwIjoxNzg5NzA1MjQ0LCJqdGkiOiJjMTM2MTg3ODE3YjI0OWRlODQ2YzEwNmRlNjI0N2Q1ZiIsIm5iZiI6MTc4ODg0MTI0NH0.XRHb3sIeIXqx5l-5R3vTZXGCYcFWUneSdL4ps5XBdTpxRwtiSM3P4t1J2Oz9PL5GtnuOpdvx9eamV7ncrTREAptsXV1L08_6RMFyAysnKBh3H-wb6Il633vLxQzfrVCqd2MgWajrBk9DobLMKfUPZS4gI_yiV98rFO3xF1W8KYIdL_2TBdIOgtWnoxNWaULcjIvS3suBWJnHyEfVMG7JzgKJNepQ7Beb1kzzatCAzUDQGotpPbL9lyQLhuyuML2hHIcGmtKNwxW3X9IvkYUwRtbaufsnI94jyNnagvbTT9mZGJ85b2sE78gQ80Nmjd2sWBqtfwLQtW9HMESUx4DETg",
+        "chatgpt_user_id": "user-dCswAabkjfWH4Y9yNGSBAY1O",
+        "email": "jenniferdunn2101@outlook.com",
+        "expires_at": "2026-09-18T04:20:44.000Z",
+        "expires_in": 786834,
+        "id_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Im1GbmJENFYtS0kwRVhEeWM0UV92ZGFuVGhFd0c0OHZhSXN1ektTSnRuOXMiLCJ0eXAiOiJKV1QifQ.eyJhbXIiOlsicHdkIiwidXJuOm9wZW5haTphbXI6cGFzc3dvcmQiXSwiYXVkIjpbImFwcF9FTW9hbUVFWjczZjBDa1hhWHA3aHJhbm4iXSwiYXV0aF9wcm92aWRlciI6InBhc3N3b3JkIiwiYXV0aF90aW1lIjoxNzg4ODQxMjQyLCJlbWFpbCI6Implbm5pZmVyZHVubjIxMDFAb3V0bG9vay5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7Imdyb3VwcyI6W10sImxvY2FsaG9zdCI6dHJ1ZSwib3JnYW5pemF0aW9ucyI6W3siaWQiOiJvcmctQnN1eHlsY0wxWTZqYU5OSDBWRkNjT2JMIiwiaXNfZGVmYXVsdCI6dHJ1ZSwicm9sZSI6Im93bmVyIiwidGl0bGUiOiJQZXJzb25hbCJ9XSwidXNlcl9pZCI6InVzZXItZENzd0FhYmtqZldINFk5eU5HU0JBWTFPIn0sImlzcyI6Imh0dHBzOi8vYXV0aC5vcGVuYWkuY29tIiwibmFtZSI6IkdyYWNlIENsYXJrIiwicmF0IjoxNzg4ODQxMjAxLCJzaWQiOiJhdXRoc2Vzc19tTXZ1WjlNemthZU40SGI4VmtxZDZnelQiLCJzdWIiOiJhdXRoMHxvTlJMZ08xVVhrM0xGY3UzdkVXZjZPVnEiLCJpYXQiOjE3ODg4NDEyNDQsImV4cCI6MTc4ODg0NDg0NCwianRpIjoiNjA3N2YwNDFlZDM1NDZmZjkxMzdlMWY0NTg1YmY0NzMiLCJhdF9oYXNoIjoiRnBxMHZyRk1UNEJrcVI3b0xMYkxwZyJ9.s7QqnqHp4qXxGW60Jwg8QbsNr8gNSewqh2yDXVbecz5qpa9q93sRFLoTt1keUK9o_COOZmg11l7CC5GFMFUUmQzObE0-AOK0TKz_NLDAzPPSQcKD1qmHJNAUMRRgmpKGl7_RuOhUD2pnk_xYsf9hGZuKVOU5Qv2e943oEgpSJvApojQgS7IWRnjFEbgsrorAlqoc7c-99QZWpPQTteLjP_hxMvDvq_Rt0qt0-9uBkNxCW5pWsd91jgmgpFDz3qARMCjDdPc-ZpCd7uGwtCIcU-h3UTl_FOb8eFdHcFBl7-vo6Tqc2D6phon687sqTHXkg3DhSDC191znbbo3ej6lVA",
+        "organization_id": "org-BsuxylcL1Y6jaNNH0VFCcObL",
+        "refresh_token": "rt.1.AADrgzhGmHORicDBVMvgxsRUSkShSjQqTGbuFqhzWU_Ri3xHb1nkqZAEPGVN3og6wJnQV9BDs8Auc-BOH6lWhzNNZ6BJ2aeF0HCvbsks_19eaIn9K1w9LOgSvIwvxWWTywKBMVyqrdTM3Uvl56kflB20_BwbCaxmYJX9shkFJQyNgs3UWqCuajdLf5OqCHo"
+      },
+      "extra": {
+        "email": "jenniferdunn2101@outlook.com",
+        "email_key": "jenniferdunn2101_outlook_com",
+        "original_email": "jenniferdunn2101@outlook.com----Iah56w8*EHj1pGp81B----9e5f94bc-e8a4-4e73-b8be-63364c29d753----M.C505_SN1.0.U.MsaArtifacts.-CkYfT99rBtC!tegJj8DE31uaSBlztadv4U7qqYQTqaLji6bSeSIq!7mn1*1DppL5WcLbUNBXDsSbdPmyRcYYHT1PAC3tnDDiDK8NjjCXXfLxtwYp01Op*pHiohNBETpVynY*SleVgyaELwrbu81js2tTFlG7YHbenOeueYs0vwyc0TWWFNN3rTyXM1d0RVCEWiHN!ehZSF!xx5CR0qOpwGA8iPe6QfAWEc9YS*312K!JEcy0g4O2r4*kCTsj4VND1GLcAQUDeZuKZRI*zgHk0q4wsR1SIhPVgx!zjgmc*oNXHhfqVYrMx2yeZqym9Ov4lFHvWRSC*40dltKuJLI3IUIFM6jrcDhqRPMwzzE2U1h!75IWRZnTl2jX9XQGno8X1vXcA2WFVsIasI4EiWHX1Kk$"
+      }
+    }
+  ]
+}

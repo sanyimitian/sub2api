@@ -82,6 +82,18 @@ func TestSettingService_GetPublicSettings_ExposesTablePreferences(t *testing.T) 
 	require.Equal(t, []int{20, 50, 100}, settings.TablePageSizeOptions)
 }
 
+func TestSettingService_GetPublicSettings_ExposesRedeemCodePurchaseURL(t *testing.T) {
+	repo := &settingPublicRepoStub{
+		values: map[string]string{
+			SettingKeyRedeemCodePurchaseURL: " https://buy.example.com/recommended-redeem ",
+		},
+	}
+
+	settings, err := NewSettingService(repo, &config.Config{}).GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "https://buy.example.com/recommended-redeem", settings.RedeemCodePurchaseURL)
+}
+
 func TestSettingService_GetPublicSettings_ExposesCompactHomeEnabled(t *testing.T) {
 	repo := &settingPublicRepoStub{
 		values: map[string]string{

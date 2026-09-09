@@ -1,0 +1,28 @@
+{
+  "exported_at": "2026-09-09T01:46:49.289Z",
+  "proxies": [],
+  "accounts": [
+    {
+      "name": "annettenguyen2604@outlook.com",
+      "platform": "openai",
+      "type": "oauth",
+      "concurrency": 10,
+      "priority": 1,
+      "credentials": {
+        "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Im1GbmJENFYtS0kwRVhEeWM0UV92ZGFuVGhFd0c0OHZhSXN1ektTSnRuOXMiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOlsiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS92MSJdLCJjbGllbnRfaWQiOiJhcHBfRU1vYW1FRVo3M2YwQ2tYYVhwN2hyYW5uIiwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImFtciI6WyJvdHAiLCJ1cm46b3BlbmFpOmFtcjpvdHBfcGhvbmUiXSwiY2hhdGdwdF9jb21wdXRlX3Jlc2lkZW5jeSI6Im5vX2NvbnN0cmFpbnQiLCJjaGF0Z3B0X2RhdGFfcmVzaWRlbmN5Ijoibm9fY29uc3RyYWludCIsImxvY2FsaG9zdCI6dHJ1ZSwicG9pZCI6Im9yZy1HQmxlM2JrSFVNYVdzSFdwUHlPVXBaTWIiLCJ1c2VyX2lkIjoidXNlci13emRsQlI0eTRzVENPaFM4aHoxRDZneTAifSwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9wcm9maWxlIjp7ImVtYWlsIjoiYW5uZXR0ZW5ndXllbjI2MDRAb3V0bG9vay5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ikx1Y2FzIEhhbGwifSwiaXNzIjoiaHR0cHM6Ly9hdXRoLm9wZW5haS5jb20iLCJwd2RfYXV0aF90aW1lIjoxNzg4ODQxMjE2MjczLCJzY3AiOlsib3BlbmlkIiwiZW1haWwiLCJwcm9maWxlIiwib2ZmbGluZV9hY2Nlc3MiXSwic2Vzc2lvbl9pZCI6ImF1dGhzZXNzX1JlS2RDTXpxc3d3MXpaTVhOWFpvSHh5USIsInNsIjp0cnVlLCJzdWIiOiJhdXRoMHxmYnN1QU5NV2xoczhRV0xpNWk0c3BXQ1AiLCJpYXQiOjE3ODg4NDEzMDksImV4cCI6MTc4OTcwNTMwOSwianRpIjoiMDEzNTExM2JjZTNmNDU4NTgxZGQwOWRiZjAxODRjMzciLCJuYmYiOjE3ODg4NDEzMDl9.kpNn3qeBVBlyQA1OKCoga6JPfh5PPVA02_2DF2oyuLgIkXdR0td-FC-hdnseGbHS5htHiTGRf28YTjZIRK5yYfeD-tDHCmcUTxg5L8MyUdRmdZDHjBppMJUJFgkfIdkJ27Dhh-pJ-qK9AjXCYRzqJnT1_T_MYV7317l5WI30vCX4BUSRHOvlVr-7L5JzVpKfeR67rbV6-zVXe3s8xS8wl7pd6NIpOwAlA3fmHGZxatjhAVxvGFU97Kk39UMx1zX1yoArhpevgJLYhYxsvFZQDXrbTtVTBC4MGz9Nf-XbaFosuwQXSAXC8gC_4_s4lU-2bAZDBmNWax_8ZzgfMspfBg",
+        "chatgpt_user_id": "user-wzdlBR4y4sTCOhS8hz1D6gy0",
+        "email": "annettenguyen2604@outlook.com",
+        "expires_at": "2026-09-18T04:21:49.000Z",
+        "expires_in": 786899,
+        "id_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Im1GbmJENFYtS0kwRVhEeWM0UV92ZGFuVGhFd0c0OHZhSXN1ektTSnRuOXMiLCJ0eXAiOiJKV1QifQ.eyJhbXIiOlsib3RwIiwidXJuOm9wZW5haTphbXI6b3RwX3Bob25lIl0sImF1ZCI6WyJhcHBfRU1vYW1FRVo3M2YwQ2tYYVhwN2hyYW5uIl0sImF1dGhfcHJvdmlkZXIiOiJwYXNzd29yZCIsImF1dGhfdGltZSI6MTc4ODg0MTMwNywiZW1haWwiOiJhbm5ldHRlbmd1eWVuMjYwNEBvdXRsb29rLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiZ3JvdXBzIjpbXSwibG9jYWxob3N0Ijp0cnVlLCJvcmdhbml6YXRpb25zIjpbeyJpZCI6Im9yZy1HQmxlM2JrSFVNYVdzSFdwUHlPVXBaTWIiLCJpc19kZWZhdWx0Ijp0cnVlLCJyb2xlIjoib3duZXIiLCJ0aXRsZSI6IlBlcnNvbmFsIn1dLCJ1c2VyX2lkIjoidXNlci13emRsQlI0eTRzVENPaFM4aHoxRDZneTAifSwiaXNzIjoiaHR0cHM6Ly9hdXRoLm9wZW5haS5jb20iLCJuYW1lIjoiTHVjYXMgSGFsbCIsInJhdCI6MTc4ODg0MTI4MSwic2lkIjoiYXV0aHNlc3NfUmVLZENNenFzd3cxelpNWE5YWm9IeHlRIiwic3ViIjoiYXV0aDB8ZmJzdUFOTVdsaHM4UVdMaTVpNHNwV0NQIiwiaWF0IjoxNzg4ODQxMzA5LCJleHAiOjE3ODg4NDQ5MDksImp0aSI6IjliZTRhN2EwYmFiYjRkNTViNGMzYzk1ZjRjMDUwODllIiwiYXRfaGFzaCI6ImUyX3Z3RVZHSVlxbkN4RzBzdWw3WWcifQ.NI2BO6DoWsviAaDl9hKIjZUL9ukyXqy0hpTHc4ePOFrkUJsj8WCAz_w0EokaKQ1mZsU6I8BpaCNRrht_YTctWrEkDxQYwx0HQEfeM25IBDhmqXl8gbXy3XSxCWUmwArVOI2eEaHrtzjDjl2AjCxds30YgSkmGwyGoEJbSYoAzSYKPFkBmwzzkIPnULpdxyccN9eFlTFw1zf3MUOPuM3tY5A9ij2HTrJ7OFAeErlZMOljKhw_ugzNfmbCTRsvL4onFexZZYU8ARQiuSth39zqIDQl-ZI_6Ypjt7SECnLZQ6mWr27E8quFXw2fhu_XWuYwggv_vJrwSVGhX4B7oNwkug",
+        "organization_id": "org-GBle3bkHUMaWsHWpPyOUpZMb",
+        "refresh_token": "rt.1.AAB_RHl1NiGAHDhENqz94eD3Qn5DWyA_YVIN6DoiWJ43MuPwYNGGJO4amQSpnQHQOttjcSjJEh_oNChgGghiLnJyPcW4iZB2Gq7Z-0rikLdWAzC9JKlBU3S1PVyvpMVwFdkA90bpJJrjs5AX_YAsH5CDgV0zGh97NSbJOkhkMX0W5pdeF-A9df9ASDUl7q8"
+      },
+      "extra": {
+        "email": "annettenguyen2604@outlook.com",
+        "email_key": "annettenguyen2604_outlook_com",
+        "original_email": "annettenguyen2604@outlook.com----haSkCaXy&-1F#xI7*P----9e5f94bc-e8a4-4e73-b8be-63364c29d753----M.C509_BAY.0.U.MsaArtifacts.-CvAHADgHqkiPn0ckMPwJaLRXzRUMUc49EYtcB4emNq*4FXDmPQrmqpjg7KUrLfJ4x4ftYLJgk6*CJbW*6Ar0hNqnsN1oWGTT4qWqICIH!!ZKoqJwvd68wkn9J8Yjhk0ZNMw2kSdTlGib8negQVI!aKNw3NqfXhlLrtDWEsvcAE83shlKJugF5bKXDrXdc4KhFyDiMMA9fK08N76dE2vVnnnPAAUfjwzSHExEjL2PIGsAgK*MEverYsbJiqfl9dSJ9KXD0WuicjDBeOrKArVHgAelp3lnhI3FCSwgnIdPm6jeL0Bb0V4EeUbeXvqdFBiQ7bjhGtGWIXg2BBi*vUnBnwBkkrbVwtemk7pWLK9V8GB0X2Sf7FWwRPBwmzazwH!PRdtFoLRJFtBz0AhQtrkIcGA$"
+      }
+    }
+  ]
+}

@@ -7805,6 +7805,21 @@
                 </div>
                 <div class="mt-4">
                   <label class="input-label">{{
+                    t("admin.settings.payment.recommendedRedeemPurchaseUrl")
+                  }}</label>
+                  <input
+                    v-model="form.redeem_code_purchase_url"
+                    type="url"
+                    class="input"
+                    data-testid="recommended-redeem-purchase-url"
+                    :placeholder="t('admin.settings.payment.recommendedRedeemPurchaseUrlPlaceholder')"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.payment.recommendedRedeemPurchaseUrlHint") }}
+                  </p>
+                </div>
+                <div class="mt-4">
+                  <label class="input-label">{{
                     t("admin.settings.payment.redeemPurchaseUrl")
                   }}</label>
                   <input
@@ -9553,12 +9568,14 @@ type SettingsForm = Omit<
   | "wechat_connect_mobile_enabled"
   | "purchase_subscription_enabled"
   | "purchase_subscription_url"
+  | "redeem_code_purchase_url"
 > & {
   /** Form always binds a concrete boolean (SystemSettings marks this optional). */
   channel_monitor_hide_throughput: boolean;
   channel_monitor_show_quota: boolean;
   purchase_subscription_enabled: boolean;
   purchase_subscription_url: string;
+  redeem_code_purchase_url: string;
   smtp_password: string;
   turnstile_secret_key: string;
   tencent_captcha_app_secret_key: string;
@@ -9647,6 +9664,7 @@ const form = reactive<SettingsForm>({
   payment_enabled: false,
   purchase_subscription_enabled: false,
   purchase_subscription_url: "",
+  redeem_code_purchase_url: "",
   risk_control_enabled: false,
   cyber_session_block_enabled: false,
   cyber_session_block_ttl_seconds: 3600,
@@ -11454,6 +11472,7 @@ async function saveSettings() {
       payment_enabled: form.payment_enabled,
       purchase_subscription_enabled: form.purchase_subscription_enabled,
       purchase_subscription_url: form.purchase_subscription_url.trim(),
+      redeem_code_purchase_url: form.redeem_code_purchase_url.trim(),
       risk_control_enabled: form.risk_control_enabled,
       cyber_session_block_enabled: form.cyber_session_block_enabled,
       cyber_session_block_ttl_seconds:

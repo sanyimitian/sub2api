@@ -649,6 +649,7 @@ export interface SystemSettings {
   risk_control_enabled: boolean;
   purchase_subscription_enabled?: boolean;
   purchase_subscription_url?: string;
+  redeem_code_purchase_url?: string;
 
   // Cyber session block
   cyber_session_block_enabled: boolean;
@@ -964,6 +965,7 @@ export interface UpdateSettingsRequest {
   risk_control_enabled?: boolean;
   purchase_subscription_enabled?: boolean;
   purchase_subscription_url?: string;
+  redeem_code_purchase_url?: string;
 
   // Cyber session block
   cyber_session_block_enabled?: boolean;

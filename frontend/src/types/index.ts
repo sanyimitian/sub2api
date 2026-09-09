@@ -244,6 +244,7 @@ export interface PublicSettings {
   risk_control_enabled: boolean
   purchase_subscription_enabled?: boolean
   purchase_subscription_url?: string
+  redeem_code_purchase_url?: string
   table_default_page_size: number
   table_page_size_options: number[]
   custom_menu_items: CustomMenuItem[]

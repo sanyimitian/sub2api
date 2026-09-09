@@ -488,6 +488,7 @@ const baseSettingsResponse = {
   payment_enabled: true,
   purchase_subscription_enabled: false,
   purchase_subscription_url: "",
+  redeem_code_purchase_url: "",
   payment_min_amount: 1,
   payment_max_amount: 10000,
   payment_daily_limit: 50000,
@@ -774,8 +775,10 @@ describe("admin SettingsView payment visible method controls", () => {
 
     const enabled = wrapper.get('[data-testid="redeem-purchase-enabled-toggle"]');
     const url = wrapper.get('[data-testid="redeem-purchase-url"]');
+    const recommendedUrl = wrapper.get('[data-testid="recommended-redeem-purchase-url"]');
     await enabled.setValue(true);
     await url.setValue("https://buy.example.com/redeem");
+    await recommendedUrl.setValue("https://buy.example.com/recommended-redeem");
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
 
@@ -783,6 +786,7 @@ describe("admin SettingsView payment visible method controls", () => {
       expect.objectContaining({
         purchase_subscription_enabled: true,
         purchase_subscription_url: "https://buy.example.com/redeem",
+        redeem_code_purchase_url: "https://buy.example.com/recommended-redeem",
       }),
     );
   });

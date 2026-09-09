@@ -1,0 +1,28 @@
+{
+  "exported_at": "2026-09-09T01:46:49.289Z",
+  "proxies": [],
+  "accounts": [
+    {
+      "name": "travisdixon5817@outlook.com",
+      "platform": "openai",
+      "type": "oauth",
+      "concurrency": 10,
+      "priority": 1,
+      "credentials": {
+        "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Im1GbmJENFYtS0kwRVhEeWM0UV92ZGFuVGhFd0c0OHZhSXN1ektTSnRuOXMiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOlsiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS92MSJdLCJjbGllbnRfaWQiOiJhcHBfRU1vYW1FRVo3M2YwQ2tYYVhwN2hyYW5uIiwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImFtciI6WyJvdHAiLCJ1cm46b3BlbmFpOmFtcjpvdHBfcGhvbmUiXSwiY2hhdGdwdF9jb21wdXRlX3Jlc2lkZW5jeSI6Im5vX2NvbnN0cmFpbnQiLCJjaGF0Z3B0X2RhdGFfcmVzaWRlbmN5Ijoibm9fY29uc3RyYWludCIsImxvY2FsaG9zdCI6dHJ1ZSwicG9pZCI6Im9yZy1zMU1CTFlmU0FoRkd5ZUp6VHNmUDkxMTAiLCJ1c2VyX2lkIjoidXNlci12T01vc2NzdVFLQUNPSHBKVUlHRnhuWmMifSwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9wcm9maWxlIjp7ImVtYWlsIjoidHJhdmlzZGl4b241ODE3QG91dGxvb2suY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsIm5hbWUiOiJOb2FoIEdhcmNpYSJ9LCJpc3MiOiJodHRwczovL2F1dGgub3BlbmFpLmNvbSIsInB3ZF9hdXRoX3RpbWUiOjE3ODg4NDE0ODE0NzAsInNjcCI6WyJvcGVuaWQiLCJlbWFpbCIsInByb2ZpbGUiLCJvZmZsaW5lX2FjY2VzcyJdLCJzZXNzaW9uX2lkIjoiYXV0aHNlc3NfTTQ5dVI0QVpTVlFZM28xRE9BdFVsbEhlIiwic2wiOnRydWUsInN1YiI6ImF1dGgwfDdscXRRSkNUYk5NbmR5M0JsdmJVRlh1ciIsImlhdCI6MTc4ODg0MTU1OCwiZXhwIjoxNzg5NzA1NTU4LCJqdGkiOiIzMjUzNmQyZGNmYmQ0NDhjOGVjNTlhMDNlNDI4ODg4OCIsIm5iZiI6MTc4ODg0MTU1OH0.LNs9yuoVS262SviRuW52qKwsOJ_u-ru5R4SLjdYtRxlB_-A3qr9OWWiRiVkYIcC99QHlai2P5X-IYil42N7psKlm5WWKooWrpX4xkwNiRfr77MK2EEEmR7Ne7AC_eEkARn8d8aQO_3vGUrSellZJs-yYFQdtkwqt-gAknpJMxpw-38ohaw6D5umOSoRqw8uxbXmHnxFpZpYDEJZg87r35Iqqn9aKFJAFD4rCLCqI14mQLg3y1UdW0DGimNIEzdz8Bw6Hdg341F8j-ZEY4ODmaZAlXwE7dADU3A5TuQsF6IJ0kuxiFUVXVgZ8xPZoTPlPxPlUlyBGREvf0_fzOlXw9Q",
+        "chatgpt_user_id": "user-vOMoscsuQKACOHpJUIGFxnZc",
+        "email": "travisdixon5817@outlook.com",
+        "expires_at": "2026-09-18T04:25:58.000Z",
+        "expires_in": 787148,
+        "id_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Im1GbmJENFYtS0kwRVhEeWM0UV92ZGFuVGhFd0c0OHZhSXN1ektTSnRuOXMiLCJ0eXAiOiJKV1QifQ.eyJhbXIiOlsib3RwIiwidXJuOm9wZW5haTphbXI6b3RwX3Bob25lIl0sImF1ZCI6WyJhcHBfRU1vYW1FRVo3M2YwQ2tYYVhwN2hyYW5uIl0sImF1dGhfcHJvdmlkZXIiOiJwYXNzd29yZCIsImF1dGhfdGltZSI6MTc4ODg0MTU1NywiZW1haWwiOiJ0cmF2aXNkaXhvbjU4MTdAb3V0bG9vay5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7Imdyb3VwcyI6W10sImxvY2FsaG9zdCI6dHJ1ZSwib3JnYW5pemF0aW9ucyI6W3siaWQiOiJvcmctczFNQkxZZlNBaEZHeWVKelRzZlA5MTEwIiwiaXNfZGVmYXVsdCI6dHJ1ZSwicm9sZSI6Im93bmVyIiwidGl0bGUiOiJQZXJzb25hbCJ9XSwidXNlcl9pZCI6InVzZXItdk9Nb3Njc3VRS0FDT0hwSlVJR0Z4blpjIn0sImlzcyI6Imh0dHBzOi8vYXV0aC5vcGVuYWkuY29tIiwibmFtZSI6Ik5vYWggR2FyY2lhIiwicmF0IjoxNzg4ODQxNTM0LCJzaWQiOiJhdXRoc2Vzc19NNDl1UjRBWlNWUVkzbzFET0F0VWxsSGUiLCJzdWIiOiJhdXRoMHw3bHF0UUpDVGJOTW5keTNCbHZiVUZYdXIiLCJpYXQiOjE3ODg4NDE1NTgsImV4cCI6MTc4ODg0NTE1OCwianRpIjoiZmY2NWU5NTQ0OWYyNDU2YzhjMTAyZDAyMDY4MTZhNzUiLCJhdF9oYXNoIjoibnBGSm01ZlNHRnBRSVE1MDd1ZWc3QSJ9.EXKTjsUp629J1R_O8qgyRU457cOPVduJpN_EaT9MQirnSoq8c34PpZmv6BKK4aj3KZrn94fXO99m5KrF1quP78I_NIeele6i_pELH4fI_9aQ-BhIieVxNBIPXd0ubX5FFiHa-YC-LIqAR4qkZWTOE4qxnljvG5pBOPlLw_O2sd4lWUpsQYtlwdpA2lIBPYcWxgCF3R5TPgt6j-K_fcd0iWVqM-0gP6O1gV9ZKECofWUzJJEhTVC2YAc6Sz3sEab7YTr_UkQNdiyByn1ImKTuukazZabtvlPXZNR4ccozcEBDZ5Lrpen0zyjrYpIVfxLLAJPgtAHW4cSRcSkIiMWLUA",
+        "organization_id": "org-s1MBLYfSAhFGyeJzTsfP9110",
+        "refresh_token": "rt.1.AADIbr-acmtC0xudmMtKPbuQ5PNAzyv0nm9Y4zsei-sy0uO3g57CrkULmn4fK-Jkql16lYa9rakRam1cbuBYy-t8d4c8Zza68YiIpeF3xq5YWm8m6B6HVlBEIqdMNqDmfMqxNbXSAJuz1wdxbKcja7rnxJT3UqpnXKOGeLi8WiqOAW688DAMIRbO-sgtWpg"
+      },
+      "extra": {
+        "email": "travisdixon5817@outlook.com",
+        "email_key": "travisdixon5817_outlook_com",
+        "original_email": "travisdixon5817@outlook.com----NT_&!!R+!QqSohfx6H----9e5f94bc-e8a4-4e73-b8be-63364c29d753----M.C527_BL2.0.U.MsaArtifacts.-CrRRRYZKgRwcPPC!L3NCix8ra!qeDJ7TJ83RpKDfsQLeE0fTWiiwqF0DN6DKgFvIY9y3Nu8suo8*YvMS2PUUkDXAf4uIZeiRTTYnSYA65wsXH!S*S2LGNPVRLyz1c0wYBz844kSvpHpyNudk!1ViY*PF5GGn8DXSxgzuw913LOG5LLX*q*4U6lFAgjAz1*SZ7KaO0be5Il7XAb80nGAayAWWlvCG2yGxIwDJUZKmtW7n*zPG9VHcUdHxSkb9NIFow*pOrIiFYMR97C6gK6hQshHJdW4d4ck4oMzlpl8Ba03Jr6gzs5Lkz!Ub2yULmv7f3Q2lcMENKSxo30ZWElLv3E2ciX4EhSybEuX9ynEzA!4aXsxvrnIehhVHqlFTthWndCdIJx7SqzIyj!xIJ14TcHA$"
+      }
+    }
+  ]
+}

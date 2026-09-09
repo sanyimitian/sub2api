@@ -164,6 +164,7 @@ type UpdateSettingsRequest struct {
 	HideCcsImportButton         bool                  `json:"hide_ccs_import_button"`
 	PurchaseSubscriptionEnabled *bool                 `json:"purchase_subscription_enabled"`
 	PurchaseSubscriptionURL     *string               `json:"purchase_subscription_url"`
+	RedeemCodePurchaseURL       *string               `json:"redeem_code_purchase_url"`
 	TableDefaultPageSize        int                   `json:"table_default_page_size"`
 	TablePageSizeOptions        []int                 `json:"table_page_size_options"`
 	CustomMenuItems             *[]dto.CustomMenuItem `json:"custom_menu_items"`
@@ -1245,6 +1246,17 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
+	redeemCodePurchaseURL := previousSettings.RedeemCodePurchaseURL
+	if req.RedeemCodePurchaseURL != nil {
+		redeemCodePurchaseURL = strings.TrimSpace(*req.RedeemCodePurchaseURL)
+	}
+	if redeemCodePurchaseURL != "" {
+		if err := config.ValidateAbsoluteHTTPURL(redeemCodePurchaseURL); err != nil {
+			response.BadRequest(c, "Redeem Code Purchase URL must be an absolute http(s) URL")
+			return
+		}
+	}
+
 	// Frontend URL 验证
 	req.FrontendURL = strings.TrimSpace(req.FrontendURL)
 	if req.FrontendURL != "" {
@@ -1624,6 +1636,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		HideCcsImportButton:                    req.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:            purchaseEnabled,
 		PurchaseSubscriptionURL:                purchaseURL,
+		RedeemCodePurchaseURL:                  redeemCodePurchaseURL,
 		TableDefaultPageSize:                   req.TableDefaultPageSize,
 		TablePageSizeOptions:                   req.TablePageSizeOptions,
 		CustomMenuItems:                        customMenuJSON,
@@ -2252,6 +2265,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		HideCcsImportButton:                                    updatedSettings.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:                            updatedSettings.PurchaseSubscriptionEnabled,
 		PurchaseSubscriptionURL:                                updatedSettings.PurchaseSubscriptionURL,
+		RedeemCodePurchaseURL:                                  updatedSettings.RedeemCodePurchaseURL,
 		TableDefaultPageSize:                                   updatedSettings.TableDefaultPageSize,
 		TablePageSizeOptions:                                   updatedSettings.TablePageSizeOptions,
 		CustomMenuItems:                                        dto.ParseCustomMenuItems(updatedSettings.CustomMenuItems),
