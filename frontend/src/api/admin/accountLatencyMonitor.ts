@@ -23,7 +23,7 @@ export interface AccountLatencyMonitorSettings {
 
 export interface AccountLatencyMonitorAccountState {
   account_id: number
-  group_priority: number
+  account_priority: number
   consecutive_failures: number
   last_latency_ms?: number
   last_success?: boolean

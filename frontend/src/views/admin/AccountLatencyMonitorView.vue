@@ -40,7 +40,7 @@
           <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <label class="block text-sm text-gray-700 dark:text-gray-200">首字阈值（秒）<input v-model.number="selectedGroup.latency_threshold_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">异常统计窗口（秒）<input v-model.number="selectedGroup.failure_window_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
-            <label class="block text-sm text-gray-700 dark:text-gray-200">连续异常次数<input v-model.number="selectedGroup.consecutive_failures" type="number" min="1" class="input mt-1 w-full" /></label>
+            <label class="block text-sm text-gray-700 dark:text-gray-200">窗口内异常次数<input v-model.number="selectedGroup.consecutive_failures" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">备用检测周期（秒）<input v-model.number="selectedGroup.probe_interval_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">无用户请求时检测周期（秒）<input v-model.number="selectedGroup.idle_probe_interval_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">单次探测超时（秒）<input v-model.number="selectedGroup.probe_timeout_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
@@ -70,7 +70,7 @@
               <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">备用账号</span><p class="mt-1 text-gray-900 dark:text-white">{{ accountNames(runtimeForSelected?.backup_account_ids, '等待探测') }}</p></div>
               <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">最近探测</span><p class="mt-1 text-gray-900 dark:text-white">{{ formatTime(runtimeForSelected?.last_probe_at) }}</p></div>
             </div>
-            <div v-if="sortedRuntimeAccounts.length" class="mt-3 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs text-gray-500"><tr><th class="p-2">账号</th><th class="p-2">分组优先级</th><th class="p-2">首字</th><th class="p-2">连续异常</th><th class="p-2">最近结果</th></tr></thead><tbody><tr v-for="state in sortedRuntimeAccounts" :key="state.account_id" class="border-t border-gray-100 dark:border-dark-700"><td class="p-2">{{ accountName(state.account_id) }}</td><td class="p-2">{{ state.group_priority }}</td><td class="p-2" :class="latencyClass(state.last_latency_ms)">{{ state.last_latency_ms == null ? '-' : `${state.last_latency_ms} ms` }}</td><td class="p-2">{{ state.consecutive_failures }}</td><td class="p-2" :class="resultClass(state.last_success)">{{ state.last_success === undefined ? '-' : state.last_success ? '成功' : '失败' }}</td></tr></tbody></table></div>
+            <div v-if="sortedRuntimeAccounts.length" class="mt-3 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs text-gray-500"><tr><th class="p-2">账号</th><th class="p-2">账号优先级</th><th class="p-2">首字</th><th class="p-2">窗口内异常</th><th class="p-2">最近结果</th></tr></thead><tbody><tr v-for="state in sortedRuntimeAccounts" :key="state.account_id" class="border-t border-gray-100 dark:border-dark-700"><td class="p-2">{{ accountName(state.account_id) }}</td><td class="p-2">{{ state.account_priority }}</td><td class="p-2" :class="latencyClass(state.last_latency_ms)">{{ state.last_latency_ms == null ? '-' : `${state.last_latency_ms} ms` }}</td><td class="p-2">{{ state.consecutive_failures }}</td><td class="p-2" :class="resultClass(state.last_success)">{{ state.last_success === undefined ? '-' : state.last_success ? '成功' : '失败' }}</td></tr></tbody></table></div>
           </div>
         </section>
         <section v-else class="flex min-h-80 items-center justify-center border border-dashed border-gray-300 text-sm text-gray-500 dark:border-dark-600">从左侧新增并选择一个分组。</section>
@@ -103,7 +103,7 @@ const sortedRuntimeAccounts = computed(() => [...(runtimeForSelected.value?.acco
   const leftFast = left.last_latency_ms != null && left.last_latency_ms < thresholdMs
   const rightFast = right.last_latency_ms != null && right.last_latency_ms < thresholdMs
   if (leftFast !== rightFast) return leftFast ? -1 : 1
-  if (left.group_priority !== right.group_priority) return left.group_priority - right.group_priority
+  if (left.account_priority !== right.account_priority) return left.account_priority - right.account_priority
   if (left.last_latency_ms == null || right.last_latency_ms == null) {
     if (left.last_latency_ms == null && right.last_latency_ms != null) return 1
     if (left.last_latency_ms != null && right.last_latency_ms == null) return -1

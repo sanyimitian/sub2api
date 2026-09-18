@@ -56,7 +56,7 @@ type AccountLatencyMonitorGroup struct {
 
 type AccountLatencyMonitorAccountState struct {
 	AccountID          int64      `json:"account_id"`
-	GroupPriority      int        `json:"group_priority"`
+	AccountPriority    int        `json:"account_priority"`
 	ConsecutiveFailure int        `json:"consecutive_failures"`
 	LastLatencyMs      *int64     `json:"last_latency_ms,omitempty"`
 	LastSuccess        *bool      `json:"last_success,omitempty"`
@@ -78,12 +78,7 @@ type accountLatencyMonitorGroupRuntime struct {
 	lastUserRequest time.Time
 	probing         bool
 	switching       bool
-	issues          map[int64]accountLatencyMonitorIssue
-}
-
-type accountLatencyMonitorIssue struct {
-	kind      string
-	startedAt time.Time
+	issues          map[int64]map[string][]time.Time
 }
 
 const (
@@ -338,8 +333,8 @@ func (m *AccountLatencyMonitor) resetRuntimeForSettings(settings AccountLatencyM
 	}
 }
 
-// RecordRequest reports one user request. Two same-kind failures within the
-// configured window trigger an immediate switch to a previously tested backup.
+// RecordRequest reports one user request. Repeated same-kind anomalies within
+// the configured window trigger an immediate switch to a previously tested backup.
 func (m *AccountLatencyMonitor) RecordRequest(_ context.Context, groupID, accountID int64, firstTokenMs *int, success bool) {
 	if m == nil || groupID <= 0 || accountID <= 0 {
 		return
@@ -369,29 +364,57 @@ func (m *AccountLatencyMonitor) RecordRequest(_ context.Context, groupID, accoun
 		state.LastLatencyMs = accountLatencyMonitorInt64Ptr(int64(*firstTokenMs))
 	}
 
+	issueCount, windowIssueCount := accountLatencyMonitorWindowIssueCount(rt, accountID, issue, now, time.Duration(cfg.FailureWindowSec)*time.Second)
+	state.ConsecutiveFailure = windowIssueCount
+
 	shouldFailover := false
-	if issue == "" {
-		state.ConsecutiveFailure = 0
-		delete(rt.issues, accountID)
-	} else {
-		previous, found := rt.issues[accountID]
-		withinWindow := found && previous.kind == issue && now.Sub(previous.startedAt) <= time.Duration(cfg.FailureWindowSec)*time.Second
-		if withinWindow {
-			state.ConsecutiveFailure++
-		} else {
-			state.ConsecutiveFailure = 1
-			rt.issues[accountID] = accountLatencyMonitorIssue{kind: issue, startedAt: now}
-		}
-		if state.ConsecutiveFailure >= cfg.ConsecutiveFailures && !rt.switching {
-			rt.switching = true
-			shouldFailover = true
-		}
+	if issue != "" && issueCount >= cfg.ConsecutiveFailures && !rt.switching {
+		rt.switching = true
+		shouldFailover = true
 	}
 	m.mu.Unlock()
 
 	if shouldFailover {
 		go m.failover(context.Background(), cfg, accountID)
 	}
+}
+
+func accountLatencyMonitorWindowIssueCount(rt *accountLatencyMonitorGroupRuntime, accountID int64, issue string, now time.Time, window time.Duration) (int, int) {
+	byKind := rt.issues[accountID]
+	if byKind == nil {
+		byKind = make(map[string][]time.Time)
+		rt.issues[accountID] = byKind
+	}
+	cutoff := now.Add(-window)
+	maxCount := 0
+	for kind, timestamps := range byKind {
+		kept := timestamps[:0]
+		for _, timestamp := range timestamps {
+			if !timestamp.Before(cutoff) {
+				kept = append(kept, timestamp)
+			}
+		}
+		if len(kept) == 0 {
+			delete(byKind, kind)
+			continue
+		}
+		byKind[kind] = kept
+		if len(kept) > maxCount {
+			maxCount = len(kept)
+		}
+	}
+	if issue == "" {
+		if len(byKind) == 0 {
+			delete(rt.issues, accountID)
+		}
+		return 0, maxCount
+	}
+	byKind[issue] = append(byKind[issue], now)
+	issueCount := len(byKind[issue])
+	if issueCount > maxCount {
+		maxCount = issueCount
+	}
+	return issueCount, maxCount
 }
 
 func (m *AccountLatencyMonitor) GetRuntime(ctx context.Context) ([]AccountLatencyMonitorGroupState, error) {
@@ -416,7 +439,7 @@ func (m *AccountLatencyMonitor) GetRuntime(ctx context.Context) ([]AccountLatenc
 			priorities[account.ID] = accountLatencyMonitorPriority(account, cfg.GroupID)
 		}
 		for i := range state.Accounts {
-			state.Accounts[i].GroupPriority = priorities[state.Accounts[i].AccountID]
+			state.Accounts[i].AccountPriority = priorities[state.Accounts[i].AccountID]
 		}
 		sortAccountLatencyMonitorStates(state.Accounts, int64(cfg.LatencyThresholdSec*1000))
 		sort.Slice(state.ActiveAccountIDs, func(i, j int) bool { return state.ActiveAccountIDs[i] < state.ActiveAccountIDs[j] })
@@ -464,8 +487,8 @@ func sortAccountLatencyMonitorStates(states []AccountLatencyMonitorAccountState,
 		if iFast != jFast {
 			return iFast
 		}
-		if states[i].GroupPriority != states[j].GroupPriority {
-			return states[i].GroupPriority < states[j].GroupPriority
+		if states[i].AccountPriority != states[j].AccountPriority {
+			return states[i].AccountPriority < states[j].AccountPriority
 		}
 		if states[i].LastLatencyMs == nil || states[j].LastLatencyMs == nil {
 			if states[i].LastLatencyMs == nil && states[j].LastLatencyMs != nil {
@@ -799,12 +822,7 @@ func accountLatencyMonitorTargets(candidates, alwaysEnabled []int64, backupCount
 	return currentID, backups
 }
 
-func accountLatencyMonitorPriority(account Account, groupID int64) int {
-	for _, group := range account.AccountGroups {
-		if group.GroupID == groupID {
-			return group.Priority
-		}
-	}
+func accountLatencyMonitorPriority(account Account, _ int64) int {
 	return account.Priority
 }
 
@@ -858,7 +876,7 @@ func (m *AccountLatencyMonitor) ensureRuntimeLocked(groupID int64) *accountLaten
 	if rt == nil {
 		rt = &accountLatencyMonitorGroupRuntime{
 			accounts: make(map[int64]*AccountLatencyMonitorAccountState),
-			issues:   make(map[int64]accountLatencyMonitorIssue),
+			issues:   make(map[int64]map[string][]time.Time),
 		}
 		m.runtime[groupID] = rt
 	}

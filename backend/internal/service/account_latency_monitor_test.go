@@ -10,10 +10,10 @@ func TestSortAccountLatencyMonitorStates_UsesThreeLayers(t *testing.T) {
 	fastQuick := int64(1_000)
 	slow := int64(11_000)
 	states := []AccountLatencyMonitorAccountState{
-		{AccountID: 1, GroupPriority: 0, LastLatencyMs: &slow},
-		{AccountID: 2, GroupPriority: 5, LastLatencyMs: &fastQuick},
-		{AccountID: 3, GroupPriority: 1, LastLatencyMs: &fastSlow},
-		{AccountID: 4, GroupPriority: 1},
+		{AccountID: 1, AccountPriority: 0, LastLatencyMs: &slow},
+		{AccountID: 2, AccountPriority: 5, LastLatencyMs: &fastQuick},
+		{AccountID: 3, AccountPriority: 1, LastLatencyMs: &fastSlow},
+		{AccountID: 4, AccountPriority: 1},
 	}
 
 	sortAccountLatencyMonitorStates(states, 10_000)
@@ -23,12 +23,12 @@ func TestSortAccountLatencyMonitorStates_UsesThreeLayers(t *testing.T) {
 	}
 }
 
-func TestSelectAccountLatencyMonitorBackups_PrefersFastThenGroupPriority(t *testing.T) {
+func TestSelectAccountLatencyMonitorBackups_PrefersFastThenAccountPriority(t *testing.T) {
 	results := []accountLatencyProbeResult{
-		{account: Account{ID: 1, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 0}}}, latency: 12_000, success: true},
-		{account: Account{ID: 2, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 5}}}, latency: 8_000, success: true},
-		{account: Account{ID: 3, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 1}}}, latency: 9_000, success: true},
-		{account: Account{ID: 4, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 1}}}, latency: 7_000, success: false},
+		{account: Account{ID: 1, Priority: 0}, latency: 12_000, success: true},
+		{account: Account{ID: 2, Priority: 5}, latency: 8_000, success: true},
+		{account: Account{ID: 3, Priority: 1}, latency: 9_000, success: true},
+		{account: Account{ID: 4, Priority: 1}, latency: 7_000, success: false},
 	}
 
 	chosen := selectAccountLatencyMonitorBackups(results, 7, 10_000, 3, nil)
@@ -37,24 +37,45 @@ func TestSelectAccountLatencyMonitorBackups_PrefersFastThenGroupPriority(t *test
 	}
 }
 
-func TestSelectAccountLatencyMonitorBackups_PrefersGroupPriorityWithinFastAccounts(t *testing.T) {
+func TestSelectAccountLatencyMonitorBackups_PrefersAccountPriorityWithinFastAccounts(t *testing.T) {
 	results := []accountLatencyProbeResult{
-		{account: Account{ID: 1, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 4}}}, latency: 1_000, success: true},
-		{account: Account{ID: 2, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 1}}}, latency: 9_000, success: true},
-		{account: Account{ID: 3, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 1}}}, latency: 7_000, success: true},
+		{account: Account{ID: 1, Priority: 4}, latency: 1_000, success: true},
+		{account: Account{ID: 2, Priority: 1}, latency: 9_000, success: true},
+		{account: Account{ID: 3, Priority: 1}, latency: 7_000, success: true},
 	}
 
 	chosen := selectAccountLatencyMonitorBackups(results, 7, 10_000, 3, nil)
 	if got, want := accountIDsString(chosen), "3,2,1"; got != want {
 		t.Fatalf("selected backups = %s, want %s", got, want)
+	}
+}
+
+func TestSelectAccountLatencyMonitorBackups_UsesConfiguredThreeLayerOrder(t *testing.T) {
+	results := []accountLatencyProbeResult{
+		{account: Account{ID: 1, Priority: 100}, latency: 5_000, success: true},
+		{account: Account{ID: 2, Priority: 99}, latency: 8_000, success: true},
+		{account: Account{ID: 3, Priority: 150}, latency: 1_000, success: true},
+		{account: Account{ID: 4, Priority: 30}, latency: 15_000, success: true},
+	}
+
+	candidates := selectAccountLatencyMonitorBackups(results, 7, 10_000, 4, nil)
+	if got, want := accountIDsString(candidates), "2,1,3,4"; got != want {
+		t.Fatalf("ordered candidates = %s, want %s", got, want)
+	}
+	currentID, backups := accountLatencyMonitorTargets(candidates, nil, 2)
+	if currentID != 2 {
+		t.Fatalf("current account = %d, want 2", currentID)
+	}
+	if got, want := accountIDsString(backups), "1,3"; got != want {
+		t.Fatalf("backup accounts = %s, want %s", got, want)
 	}
 }
 
 func TestSelectAccountLatencyMonitorBackups_SortsEqualPriorityByLatency(t *testing.T) {
 	results := []accountLatencyProbeResult{
-		{account: Account{ID: 1, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 2}}}, latency: 8_000, success: true},
-		{account: Account{ID: 2, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 2}}}, latency: 6_000, success: true},
-		{account: Account{ID: 3, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 2}}}, latency: 7_000, success: true},
+		{account: Account{ID: 1, Priority: 2}, latency: 8_000, success: true},
+		{account: Account{ID: 2, Priority: 2}, latency: 6_000, success: true},
+		{account: Account{ID: 3, Priority: 2}, latency: 7_000, success: true},
 	}
 
 	chosen := selectAccountLatencyMonitorBackups(results, 7, 10_000, 2, map[int64]struct{}{2: {}})
@@ -105,6 +126,23 @@ func TestAccountLatencyMonitorProbeInterval_UsesIdleIntervalWithoutNewUserReques
 	rt.lastUserRequest = lastProbe.Add(time.Second)
 	if got, want := accountLatencyMonitorProbeInterval(cfg, rt), time.Minute; got != want {
 		t.Fatalf("active probe interval = %s, want %s", got, want)
+	}
+}
+
+func TestAccountLatencyMonitorWindowIssueCount_KeepsAnomalyAcrossNormalRequest(t *testing.T) {
+	rt := &accountLatencyMonitorGroupRuntime{issues: make(map[int64]map[string][]time.Time)}
+	start := time.Now()
+	count, total := accountLatencyMonitorWindowIssueCount(rt, 1, accountLatencyMonitorIssueLatency, start, 30*time.Second)
+	if count != 1 || total != 1 {
+		t.Fatalf("first latency anomaly = (%d, %d), want (1, 1)", count, total)
+	}
+	count, total = accountLatencyMonitorWindowIssueCount(rt, 1, "", start.Add(5*time.Second), 30*time.Second)
+	if count != 0 || total != 1 {
+		t.Fatalf("normal request = (%d, %d), want (0, 1)", count, total)
+	}
+	count, total = accountLatencyMonitorWindowIssueCount(rt, 1, accountLatencyMonitorIssueLatency, start.Add(10*time.Second), 30*time.Second)
+	if count != 2 || total != 2 {
+		t.Fatalf("second latency anomaly = (%d, %d), want (2, 2)", count, total)
 	}
 }
 
