@@ -29,7 +29,7 @@
           <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div class="min-w-52">
               <label class="mb-1 block text-xs text-gray-500">分组</label>
-              <select v-model.number="selectedGroup.group_id" class="input w-full" @change="selectGroup(selectedGroup.group_id)">
+              <select :value="selectedGroup.group_id" class="input w-full" @change="changeSelectedGroup">
                 <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</option>
               </select>
             </div>
@@ -46,7 +46,7 @@
             <label class="block text-sm text-gray-700 dark:text-gray-200">单次探测超时（秒）<input v-model.number="selectedGroup.probe_timeout_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">并发探测账号数<input v-model.number="selectedGroup.probe_concurrency" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">备用账号数量<input v-model.number="selectedGroup.backup_count" type="number" min="1" class="input mt-1 w-full" /></label>
-            <label class="block text-sm text-gray-700 dark:text-gray-200">周期切换冷却时间（秒）<input v-model.number="selectedGroup.switch_cooldown_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
+            <label class="block text-sm text-gray-700 dark:text-gray-200">周期切换运行帐号间隔（秒）<input v-model.number="selectedGroup.switch_cooldown_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">单次立即切换阈值（秒）<input v-model.number="selectedGroup.immediate_switch_threshold_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">探测模型<input v-model.trim="selectedGroup.probe_model" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">探测内容<input v-model.trim="selectedGroup.probe_prompt" class="input mt-1 w-full" /></label>
@@ -73,7 +73,7 @@
               <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">最近探测</span><p class="mt-1 text-gray-900 dark:text-white">{{ formatTime(runtimeForSelected?.last_probe_at) }}</p></div>
               <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">最近更换账号</span><p class="mt-1 text-gray-900 dark:text-white">{{ formatTime(runtimeForSelected?.last_switch_at) }}</p></div>
             </div>
-            <div v-if="sortedRuntimeAccounts.length" class="mt-3 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs text-gray-500"><tr><th class="p-2">账号</th><th class="p-2">账号优先级</th><th class="p-2">首字</th><th class="p-2">窗口内异常</th><th class="p-2">最近结果</th></tr></thead><tbody><tr v-for="state in sortedRuntimeAccounts" :key="state.account_id" class="border-t border-gray-100 dark:border-dark-700"><td class="p-2">{{ accountName(state.account_id) }}</td><td class="p-2">{{ state.account_priority }}</td><td class="p-2" :class="latencyClass(state.last_latency_ms)">{{ state.last_latency_ms == null ? '-' : `${state.last_latency_ms} ms` }}</td><td class="p-2">{{ state.consecutive_failures }}</td><td class="p-2" :class="resultClass(state.last_success)">{{ state.last_success === undefined ? '-' : state.last_success ? '成功' : '失败' }}</td></tr></tbody></table></div>
+            <div v-if="sortedRuntimeAccounts.length" class="mt-3 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs text-gray-500"><tr><th class="p-2">账号</th><th class="p-2">账号优先级</th><th class="p-2">首字</th><th class="p-2">窗口内异常</th><th class="p-2">最近结果</th></tr></thead><tbody><tr v-for="state in sortedRuntimeAccounts" :key="state.account_id" class="border-t border-gray-100 dark:border-dark-700"><td class="p-2"><a v-if="accountHomepageUrl(state.account_id)" :href="accountHomepageUrl(state.account_id)" target="_blank" rel="noopener noreferrer" class="border-b border-dotted border-gray-300 font-medium text-gray-900 dark:border-dark-600 dark:text-white">{{ accountName(state.account_id) }}</a><span v-else class="font-medium text-gray-900 dark:text-white">{{ accountName(state.account_id) }}</span></td><td class="p-2">{{ state.account_priority }}</td><td class="p-2" :class="latencyClass(state.last_latency_ms)">{{ state.last_latency_ms == null ? '-' : `${state.last_latency_ms} ms` }}</td><td class="p-2">{{ state.consecutive_failures }}</td><td class="p-2" :class="resultClass(state.last_success)">{{ state.last_success === undefined ? '-' : state.last_success ? '成功' : '失败' }}</td></tr></tbody></table></div>
           </div>
         </section>
         <section v-else class="flex min-h-80 items-center justify-center border border-dashed border-gray-300 text-sm text-gray-500 dark:border-dark-600">从左侧新增并选择一个分组。</section>
@@ -92,6 +92,7 @@ import { list as listAccounts } from '@/api/admin/accounts'
 import { getRuntime, getSettings, updateSettings, type AccountLatencyMonitorGroup, type AccountLatencyMonitorGroupState, type AccountLatencyMonitorSettings } from '@/api/admin/accountLatencyMonitor'
 import type { AdminGroup, AccountListItem } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { sanitizeUrl } from '@/utils/url'
 
 const appStore = useAppStore()
 const groups = ref<AdminGroup[]>([])
@@ -129,16 +130,42 @@ function normalizeSettings(value: AccountLatencyMonitorSettings): AccountLatency
   }
 }
 function groupName(id: number) { return groups.value.find((group) => group.id === id)?.name ?? `分组 #${id}` }
-function accountName(id: number) { return groupAccounts.value.find((account) => account.id === id)?.name ?? `账号 #${id}` }
+function accountForID(id: number) { return groupAccounts.value.find((account) => account.id === id) }
+function accountName(id: number) { return accountForID(id)?.name ?? `账号 #${id}` }
+function accountHomepageUrl(id: number) {
+  const account = accountForID(id)
+  if (!account || account.type !== 'apikey' || typeof account.credentials?.base_url !== 'string') return ''
+  const baseUrl = sanitizeUrl(account.credentials.base_url)
+  return baseUrl ? new URL(baseUrl).origin : ''
+}
 function accountNames(ids: number[] | undefined, fallback: string) { return ids?.length ? ids.map(accountName).join('、') : fallback }
 function formatTime(value?: string) { return value ? new Date(value).toLocaleString() : '暂无' }
 function latencyClass(latency?: number) { if (latency == null) return 'text-gray-500 dark:text-gray-400'; if (latency > 25_000) return 'text-red-600 dark:text-red-400'; if (latency >= (selectedGroup.value?.latency_threshold_seconds ?? 10) * 1000) return 'text-orange-600 dark:text-orange-400'; return 'text-emerald-600 dark:text-emerald-400' }
 function resultClass(success?: boolean) { if (success === undefined) return 'text-gray-500 dark:text-gray-400'; return success ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400' }
 async function selectGroup(id: number) {
   selectedGroupID.value = id
+  const accounts = await loadGroupAccounts(id)
+  if (selectedGroupID.value === id) groupAccounts.value = accounts
+}
+async function loadGroupAccounts(id: number): Promise<AccountListItem[]> {
   const firstPage = await listAccounts(1, 1000, { group: String(id) })
   const pages = await Promise.all(Array.from({ length: Math.max(firstPage.pages - 1, 0) }, (_, index) => listAccounts(index + 2, 1000, { group: String(id) })))
-  if (selectedGroupID.value === id) groupAccounts.value = [...firstPage.items, ...pages.flatMap((page) => page.items)]
+  return [...firstPage.items, ...pages.flatMap((page) => page.items)]
+}
+function changeSelectedGroup(event: Event) {
+  const previousID = selectedGroupID.value
+  const nextID = Number((event.target as HTMLSelectElement).value)
+  if (!previousID || !nextID) return
+  const group = settings.value.groups.find((item) => item.group_id === previousID)
+  if (!group) return
+  if (settings.value.groups.some((item) => item !== group && item.group_id === nextID)) {
+    selectedGroupID.value = nextID
+    void selectGroup(nextID)
+    return
+  }
+  group.group_id = nextID
+  selectedGroupID.value = nextID
+  void selectGroup(nextID)
 }
 function addGroup() { const candidate = groups.value.find((group) => !settings.value.groups.some((item) => item.group_id === group.id)); if (!candidate) return; settings.value.groups.push(defaults(candidate.id)); void selectGroup(candidate.id) }
 function removeGroup() { if (!selectedGroupID.value) return; settings.value.groups = settings.value.groups.filter((group) => group.group_id !== selectedGroupID.value); selectedGroupID.value = settings.value.groups[0]?.group_id ?? null; if (selectedGroupID.value) void selectGroup(selectedGroupID.value) }
@@ -147,6 +174,7 @@ async function load() { loading.value = true; try { const [allGroups, savedSetti
 async function save() {
   saving.value = true
   try {
+    await reconcileAlwaysEnabledAccounts()
     settings.value = normalizeSettings(await updateSettings(settings.value))
     await load()
     appStore.showSuccess('监控配置已保存并生效')
@@ -154,6 +182,18 @@ async function save() {
     appStore.showError(extractApiErrorMessage(error, '保存监控配置失败'))
   } finally {
     saving.value = false
+  }
+}
+async function reconcileAlwaysEnabledAccounts() {
+  const groupsWithAccounts = await Promise.all(settings.value.groups.map(async (group) => {
+    const accounts = await loadGroupAccounts(group.group_id)
+    return [group.group_id, new Set(accounts.map((account) => account.id))] as const
+  }))
+  const accountIDsByGroup = new Map(groupsWithAccounts)
+  for (const group of settings.value.groups) {
+    const accountIDs = accountIDsByGroup.get(group.group_id)
+    if (!accountIDs) continue
+    group.always_enabled_account_ids = group.always_enabled_account_ids.filter((id) => accountIDs.has(id))
   }
 }
 onMounted(() => { void load() })
