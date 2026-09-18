@@ -707,6 +707,23 @@ func (m *AccountLatencyMonitor) probeBackups(ctx context.Context, cfg AccountLat
 			}
 		}
 	}
+	if len(currentIDs) > 1 {
+		// Older versions and manual changes can leave several dynamic accounts
+		// schedulable. Reconcile that state on the next probe while preserving
+		// configured always-enabled accounts.
+		currentID := accountLatencyMonitorPreferredCurrentID(results, currentIDs, cfg, thresholdMs)
+		if currentID != 0 {
+			_ = m.setSchedulableAccounts(ctx, cfg, []int64{currentID})
+			currentIDs = []int64{currentID}
+			currentSet = accountLatencyMonitorExcludedIDs(currentIDs)
+			activeUnhealthy = false
+			for _, result := range results {
+				if result.account.ID == currentID && (!result.success || result.latency >= thresholdMs) {
+					activeUnhealthy = true
+				}
+			}
+		}
+	}
 	if poolUnhealthy {
 		// A failed standby must be replaced, but it must not cause a healthy
 		// currently scheduled account to be swapped out.
@@ -968,6 +985,23 @@ func accountLatencyMonitorCurrentIDs(accounts []Account, alwaysEnabled []int64) 
 		}
 	}
 	return ids
+}
+
+func accountLatencyMonitorPreferredCurrentID(results []accountLatencyProbeResult, currentIDs []int64, cfg AccountLatencyMonitorGroup, thresholdMs int64) int64 {
+	currentSet := accountLatencyMonitorExcludedIDs(currentIDs)
+	filtered := make([]accountLatencyProbeResult, 0, len(currentIDs))
+	for _, result := range results {
+		if _, ok := currentSet[result.account.ID]; ok {
+			filtered = append(filtered, result)
+		}
+	}
+	if candidates := selectAccountLatencyMonitorBackups(filtered, cfg.GroupID, thresholdMs, len(filtered), nil); len(candidates) > 0 {
+		return candidates[0]
+	}
+	if len(currentIDs) > 0 {
+		return currentIDs[0]
+	}
+	return 0
 }
 
 func accountLatencyMonitorPeriodicSwitchAllowed(lastSwitch time.Time, currentIDs []int64, cooldownSec int, now time.Time) bool {

@@ -135,6 +135,17 @@ func TestAccountLatencyMonitorPeriodicSwitchAllowed_UsesCooldown(t *testing.T) {
 	}
 }
 
+func TestAccountLatencyMonitorPreferredCurrentID_ChoosesBestDynamicAccount(t *testing.T) {
+	cfg := DefaultAccountLatencyMonitorGroup(1)
+	results := []accountLatencyProbeResult{
+		{account: Account{ID: 1, Priority: 100}, latency: 8_000, success: true},
+		{account: Account{ID: 2, Priority: 10}, latency: 9_000, success: true},
+	}
+	if got := accountLatencyMonitorPreferredCurrentID(results, []int64{1, 2}, cfg, 10_000); got != 2 {
+		t.Fatalf("preferred current account = %d, want 2", got)
+	}
+}
+
 func TestNormalizeAccountLatencyMonitorGroup_AppliesDefaultsWithoutCappingBackupCount(t *testing.T) {
 	cfg := AccountLatencyMonitorGroup{GroupID: 1, BackupCount: 3, AlwaysEnabledIDs: []int64{2, 2, -1, 4}}
 	normalizeAccountLatencyMonitorGroup(&cfg)

@@ -47,7 +47,7 @@
             <label class="block text-sm text-gray-700 dark:text-gray-200">并发探测账号数<input v-model.number="selectedGroup.probe_concurrency" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">备用账号数量<input v-model.number="selectedGroup.backup_count" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">周期切换运行帐号间隔（秒）<input v-model.number="selectedGroup.switch_cooldown_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
-            <label class="block text-sm text-gray-700 dark:text-gray-200">单次立即切换阈值（秒）<input v-model.number="selectedGroup.immediate_switch_threshold_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
+            <label class="block text-sm text-gray-700 dark:text-gray-200">单次对话超时切换阈值（秒）<input v-model.number="selectedGroup.immediate_switch_threshold_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">探测模型<input v-model.trim="selectedGroup.probe_model" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">探测内容<input v-model.trim="selectedGroup.probe_prompt" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">推理强度<select v-model="selectedGroup.probe_reasoning_effort" class="input mt-1 w-full"><option value="low">low（低）</option><option value="medium">medium（中）</option><option value="high">high（高）</option></select></label>
