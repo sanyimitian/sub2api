@@ -41,12 +41,30 @@ type OpenAIGatewayHandler struct {
 	errorPassthroughService    *service.ErrorPassthroughService
 	contentModerationService   *service.ContentModerationService
 	securityAuditCoordinator   *securityaudit.Coordinator
+	accountLatencyMonitor      *service.AccountLatencyMonitor
 	grokMediaEligibilityProber grokMediaEligibilityProber
 	opsService                 *service.OpsService
 	concurrencyHelper          *ConcurrencyHelper
 	imageLimiter               *imageConcurrencyLimiter
 	maxAccountSwitches         int
 	cfg                        *config.Config
+}
+
+func (h *OpenAIGatewayHandler) SetAccountLatencyMonitor(monitor *service.AccountLatencyMonitor) {
+	if h != nil {
+		h.accountLatencyMonitor = monitor
+	}
+}
+
+func (h *OpenAIGatewayHandler) recordAccountLatencyMonitorResult(c *gin.Context, apiKey *service.APIKey, account *service.Account, result *service.OpenAIForwardResult, success bool) {
+	if h == nil || h.accountLatencyMonitor == nil || c == nil || apiKey == nil || apiKey.GroupID == nil || account == nil {
+		return
+	}
+	var firstTokenMs *int
+	if result != nil {
+		firstTokenMs = result.FirstTokenMs
+	}
+	h.accountLatencyMonitor.RecordRequest(c.Request.Context(), *apiKey.GroupID, account.ID, firstTokenMs, success)
 }
 
 type openAIWSTurnChannelMappingSnapshot struct {
@@ -942,6 +960,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					continue
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, result), false, nil, err)
+				h.recordAccountLatencyMonitorResult(c, apiKey, account, result, false)
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
@@ -968,8 +987,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, result), openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
+			h.recordAccountLatencyMonitorResult(c, apiKey, account, result, openAIForwardSucceededForScheduling(result))
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, result), openAIForwardSucceededForScheduling(result), nil)
+			h.recordAccountLatencyMonitorResult(c, apiKey, account, nil, false)
 		}
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
@@ -1497,6 +1518,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					return
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), false, nil, err)
+				h.recordAccountLatencyMonitorResult(c, apiKey, account, result, false)
 				wroteFallback := h.ensureAnthropicErrorResponse(c, streamStarted)
 				reqLog.Warn("openai_messages.forward_failed",
 					zap.Int64("account_id", account.ID),
@@ -1509,8 +1531,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		}
 		if result != nil {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), true, result.FirstTokenMs)
+			h.recordAccountLatencyMonitorResult(c, apiKey, account, result, true)
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), true, nil)
+			h.recordAccountLatencyMonitorResult(c, apiKey, account, nil, false)
 		}
 
 		submitMessagesUsage(result)
@@ -2967,6 +2991,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					scheduleModel = turnRequestedModel
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, scheduleModel, openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
+				h.recordAccountLatencyMonitorResult(c, apiKey, account, result, openAIForwardSucceededForScheduling(result))
 				inboundEndpoint := GetInboundEndpoint(c)
 				upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, result)
 				quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)

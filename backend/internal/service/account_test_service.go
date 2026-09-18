@@ -48,6 +48,12 @@ const (
 	defaultAntigravityTestModel = "claude-sonnet-4-6"
 )
 
+const (
+	accountTestStartedAtContextKey       = "account_test_started_at"
+	accountTestFirstResponseMsContextKey = "account_test_first_response_ms"
+	accountTestReasoningEffortContextKey = "account_test_reasoning_effort"
+)
+
 // TestEvent represents a SSE event for account testing
 type TestEvent struct {
 	Type     string `json:"type"`
@@ -333,6 +339,7 @@ func createTestPayload(modelID string) (map[string]any, error) {
 // opts is optional media (image/audio data URLs for real generation / STT).
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
 	ctx := c.Request.Context()
+	c.Set(accountTestStartedAtContextKey, time.Now())
 	testOpts := firstAccountTestOptions(opts)
 
 	// Get account
@@ -846,7 +853,12 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if isOAuth {
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
-	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
+	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth, prompt)
+	if effort, ok := c.Get(accountTestReasoningEffortContextKey); ok {
+		if value, ok := effort.(string); ok && strings.TrimSpace(value) != "" {
+			payload["reasoning"] = map[string]string{"effort": strings.TrimSpace(value)}
+		}
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -2088,7 +2100,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
+	reasoningEffort, _ := c.Get(accountTestReasoningEffortContextKey)
+	effort, _ := reasoningEffort.(string)
+	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt, effort)
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2725,7 +2739,11 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 }
 
 // createOpenAITestPayload creates a test payload for OpenAI Responses API
-func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
+func createOpenAITestPayload(modelID string, isOAuth bool, prompts ...string) map[string]any {
+	testPrompt := "hi"
+	if len(prompts) > 0 && strings.TrimSpace(prompts[0]) != "" {
+		testPrompt = strings.TrimSpace(prompts[0])
+	}
 	payload := map[string]any{
 		"model": modelID,
 		"input": []map[string]any{
@@ -2734,7 +2752,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 				"content": []map[string]any{
 					{
 						"type": "input_text",
-						"text": "hi",
+						"text": testPrompt,
 					},
 				},
 			},
@@ -2753,13 +2771,13 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 	return payload
 }
 
-func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[string]any {
+func createOpenAIChatCompletionsTestPayload(modelID string, prompt string, reasoningEffort string) map[string]any {
 	testPrompt := strings.TrimSpace(prompt)
 	if testPrompt == "" {
 		testPrompt = "hi"
 	}
 
-	return map[string]any{
+	payload := map[string]any{
 		"model": modelID,
 		"messages": []map[string]any{
 			{
@@ -2769,6 +2787,10 @@ func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[s
 		},
 		"stream": true,
 	}
+	if strings.TrimSpace(reasoningEffort) != "" {
+		payload["reasoning_effort"] = strings.TrimSpace(reasoningEffort)
+	}
+	return payload
 }
 
 // processClaudeStream processes the SSE stream from Claude API
@@ -3220,6 +3242,15 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 }
 
 func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
+	if event.Type == "content" || event.Type == "image" {
+		if _, exists := c.Get(accountTestFirstResponseMsContextKey); !exists {
+			if started, ok := c.Get(accountTestStartedAtContextKey); ok {
+				if startedAt, ok := started.(time.Time); ok {
+					c.Set(accountTestFirstResponseMsContextKey, int(time.Since(startedAt).Milliseconds()))
+				}
+			}
+		}
+	}
 	if event.Type == "test_complete" {
 		if suppress, ok := c.Get(accountTestSuppressCompletionContextKey); ok {
 			if suppressCompletion, _ := suppress.(bool); suppressCompletion {
@@ -3245,13 +3276,26 @@ func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) er
 // RunTestBackground executes an account test in-memory (no real HTTP client),
 // capturing SSE output via httptest.NewRecorder, then parses the result.
 func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error) {
+	return s.runTestBackground(ctx, accountID, modelID, "", "")
+}
+
+// RunLatencyMonitorProbe executes a monitor probe with its configured prompt
+// and reasoning effort.
+func (s *AccountTestService) RunLatencyMonitorProbe(ctx context.Context, accountID int64, modelID, prompt, reasoningEffort string) (*ScheduledTestResult, error) {
+	return s.runTestBackground(ctx, accountID, modelID, prompt, reasoningEffort)
+}
+
+func (s *AccountTestService) runTestBackground(ctx context.Context, accountID int64, modelID, prompt, reasoningEffort string) (*ScheduledTestResult, error) {
 	startedAt := time.Now()
 
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)
 	ginCtx.Request = (&http.Request{}).WithContext(ctx)
+	if strings.TrimSpace(reasoningEffort) != "" {
+		ginCtx.Set(accountTestReasoningEffortContextKey, strings.TrimSpace(reasoningEffort))
+	}
 
-	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault)
+	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, prompt, AccountTestModeDefault)
 
 	finishedAt := time.Now()
 	body := w.Body.String()
@@ -3269,10 +3313,19 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 		Status:       status,
 		ResponseText: responseText,
 		ErrorMessage: errMsg,
-		LatencyMs:    finishedAt.Sub(startedAt).Milliseconds(),
+		LatencyMs:    firstTestResponseLatency(ginCtx, finishedAt.Sub(startedAt).Milliseconds()),
 		StartedAt:    startedAt,
 		FinishedAt:   finishedAt,
 	}, nil
+}
+
+func firstTestResponseLatency(c *gin.Context, fallback int64) int64 {
+	if value, ok := c.Get(accountTestFirstResponseMsContextKey); ok {
+		if ms, ok := value.(int); ok && ms >= 0 {
+			return int64(ms)
+		}
+	}
+	return fallback
 }
 
 // parseTestSSEOutput extracts response text and error message from captured SSE output.

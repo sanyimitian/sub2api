@@ -583,6 +583,8 @@ const (
 	SettingKeyOpenAIImagesOAuthUnavailableCooldownSettings = "openai_images_oauth_unavailable_cooldown_settings"
 	// SettingKeyOpenAIAPIKeyHealthBreakerSettings stores the opt-in OpenAI pool API-key breaker config.
 	SettingKeyOpenAIAPIKeyHealthBreakerSettings = "openai_apikey_health_breaker_settings"
+	// SettingKeyAccountLatencyMonitorSettings stores the per-group account latency monitor configuration.
+	SettingKeyAccountLatencyMonitorSettings = "account_latency_monitor_settings"
 
 	// =========================
 	// Stream Timeout Handling

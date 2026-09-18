@@ -111,6 +111,7 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
+		registerAccountLatencyMonitorRoutes(admin, h)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
@@ -725,6 +726,15 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 	// Nested under accounts
 	admin.GET("/accounts/:id/scheduled-test-plans", h.Admin.ScheduledTest.ListByAccount)
+}
+
+func registerAccountLatencyMonitorRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	monitor := admin.Group("/account-latency-monitor")
+	{
+		monitor.GET("/settings", h.Admin.AccountLatencyMonitor.GetSettings)
+		monitor.PUT("/settings", h.Admin.AccountLatencyMonitor.UpdateSettings)
+		monitor.GET("/runtime", h.Admin.AccountLatencyMonitor.GetRuntime)
+	}
 }
 
 func registerErrorPassthroughRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

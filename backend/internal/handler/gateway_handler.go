@@ -57,6 +57,24 @@ type GatewayHandler struct {
 	maxAccountSwitchesGemini  int
 	cfg                       *config.Config
 	settingService            *service.SettingService
+	accountLatencyMonitor     *service.AccountLatencyMonitor
+}
+
+func (h *GatewayHandler) SetAccountLatencyMonitor(monitor *service.AccountLatencyMonitor) {
+	if h != nil {
+		h.accountLatencyMonitor = monitor
+	}
+}
+
+func (h *GatewayHandler) recordAccountLatencyMonitorResult(c *gin.Context, apiKey *service.APIKey, account *service.Account, result *service.ForwardResult, success bool) {
+	if h == nil || h.accountLatencyMonitor == nil || c == nil || apiKey == nil || apiKey.GroupID == nil || account == nil {
+		return
+	}
+	var firstTokenMs *int
+	if result != nil {
+		firstTokenMs = result.FirstTokenMs
+	}
+	h.accountLatencyMonitor.RecordRequest(c.Request.Context(), *apiKey.GroupID, account.ID, firstTokenMs, success)
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -492,6 +510,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
+			h.recordAccountLatencyMonitorResult(c, apiKey, account, result, err == nil)
 			if err != nil {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
@@ -907,6 +926,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
+			h.recordAccountLatencyMonitorResult(c, currentAPIKey, account, result, err == nil)
 
 			// 提交 usage 记录。成功路径与"流中断但 Forward 已观测到 usage 的部分结果"
 			// 错误路径共用：后者若不入账，上游已计量的请求会完全漏记漏计费（#5148）。

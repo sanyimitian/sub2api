@@ -598,6 +598,16 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/account-latency-monitor',
+    name: 'AdminAccountLatencyMonitor',
+    component: () => import('@/views/admin/AccountLatencyMonitorView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Account Latency Monitor'
+    }
+  },
+  {
     path: '/admin/risk-control',
     name: 'AdminRiskControl',
     component: () => import('@/views/admin/RiskControlView.vue'),
