@@ -19,6 +19,7 @@ const (
 	accountLatencyMonitorDefaultWindow      = 30
 	accountLatencyMonitorDefaultFailures    = 2
 	accountLatencyMonitorDefaultProbePeriod = 60
+	accountLatencyMonitorDefaultIdlePeriod  = 30 * 60
 	accountLatencyMonitorDefaultBackupCount = 2
 	accountLatencyMonitorDefaultTimeout     = 30
 	accountLatencyMonitorDefaultConcurrency = 4
@@ -37,23 +38,25 @@ func emptyAccountLatencyMonitorSettings() AccountLatencyMonitorSettings {
 // AccountLatencyMonitorGroup defines the health policy of one account group.
 // Every numeric field is persisted so defaults can be adjusted per group.
 type AccountLatencyMonitorGroup struct {
-	GroupID             int64   `json:"group_id"`
-	Enabled             bool    `json:"enabled"`
-	LatencyThresholdSec int     `json:"latency_threshold_seconds"`
-	FailureWindowSec    int     `json:"failure_window_seconds"`
-	ConsecutiveFailures int     `json:"consecutive_failures"`
-	ProbeIntervalSec    int     `json:"probe_interval_seconds"`
-	ProbeTimeoutSec     int     `json:"probe_timeout_seconds"`
-	ProbeConcurrency    int     `json:"probe_concurrency"`
-	BackupCount         int     `json:"backup_count"`
-	AlwaysEnabledIDs    []int64 `json:"always_enabled_account_ids"`
-	ProbeModel          string  `json:"probe_model"`
-	ProbePrompt         string  `json:"probe_prompt"`
-	ProbeReasoning      string  `json:"probe_reasoning_effort"`
+	GroupID              int64   `json:"group_id"`
+	Enabled              bool    `json:"enabled"`
+	LatencyThresholdSec  int     `json:"latency_threshold_seconds"`
+	FailureWindowSec     int     `json:"failure_window_seconds"`
+	ConsecutiveFailures  int     `json:"consecutive_failures"`
+	ProbeIntervalSec     int     `json:"probe_interval_seconds"`
+	IdleProbeIntervalSec int     `json:"idle_probe_interval_seconds"`
+	ProbeTimeoutSec      int     `json:"probe_timeout_seconds"`
+	ProbeConcurrency     int     `json:"probe_concurrency"`
+	BackupCount          int     `json:"backup_count"`
+	AlwaysEnabledIDs     []int64 `json:"always_enabled_account_ids"`
+	ProbeModel           string  `json:"probe_model"`
+	ProbePrompt          string  `json:"probe_prompt"`
+	ProbeReasoning       string  `json:"probe_reasoning_effort"`
 }
 
 type AccountLatencyMonitorAccountState struct {
 	AccountID          int64      `json:"account_id"`
+	GroupPriority      int        `json:"group_priority"`
 	ConsecutiveFailure int        `json:"consecutive_failures"`
 	LastLatencyMs      *int64     `json:"last_latency_ms,omitempty"`
 	LastSuccess        *bool      `json:"last_success,omitempty"`
@@ -69,12 +72,13 @@ type AccountLatencyMonitorGroupState struct {
 }
 
 type accountLatencyMonitorGroupRuntime struct {
-	accounts  map[int64]*AccountLatencyMonitorAccountState
-	backups   []int64
-	lastProbe time.Time
-	probing   bool
-	switching bool
-	issues    map[int64]accountLatencyMonitorIssue
+	accounts        map[int64]*AccountLatencyMonitorAccountState
+	backups         []int64
+	lastProbe       time.Time
+	lastUserRequest time.Time
+	probing         bool
+	switching       bool
+	issues          map[int64]accountLatencyMonitorIssue
 }
 
 type accountLatencyMonitorIssue struct {
@@ -119,18 +123,19 @@ func NewAccountLatencyMonitor(settingRepo SettingRepository, accountRepo Account
 
 func DefaultAccountLatencyMonitorGroup(groupID int64) AccountLatencyMonitorGroup {
 	return AccountLatencyMonitorGroup{
-		GroupID:             groupID,
-		Enabled:             true,
-		LatencyThresholdSec: accountLatencyMonitorDefaultThreshold,
-		FailureWindowSec:    accountLatencyMonitorDefaultWindow,
-		ConsecutiveFailures: accountLatencyMonitorDefaultFailures,
-		ProbeIntervalSec:    accountLatencyMonitorDefaultProbePeriod,
-		ProbeTimeoutSec:     accountLatencyMonitorDefaultTimeout,
-		ProbeConcurrency:    accountLatencyMonitorDefaultConcurrency,
-		BackupCount:         accountLatencyMonitorDefaultBackupCount,
-		ProbeModel:          accountLatencyMonitorDefaultModel,
-		ProbePrompt:         accountLatencyMonitorDefaultPrompt,
-		ProbeReasoning:      "low",
+		GroupID:              groupID,
+		Enabled:              true,
+		LatencyThresholdSec:  accountLatencyMonitorDefaultThreshold,
+		FailureWindowSec:     accountLatencyMonitorDefaultWindow,
+		ConsecutiveFailures:  accountLatencyMonitorDefaultFailures,
+		ProbeIntervalSec:     accountLatencyMonitorDefaultProbePeriod,
+		IdleProbeIntervalSec: accountLatencyMonitorDefaultIdlePeriod,
+		ProbeTimeoutSec:      accountLatencyMonitorDefaultTimeout,
+		ProbeConcurrency:     accountLatencyMonitorDefaultConcurrency,
+		BackupCount:          accountLatencyMonitorDefaultBackupCount,
+		ProbeModel:           accountLatencyMonitorDefaultModel,
+		ProbePrompt:          accountLatencyMonitorDefaultPrompt,
+		ProbeReasoning:       "low",
 	}
 }
 
@@ -242,6 +247,9 @@ func normalizeAccountLatencyMonitorGroup(g *AccountLatencyMonitorGroup) {
 	if g.ProbeIntervalSec <= 0 {
 		g.ProbeIntervalSec = accountLatencyMonitorDefaultProbePeriod
 	}
+	if g.IdleProbeIntervalSec <= 0 {
+		g.IdleProbeIntervalSec = accountLatencyMonitorDefaultIdlePeriod
+	}
 	if g.ProbeTimeoutSec <= 0 {
 		g.ProbeTimeoutSec = accountLatencyMonitorDefaultTimeout
 	}
@@ -352,6 +360,7 @@ func (m *AccountLatencyMonitor) RecordRequest(_ context.Context, groupID, accoun
 	m.mu.Lock()
 	rt := m.ensureRuntimeLocked(groupID)
 	state := m.ensureAccountStateLocked(rt, accountID)
+	rt.lastUserRequest = now
 	state.LastSuccess = accountLatencyMonitorBoolPtr(success)
 	state.LastObservedAt = accountLatencyMonitorTimePtr(now)
 	if firstTokenMs == nil {
@@ -402,6 +411,14 @@ func (m *AccountLatencyMonitor) GetRuntime(ctx context.Context) ([]AccountLatenc
 				state.ActiveAccountIDs = append(state.ActiveAccountIDs, account.ID)
 			}
 		}
+		priorities := make(map[int64]int, len(accounts))
+		for _, account := range accounts {
+			priorities[account.ID] = accountLatencyMonitorPriority(account, cfg.GroupID)
+		}
+		for i := range state.Accounts {
+			state.Accounts[i].GroupPriority = priorities[state.Accounts[i].AccountID]
+		}
+		sortAccountLatencyMonitorStates(state.Accounts, int64(cfg.LatencyThresholdSec*1000))
 		sort.Slice(state.ActiveAccountIDs, func(i, j int) bool { return state.ActiveAccountIDs[i] < state.ActiveAccountIDs[j] })
 		states = append(states, state)
 	}
@@ -438,6 +455,32 @@ func cloneAccountLatencyMonitorState(state AccountLatencyMonitorAccountState) Ac
 		state.LastObservedAt = accountLatencyMonitorTimePtr(*state.LastObservedAt)
 	}
 	return state
+}
+
+func sortAccountLatencyMonitorStates(states []AccountLatencyMonitorAccountState, thresholdMs int64) {
+	sort.Slice(states, func(i, j int) bool {
+		iFast := states[i].LastLatencyMs != nil && *states[i].LastLatencyMs < thresholdMs
+		jFast := states[j].LastLatencyMs != nil && *states[j].LastLatencyMs < thresholdMs
+		if iFast != jFast {
+			return iFast
+		}
+		if states[i].GroupPriority != states[j].GroupPriority {
+			return states[i].GroupPriority < states[j].GroupPriority
+		}
+		if states[i].LastLatencyMs == nil || states[j].LastLatencyMs == nil {
+			if states[i].LastLatencyMs == nil && states[j].LastLatencyMs != nil {
+				return false
+			}
+			if states[i].LastLatencyMs != nil && states[j].LastLatencyMs == nil {
+				return true
+			}
+			return states[i].AccountID < states[j].AccountID
+		}
+		if *states[i].LastLatencyMs != *states[j].LastLatencyMs {
+			return *states[i].LastLatencyMs < *states[j].LastLatencyMs
+		}
+		return states[i].AccountID < states[j].AccountID
+	})
 }
 
 func (m *AccountLatencyMonitor) run() {
@@ -489,12 +532,19 @@ func (m *AccountLatencyMonitor) startDueProbe(cfg AccountLatencyMonitorGroup) bo
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	rt := m.ensureRuntimeLocked(cfg.GroupID)
-	due := rt.lastProbe.IsZero() || time.Since(rt.lastProbe) >= time.Duration(cfg.ProbeIntervalSec)*time.Second
+	due := rt.lastProbe.IsZero() || time.Since(rt.lastProbe) >= accountLatencyMonitorProbeInterval(cfg, rt)
 	if !due || rt.probing {
 		return false
 	}
 	rt.probing = true
 	return true
+}
+
+func accountLatencyMonitorProbeInterval(cfg AccountLatencyMonitorGroup, rt *accountLatencyMonitorGroupRuntime) time.Duration {
+	if !rt.lastUserRequest.IsZero() && rt.lastUserRequest.After(rt.lastProbe) {
+		return time.Duration(cfg.ProbeIntervalSec) * time.Second
+	}
+	return time.Duration(cfg.IdleProbeIntervalSec) * time.Second
 }
 
 func (m *AccountLatencyMonitor) hasBackups(groupID int64) bool {
@@ -520,6 +570,8 @@ func (m *AccountLatencyMonitor) failover(ctx context.Context, cfg AccountLatency
 
 	if backupID, ok := m.healthyBackup(cfg, failedID); ok {
 		_ = m.setSchedulableAccounts(ctx, cfg, []int64{backupID})
+		m.probeAll(ctx, cfg, map[int64]struct{}{failedID: {}}, true)
+		m.markProbed(cfg.GroupID)
 		return
 	}
 	// Only when the current backup pool cannot provide a healthy alternative do
@@ -557,18 +609,29 @@ func (m *AccountLatencyMonitor) probeBackups(ctx context.Context, cfg AccountLat
 	for _, account := range accounts {
 		byID[account.ID] = account
 	}
-	backups := make([]Account, 0, len(backupIDs))
+	monitorIDs := make(map[int64]struct{}, len(backupIDs)+len(accounts))
 	for _, accountID := range backupIDs {
-		if account, ok := byID[accountID]; ok {
-			backups = append(backups, account)
+		if _, ok := byID[accountID]; !ok {
+			m.probeAll(ctx, cfg, nil, true)
+			return
+		}
+		monitorIDs[accountID] = struct{}{}
+	}
+	for _, account := range accounts {
+		if account.Schedulable {
+			monitorIDs[account.ID] = struct{}{}
 		}
 	}
-	if len(backups) != len(backupIDs) {
+	if len(monitorIDs) == 0 {
 		m.probeAll(ctx, cfg, nil, true)
 		return
 	}
+	monitored := make([]Account, 0, len(monitorIDs))
+	for accountID := range monitorIDs {
+		monitored = append(monitored, byID[accountID])
+	}
 
-	results := m.probeAccounts(ctx, cfg, backups)
+	results := m.probeAccounts(ctx, cfg, monitored)
 	thresholdMs := int64(cfg.LatencyThresholdSec * 1000)
 	for _, result := range results {
 		if !result.success || result.latency >= thresholdMs {
@@ -589,15 +652,17 @@ func (m *AccountLatencyMonitor) probeAll(ctx context.Context, cfg AccountLatency
 		return
 	}
 	results := m.probeAccounts(ctx, cfg, accounts)
-	chosen := selectAccountLatencyMonitorBackups(results, cfg.GroupID, int64(cfg.LatencyThresholdSec*1000), cfg.BackupCount, excluded)
+	candidateCount := cfg.BackupCount + len(cfg.AlwaysEnabledIDs) + 1
+	candidates := selectAccountLatencyMonitorBackups(results, cfg.GroupID, int64(cfg.LatencyThresholdSec*1000), candidateCount, excluded)
+	currentID, backups := accountLatencyMonitorTargets(candidates, cfg.AlwaysEnabledIDs, cfg.BackupCount)
 	m.mu.Lock()
-	m.ensureRuntimeLocked(cfg.GroupID).backups = append([]int64(nil), chosen...)
+	m.ensureRuntimeLocked(cfg.GroupID).backups = append([]int64(nil), backups...)
 	m.mu.Unlock()
-	if len(chosen) == 0 {
+	if currentID == 0 {
 		return
 	}
 	if activate {
-		_ = m.setSchedulableAccounts(ctx, cfg, chosen[:1])
+		_ = m.setSchedulableAccounts(ctx, cfg, []int64{currentID})
 	}
 }
 
@@ -706,6 +771,32 @@ func selectAccountLatencyMonitorBackups(results []accountLatencyProbeResult, gro
 		}
 	}
 	return chosen
+}
+
+// accountLatencyMonitorTargets separates the primary scheduling account from
+// true standby accounts. Always-enabled accounts remain schedulable but do not
+// consume a standby slot.
+func accountLatencyMonitorTargets(candidates, alwaysEnabled []int64, backupCount int) (int64, []int64) {
+	if len(candidates) == 0 {
+		return 0, nil
+	}
+	active := make(map[int64]struct{}, len(alwaysEnabled)+1)
+	for _, accountID := range alwaysEnabled {
+		active[accountID] = struct{}{}
+	}
+	currentID := candidates[0]
+	active[currentID] = struct{}{}
+	backups := make([]int64, 0, min(backupCount, len(candidates)-1))
+	for _, accountID := range candidates[1:] {
+		if _, isActive := active[accountID]; isActive {
+			continue
+		}
+		backups = append(backups, accountID)
+		if len(backups) == backupCount {
+			break
+		}
+	}
+	return currentID, backups
 }
 
 func accountLatencyMonitorPriority(account Account, groupID int64) int {

@@ -42,6 +42,7 @@
             <label class="block text-sm text-gray-700 dark:text-gray-200">异常统计窗口（秒）<input v-model.number="selectedGroup.failure_window_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">连续异常次数<input v-model.number="selectedGroup.consecutive_failures" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">备用检测周期（秒）<input v-model.number="selectedGroup.probe_interval_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
+            <label class="block text-sm text-gray-700 dark:text-gray-200">无用户请求时检测周期（秒）<input v-model.number="selectedGroup.idle_probe_interval_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">单次探测超时（秒）<input v-model.number="selectedGroup.probe_timeout_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">并发探测账号数<input v-model.number="selectedGroup.probe_concurrency" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">备用账号数量<input v-model.number="selectedGroup.backup_count" type="number" min="1" class="input mt-1 w-full" /></label>
@@ -69,7 +70,7 @@
               <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">备用账号</span><p class="mt-1 text-gray-900 dark:text-white">{{ accountNames(runtimeForSelected?.backup_account_ids, '等待探测') }}</p></div>
               <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">最近探测</span><p class="mt-1 text-gray-900 dark:text-white">{{ formatTime(runtimeForSelected?.last_probe_at) }}</p></div>
             </div>
-            <div v-if="sortedRuntimeAccounts.length" class="mt-3 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs text-gray-500"><tr><th class="p-2">账号</th><th class="p-2">首字</th><th class="p-2">连续异常</th><th class="p-2">最近结果</th></tr></thead><tbody><tr v-for="state in sortedRuntimeAccounts" :key="state.account_id" class="border-t border-gray-100 dark:border-dark-700"><td class="p-2">{{ accountName(state.account_id) }}</td><td class="p-2" :class="latencyClass(state.last_latency_ms)">{{ state.last_latency_ms == null ? '-' : `${state.last_latency_ms} ms` }}</td><td class="p-2">{{ state.consecutive_failures }}</td><td class="p-2" :class="resultClass(state.last_success)">{{ state.last_success === undefined ? '-' : state.last_success ? '成功' : '失败' }}</td></tr></tbody></table></div>
+            <div v-if="sortedRuntimeAccounts.length" class="mt-3 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs text-gray-500"><tr><th class="p-2">账号</th><th class="p-2">分组优先级</th><th class="p-2">首字</th><th class="p-2">连续异常</th><th class="p-2">最近结果</th></tr></thead><tbody><tr v-for="state in sortedRuntimeAccounts" :key="state.account_id" class="border-t border-gray-100 dark:border-dark-700"><td class="p-2">{{ accountName(state.account_id) }}</td><td class="p-2">{{ state.group_priority }}</td><td class="p-2" :class="latencyClass(state.last_latency_ms)">{{ state.last_latency_ms == null ? '-' : `${state.last_latency_ms} ms` }}</td><td class="p-2">{{ state.consecutive_failures }}</td><td class="p-2" :class="resultClass(state.last_success)">{{ state.last_success === undefined ? '-' : state.last_success ? '成功' : '失败' }}</td></tr></tbody></table></div>
           </div>
         </section>
         <section v-else class="flex min-h-80 items-center justify-center border border-dashed border-gray-300 text-sm text-gray-500 dark:border-dark-600">从左侧新增并选择一个分组。</section>
@@ -98,13 +99,20 @@ const selectedGroup = computed(() => settings.value.groups.find((group) => group
 const runtimeForSelected = computed(() => runtime.value.find((group) => group.group_id === selectedGroupID.value))
 const activeAccountNames = computed(() => accountNames(runtimeForSelected.value?.active_account_ids, '暂无'))
 const sortedRuntimeAccounts = computed(() => [...(runtimeForSelected.value?.accounts ?? [])].sort((left, right) => {
-  if (left.last_latency_ms == null && right.last_latency_ms == null) return left.account_id - right.account_id
-  if (left.last_latency_ms == null) return 1
-  if (right.last_latency_ms == null) return -1
+  const thresholdMs = (selectedGroup.value?.latency_threshold_seconds ?? 10) * 1000
+  const leftFast = left.last_latency_ms != null && left.last_latency_ms < thresholdMs
+  const rightFast = right.last_latency_ms != null && right.last_latency_ms < thresholdMs
+  if (leftFast !== rightFast) return leftFast ? -1 : 1
+  if (left.group_priority !== right.group_priority) return left.group_priority - right.group_priority
+  if (left.last_latency_ms == null || right.last_latency_ms == null) {
+    if (left.last_latency_ms == null && right.last_latency_ms != null) return 1
+    if (left.last_latency_ms != null && right.last_latency_ms == null) return -1
+    return left.account_id - right.account_id
+  }
   return left.last_latency_ms - right.last_latency_ms || left.account_id - right.account_id
 }))
 
-function defaults(groupID: number): AccountLatencyMonitorGroup { return { group_id: groupID, enabled: true, latency_threshold_seconds: 10, failure_window_seconds: 30, consecutive_failures: 2, probe_interval_seconds: 60, probe_timeout_seconds: 30, probe_concurrency: 4, backup_count: 2, always_enabled_account_ids: [], probe_model: 'gpt-5.6-sol', probe_prompt: 'hi', probe_reasoning_effort: 'low' } }
+function defaults(groupID: number): AccountLatencyMonitorGroup { return { group_id: groupID, enabled: true, latency_threshold_seconds: 10, failure_window_seconds: 30, consecutive_failures: 2, probe_interval_seconds: 60, idle_probe_interval_seconds: 1800, probe_timeout_seconds: 30, probe_concurrency: 4, backup_count: 2, always_enabled_account_ids: [], probe_model: 'gpt-5.6-sol', probe_prompt: 'hi', probe_reasoning_effort: 'low' } }
 function normalizeSettings(value: AccountLatencyMonitorSettings): AccountLatencyMonitorSettings {
   return {
     ...value,
@@ -118,7 +126,7 @@ function groupName(id: number) { return groups.value.find((group) => group.id ==
 function accountName(id: number) { return groupAccounts.value.find((account) => account.id === id)?.name ?? `账号 #${id}` }
 function accountNames(ids: number[] | undefined, fallback: string) { return ids?.length ? ids.map(accountName).join('、') : fallback }
 function formatTime(value?: string) { return value ? new Date(value).toLocaleString() : '暂无' }
-function latencyClass(latency?: number) { if (latency == null) return 'text-gray-500 dark:text-gray-400'; if (latency > 25_000) return 'text-red-600 dark:text-red-400'; if (latency > 10_000) return 'text-orange-600 dark:text-orange-400'; return 'text-gray-900 dark:text-white' }
+function latencyClass(latency?: number) { if (latency == null) return 'text-gray-500 dark:text-gray-400'; if (latency > 25_000) return 'text-red-600 dark:text-red-400'; if (latency >= (selectedGroup.value?.latency_threshold_seconds ?? 10) * 1000) return 'text-orange-600 dark:text-orange-400'; return 'text-emerald-600 dark:text-emerald-400' }
 function resultClass(success?: boolean) { if (success === undefined) return 'text-gray-500 dark:text-gray-400'; return success ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400' }
 async function selectGroup(id: number) {
   selectedGroupID.value = id

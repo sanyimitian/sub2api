@@ -7,6 +7,7 @@ export interface AccountLatencyMonitorGroup {
   failure_window_seconds: number
   consecutive_failures: number
   probe_interval_seconds: number
+  idle_probe_interval_seconds: number
   probe_timeout_seconds: number
   probe_concurrency: number
   backup_count: number
@@ -22,6 +23,7 @@ export interface AccountLatencyMonitorSettings {
 
 export interface AccountLatencyMonitorAccountState {
   account_id: number
+  group_priority: number
   consecutive_failures: number
   last_latency_ms?: number
   last_success?: boolean

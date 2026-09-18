@@ -1,6 +1,27 @@
 package service
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestSortAccountLatencyMonitorStates_UsesThreeLayers(t *testing.T) {
+	fastSlow := int64(9_000)
+	fastQuick := int64(1_000)
+	slow := int64(11_000)
+	states := []AccountLatencyMonitorAccountState{
+		{AccountID: 1, GroupPriority: 0, LastLatencyMs: &slow},
+		{AccountID: 2, GroupPriority: 5, LastLatencyMs: &fastQuick},
+		{AccountID: 3, GroupPriority: 1, LastLatencyMs: &fastSlow},
+		{AccountID: 4, GroupPriority: 1},
+	}
+
+	sortAccountLatencyMonitorStates(states, 10_000)
+	got := accountIDsString([]int64{states[0].AccountID, states[1].AccountID, states[2].AccountID, states[3].AccountID})
+	if want := "3,2,1,4"; got != want {
+		t.Fatalf("sorted account IDs = %s, want %s", got, want)
+	}
+}
 
 func TestSelectAccountLatencyMonitorBackups_PrefersFastThenGroupPriority(t *testing.T) {
 	results := []accountLatencyProbeResult{
@@ -42,6 +63,16 @@ func TestSelectAccountLatencyMonitorBackups_SortsEqualPriorityByLatency(t *testi
 	}
 }
 
+func TestAccountLatencyMonitorTargets_ExcludesCurrentAndAlwaysEnabledAccountsFromBackups(t *testing.T) {
+	currentID, backups := accountLatencyMonitorTargets([]int64{1, 2, 3, 4}, []int64{2}, 2)
+	if currentID != 1 {
+		t.Fatalf("current account = %d, want 1", currentID)
+	}
+	if got, want := accountIDsString(backups), "3,4"; got != want {
+		t.Fatalf("backup accounts = %s, want %s", got, want)
+	}
+}
+
 func TestNormalizeAccountLatencyMonitorGroup_AppliesDefaultsWithoutCappingBackupCount(t *testing.T) {
 	cfg := AccountLatencyMonitorGroup{GroupID: 1, BackupCount: 3, AlwaysEnabledIDs: []int64{2, 2, -1, 4}}
 	normalizeAccountLatencyMonitorGroup(&cfg)
@@ -49,7 +80,7 @@ func TestNormalizeAccountLatencyMonitorGroup_AppliesDefaultsWithoutCappingBackup
 	if cfg.LatencyThresholdSec != 10 || cfg.FailureWindowSec != 30 || cfg.ConsecutiveFailures != 2 {
 		t.Fatalf("unexpected request defaults: %#v", cfg)
 	}
-	if cfg.ProbeIntervalSec != 60 || cfg.ProbeTimeoutSec != 30 || cfg.ProbeConcurrency != 4 {
+	if cfg.ProbeIntervalSec != 60 || cfg.IdleProbeIntervalSec != 1800 || cfg.ProbeTimeoutSec != 30 || cfg.ProbeConcurrency != 4 {
 		t.Fatalf("unexpected probe defaults: %#v", cfg)
 	}
 	if cfg.BackupCount != 3 {
@@ -60,6 +91,20 @@ func TestNormalizeAccountLatencyMonitorGroup_AppliesDefaultsWithoutCappingBackup
 	}
 	if cfg.ProbeModel != "gpt-5.6-sol" || cfg.ProbePrompt != "hi" || cfg.ProbeReasoning != "low" {
 		t.Fatalf("unexpected probe defaults: %#v", cfg)
+	}
+}
+
+func TestAccountLatencyMonitorProbeInterval_UsesIdleIntervalWithoutNewUserRequest(t *testing.T) {
+	cfg := AccountLatencyMonitorGroup{ProbeIntervalSec: 60, IdleProbeIntervalSec: 1800}
+	lastProbe := time.Now()
+	rt := &accountLatencyMonitorGroupRuntime{lastProbe: lastProbe, lastUserRequest: lastProbe.Add(-time.Second)}
+	if got, want := accountLatencyMonitorProbeInterval(cfg, rt), 30*time.Minute; got != want {
+		t.Fatalf("idle probe interval = %s, want %s", got, want)
+	}
+
+	rt.lastUserRequest = lastProbe.Add(time.Second)
+	if got, want := accountLatencyMonitorProbeInterval(cfg, rt), time.Minute; got != want {
+		t.Fatalf("active probe interval = %s, want %s", got, want)
 	}
 }
 
