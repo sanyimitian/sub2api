@@ -15,6 +15,8 @@ export interface AccountLatencyMonitorGroup {
   probe_model: string
   probe_prompt: string
   probe_reasoning_effort: string
+  switch_cooldown_seconds: number
+  immediate_switch_threshold_seconds: number
 }
 
 export interface AccountLatencyMonitorSettings {
@@ -35,6 +37,7 @@ export interface AccountLatencyMonitorGroupState {
   active_account_ids: number[]
   backup_account_ids: number[]
   last_probe_at?: string
+  last_switch_at?: string
   accounts: AccountLatencyMonitorAccountState[]
 }
 

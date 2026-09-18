@@ -94,6 +94,47 @@ func TestAccountLatencyMonitorTargets_ExcludesCurrentAndAlwaysEnabledAccountsFro
 	}
 }
 
+func TestAccountLatencyMonitorTargets_DoesNotUseAlwaysEnabledAccountAsCurrent(t *testing.T) {
+	currentID, backups := accountLatencyMonitorTargets([]int64{1, 2, 3, 4}, []int64{1}, 2)
+	if currentID != 2 {
+		t.Fatalf("current account = %d, want 2", currentID)
+	}
+	if got, want := accountIDsString(backups), "3,4"; got != want {
+		t.Fatalf("backup accounts = %s, want %s", got, want)
+	}
+}
+
+func TestAccountLatencyMonitorStandbyIDs_ExcludesActiveAndAlwaysEnabledAccounts(t *testing.T) {
+	standbys := accountLatencyMonitorStandbyIDs([]int64{1, 2, 3, 2, 4}, []int64{1}, []int64{3})
+	if got, want := accountIDsString(standbys), "2,4"; got != want {
+		t.Fatalf("standby accounts = %s, want %s", got, want)
+	}
+}
+
+func TestAccountLatencyMonitorCurrentIDs_ExcludesAlwaysEnabledAccounts(t *testing.T) {
+	accounts := []Account{
+		{ID: 1, Schedulable: true},
+		{ID: 2, Schedulable: true},
+		{ID: 3, Schedulable: false},
+	}
+	if got, want := accountIDsString(accountLatencyMonitorCurrentIDs(accounts, []int64{1})), "2"; got != want {
+		t.Fatalf("current account IDs = %s, want %s", got, want)
+	}
+}
+
+func TestAccountLatencyMonitorPeriodicSwitchAllowed_UsesCooldown(t *testing.T) {
+	now := time.Now().UTC()
+	if accountLatencyMonitorPeriodicSwitchAllowed(now.Add(-9*time.Minute), []int64{1}, 600, now) {
+		t.Fatal("periodic switch should be blocked during cooldown")
+	}
+	if !accountLatencyMonitorPeriodicSwitchAllowed(now.Add(-10*time.Minute), []int64{1}, 600, now) {
+		t.Fatal("periodic switch should be allowed when cooldown expires")
+	}
+	if !accountLatencyMonitorPeriodicSwitchAllowed(now, nil, 600, now) {
+		t.Fatal("initial activation should be allowed without a current account")
+	}
+}
+
 func TestNormalizeAccountLatencyMonitorGroup_AppliesDefaultsWithoutCappingBackupCount(t *testing.T) {
 	cfg := AccountLatencyMonitorGroup{GroupID: 1, BackupCount: 3, AlwaysEnabledIDs: []int64{2, 2, -1, 4}}
 	normalizeAccountLatencyMonitorGroup(&cfg)
@@ -101,7 +142,7 @@ func TestNormalizeAccountLatencyMonitorGroup_AppliesDefaultsWithoutCappingBackup
 	if cfg.LatencyThresholdSec != 10 || cfg.FailureWindowSec != 30 || cfg.ConsecutiveFailures != 2 {
 		t.Fatalf("unexpected request defaults: %#v", cfg)
 	}
-	if cfg.ProbeIntervalSec != 60 || cfg.IdleProbeIntervalSec != 1800 || cfg.ProbeTimeoutSec != 30 || cfg.ProbeConcurrency != 4 {
+	if cfg.ProbeIntervalSec != 60 || cfg.IdleProbeIntervalSec != 1800 || cfg.ProbeTimeoutSec != 30 || cfg.ProbeConcurrency != 4 || cfg.SwitchCooldownSec != 600 || cfg.ImmediateThresholdSec != 40 {
 		t.Fatalf("unexpected probe defaults: %#v", cfg)
 	}
 	if cfg.BackupCount != 3 {

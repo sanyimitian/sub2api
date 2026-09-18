@@ -585,6 +585,8 @@ const (
 	SettingKeyOpenAIAPIKeyHealthBreakerSettings = "openai_apikey_health_breaker_settings"
 	// SettingKeyAccountLatencyMonitorSettings stores the per-group account latency monitor configuration.
 	SettingKeyAccountLatencyMonitorSettings = "account_latency_monitor_settings"
+	// SettingKeyAccountLatencyMonitorRuntime stores the latest switch timestamp per group.
+	SettingKeyAccountLatencyMonitorRuntime = "account_latency_monitor_runtime"
 
 	// =========================
 	// Stream Timeout Handling

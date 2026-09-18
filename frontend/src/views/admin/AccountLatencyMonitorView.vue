@@ -46,6 +46,8 @@
             <label class="block text-sm text-gray-700 dark:text-gray-200">单次探测超时（秒）<input v-model.number="selectedGroup.probe_timeout_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">并发探测账号数<input v-model.number="selectedGroup.probe_concurrency" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">备用账号数量<input v-model.number="selectedGroup.backup_count" type="number" min="1" class="input mt-1 w-full" /></label>
+            <label class="block text-sm text-gray-700 dark:text-gray-200">周期切换冷却时间（秒）<input v-model.number="selectedGroup.switch_cooldown_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
+            <label class="block text-sm text-gray-700 dark:text-gray-200">单次立即切换阈值（秒）<input v-model.number="selectedGroup.immediate_switch_threshold_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">探测模型<input v-model.trim="selectedGroup.probe_model" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">探测内容<input v-model.trim="selectedGroup.probe_prompt" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">推理强度<select v-model="selectedGroup.probe_reasoning_effort" class="input mt-1 w-full"><option value="low">low（低）</option><option value="medium">medium（中）</option><option value="high">high（高）</option></select></label>
@@ -69,6 +71,7 @@
               <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">当前开启调度账号</span><p class="mt-1 text-gray-900 dark:text-white">{{ activeAccountNames }}</p></div>
               <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">备用账号</span><p class="mt-1 text-gray-900 dark:text-white">{{ accountNames(runtimeForSelected?.backup_account_ids, '等待探测') }}</p></div>
               <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">最近探测</span><p class="mt-1 text-gray-900 dark:text-white">{{ formatTime(runtimeForSelected?.last_probe_at) }}</p></div>
+              <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">最近更换账号</span><p class="mt-1 text-gray-900 dark:text-white">{{ formatTime(runtimeForSelected?.last_switch_at) }}</p></div>
             </div>
             <div v-if="sortedRuntimeAccounts.length" class="mt-3 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs text-gray-500"><tr><th class="p-2">账号</th><th class="p-2">账号优先级</th><th class="p-2">首字</th><th class="p-2">窗口内异常</th><th class="p-2">最近结果</th></tr></thead><tbody><tr v-for="state in sortedRuntimeAccounts" :key="state.account_id" class="border-t border-gray-100 dark:border-dark-700"><td class="p-2">{{ accountName(state.account_id) }}</td><td class="p-2">{{ state.account_priority }}</td><td class="p-2" :class="latencyClass(state.last_latency_ms)">{{ state.last_latency_ms == null ? '-' : `${state.last_latency_ms} ms` }}</td><td class="p-2">{{ state.consecutive_failures }}</td><td class="p-2" :class="resultClass(state.last_success)">{{ state.last_success === undefined ? '-' : state.last_success ? '成功' : '失败' }}</td></tr></tbody></table></div>
           </div>
@@ -83,11 +86,14 @@
 import { computed, onMounted, ref } from 'vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { useAppStore } from '@/stores/app'
 import { getAll } from '@/api/admin/groups'
 import { list as listAccounts } from '@/api/admin/accounts'
 import { getRuntime, getSettings, updateSettings, type AccountLatencyMonitorGroup, type AccountLatencyMonitorGroupState, type AccountLatencyMonitorSettings } from '@/api/admin/accountLatencyMonitor'
 import type { AdminGroup, AccountListItem } from '@/types'
+import { extractApiErrorMessage } from '@/utils/apiError'
 
+const appStore = useAppStore()
 const groups = ref<AdminGroup[]>([])
 const settings = ref<AccountLatencyMonitorSettings>({ groups: [] })
 const runtime = ref<AccountLatencyMonitorGroupState[]>([])
@@ -112,7 +118,7 @@ const sortedRuntimeAccounts = computed(() => [...(runtimeForSelected.value?.acco
   return left.last_latency_ms - right.last_latency_ms || left.account_id - right.account_id
 }))
 
-function defaults(groupID: number): AccountLatencyMonitorGroup { return { group_id: groupID, enabled: true, latency_threshold_seconds: 10, failure_window_seconds: 30, consecutive_failures: 2, probe_interval_seconds: 60, idle_probe_interval_seconds: 1800, probe_timeout_seconds: 30, probe_concurrency: 4, backup_count: 2, always_enabled_account_ids: [], probe_model: 'gpt-5.6-sol', probe_prompt: 'hi', probe_reasoning_effort: 'low' } }
+function defaults(groupID: number): AccountLatencyMonitorGroup { return { group_id: groupID, enabled: true, latency_threshold_seconds: 10, failure_window_seconds: 30, consecutive_failures: 2, probe_interval_seconds: 60, idle_probe_interval_seconds: 1800, probe_timeout_seconds: 30, probe_concurrency: 4, backup_count: 2, switch_cooldown_seconds: 600, immediate_switch_threshold_seconds: 40, always_enabled_account_ids: [], probe_model: 'gpt-5.6-sol', probe_prompt: 'hi', probe_reasoning_effort: 'low' } }
 function normalizeSettings(value: AccountLatencyMonitorSettings): AccountLatencyMonitorSettings {
   return {
     ...value,
@@ -138,6 +144,17 @@ function addGroup() { const candidate = groups.value.find((group) => !settings.v
 function removeGroup() { if (!selectedGroupID.value) return; settings.value.groups = settings.value.groups.filter((group) => group.group_id !== selectedGroupID.value); selectedGroupID.value = settings.value.groups[0]?.group_id ?? null; if (selectedGroupID.value) void selectGroup(selectedGroupID.value) }
 function toggleAlwaysEnabled(id: number, checked: boolean) { if (!selectedGroup.value) return; const ids = selectedGroup.value.always_enabled_account_ids; selectedGroup.value.always_enabled_account_ids = checked ? [...ids, id] : ids.filter((item) => item !== id) }
 async function load() { loading.value = true; try { const [allGroups, savedSettings, currentRuntime] = await Promise.all([getAll(), getSettings(), getRuntime()]); groups.value = allGroups ?? []; settings.value = normalizeSettings(savedSettings); runtime.value = currentRuntime.groups ?? []; if (!selectedGroupID.value && settings.value.groups[0]) await selectGroup(settings.value.groups[0].group_id); else if (selectedGroupID.value) await selectGroup(selectedGroupID.value) } finally { loading.value = false } }
-async function save() { saving.value = true; try { settings.value = normalizeSettings(await updateSettings(settings.value)); await load() } finally { saving.value = false } }
+async function save() {
+  saving.value = true
+  try {
+    settings.value = normalizeSettings(await updateSettings(settings.value))
+    await load()
+    appStore.showSuccess('监控配置已保存并生效')
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, '保存监控配置失败'))
+  } finally {
+    saving.value = false
+  }
+}
 onMounted(() => { void load() })
 </script>
