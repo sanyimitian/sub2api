@@ -398,7 +398,7 @@ func (m *AccountLatencyMonitor) GetRuntime(ctx context.Context) ([]AccountLatenc
 			return nil, fmt.Errorf("list accounts in group %d: %w", cfg.GroupID, err)
 		}
 		for _, account := range accounts {
-			if account.Status == StatusActive {
+			if account.Schedulable {
 				state.ActiveAccountIDs = append(state.ActiveAccountIDs, account.ID)
 			}
 		}
@@ -519,7 +519,7 @@ func (m *AccountLatencyMonitor) failover(ctx context.Context, cfg AccountLatency
 	}()
 
 	if backupID, ok := m.healthyBackup(cfg, failedID); ok {
-		_ = m.activateAccounts(ctx, cfg, []int64{backupID})
+		_ = m.setSchedulableAccounts(ctx, cfg, []int64{backupID})
 		return
 	}
 	// Only when the current backup pool cannot provide a healthy alternative do
@@ -597,7 +597,7 @@ func (m *AccountLatencyMonitor) probeAll(ctx context.Context, cfg AccountLatency
 		return
 	}
 	if activate {
-		_ = m.activateAccounts(ctx, cfg, chosen[:1])
+		_ = m.setSchedulableAccounts(ctx, cfg, chosen[:1])
 	}
 }
 
@@ -634,7 +634,11 @@ func (m *AccountLatencyMonitor) probeAccounts(ctx context.Context, cfg AccountLa
 				probe.latency = result.LatencyMs
 				probe.success = result.Status == "success"
 			}
-			m.observeProbe(cfg.GroupID, account.ID, probe.latency, probe.success)
+			var latency *int64
+			if probe.success {
+				latency = accountLatencyMonitorInt64Ptr(probe.latency)
+			}
+			m.observeProbe(cfg.GroupID, account.ID, latency, probe.success)
 			resultCh <- probe
 		}()
 	}
@@ -646,11 +650,11 @@ func (m *AccountLatencyMonitor) probeAccounts(ctx context.Context, cfg AccountLa
 	return results
 }
 
-func (m *AccountLatencyMonitor) observeProbe(groupID, accountID, latency int64, success bool) {
+func (m *AccountLatencyMonitor) observeProbe(groupID, accountID int64, latency *int64, success bool) {
 	now := time.Now().UTC()
 	m.mu.Lock()
 	state := m.ensureAccountStateLocked(m.ensureRuntimeLocked(groupID), accountID)
-	state.LastLatencyMs = accountLatencyMonitorInt64Ptr(latency)
+	state.LastLatencyMs = latency
 	state.LastSuccess = accountLatencyMonitorBoolPtr(success)
 	state.LastObservedAt = accountLatencyMonitorTimePtr(now)
 	m.mu.Unlock()
@@ -660,7 +664,8 @@ func selectAccountLatencyMonitorBackups(results []accountLatencyProbeResult, gro
 	if backupCount <= 0 {
 		return nil
 	}
-	candidates := make([]accountLatencyProbeResult, 0, len(results))
+	fast := make([]accountLatencyProbeResult, 0, len(results))
+	slow := make([]accountLatencyProbeResult, 0, len(results))
 	for _, result := range results {
 		if !result.success {
 			continue
@@ -668,30 +673,37 @@ func selectAccountLatencyMonitorBackups(results []accountLatencyProbeResult, gro
 		if _, omit := excluded[result.account.ID]; omit {
 			continue
 		}
-		candidates = append(candidates, result)
+		if result.latency < thresholdMs {
+			fast = append(fast, result)
+			continue
+		}
+		slow = append(slow, result)
 	}
-	sort.Slice(candidates, func(i, j int) bool {
-		iFast := candidates[i].latency < thresholdMs
-		jFast := candidates[j].latency < thresholdMs
-		if iFast != jFast {
-			return iFast
+
+	sortResults := func(candidates []accountLatencyProbeResult) {
+		sort.Slice(candidates, func(i, j int) bool {
+			iPriority := accountLatencyMonitorPriority(candidates[i].account, groupID)
+			jPriority := accountLatencyMonitorPriority(candidates[j].account, groupID)
+			if iPriority != jPriority {
+				return iPriority < jPriority
+			}
+			if candidates[i].latency != candidates[j].latency {
+				return candidates[i].latency < candidates[j].latency
+			}
+			return candidates[i].account.ID < candidates[j].account.ID
+		})
+	}
+	sortResults(fast)
+	sortResults(slow)
+
+	chosen := make([]int64, 0, min(backupCount, len(fast)+len(slow)))
+	for _, candidates := range [][]accountLatencyProbeResult{fast, slow} {
+		for _, candidate := range candidates {
+			if len(chosen) == backupCount {
+				return chosen
+			}
+			chosen = append(chosen, candidate.account.ID)
 		}
-		iPriority := accountLatencyMonitorPriority(candidates[i].account, groupID)
-		jPriority := accountLatencyMonitorPriority(candidates[j].account, groupID)
-		if iPriority != jPriority {
-			return iPriority < jPriority
-		}
-		if candidates[i].latency != candidates[j].latency {
-			return candidates[i].latency < candidates[j].latency
-		}
-		return candidates[i].account.ID < candidates[j].account.ID
-	})
-	chosen := make([]int64, 0, min(backupCount, len(candidates)))
-	for _, candidate := range candidates {
-		if len(chosen) == backupCount {
-			break
-		}
-		chosen = append(chosen, candidate.account.ID)
 	}
 	return chosen
 }
@@ -717,7 +729,9 @@ func (m *AccountLatencyMonitor) markProbed(groupID int64) {
 	m.mu.Unlock()
 }
 
-func (m *AccountLatencyMonitor) activateAccounts(ctx context.Context, cfg AccountLatencyMonitorGroup, active []int64) error {
+// setSchedulableAccounts changes only the scheduling switch. Account status is
+// owned by account management and must not be changed by latency monitoring.
+func (m *AccountLatencyMonitor) setSchedulableAccounts(ctx context.Context, cfg AccountLatencyMonitorGroup, active []int64) error {
 	accounts, err := m.listGroupAccounts(ctx, cfg.GroupID)
 	if err != nil {
 		return err
@@ -731,18 +745,9 @@ func (m *AccountLatencyMonitor) activateAccounts(ctx context.Context, cfg Accoun
 	}
 	for i := range accounts {
 		account := accounts[i]
-		wantActive := allowed[account.ID]
-		if wantActive && (account.Status != StatusActive || !account.Schedulable) {
-			account.Status = StatusActive
-			account.Schedulable = true
-			if err := m.accountRepo.Update(ctx, &account); err != nil {
-				return err
-			}
-		}
-		if !wantActive && account.Status == StatusActive {
-			account.Status = StatusDisabled
-			account.Schedulable = false
-			if err := m.accountRepo.Update(ctx, &account); err != nil {
+		wantSchedulable := allowed[account.ID]
+		if account.Schedulable != wantSchedulable {
+			if err := m.accountRepo.SetSchedulable(ctx, account.ID, wantSchedulable); err != nil {
 				return err
 			}
 		}

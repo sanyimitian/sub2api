@@ -52,7 +52,7 @@
 
           <div class="mt-5 border-t border-gray-100 pt-4 dark:border-dark-700">
             <label class="mb-2 block text-sm font-medium text-gray-800 dark:text-gray-100">长期启用账号</label>
-            <p class="mb-3 text-xs text-gray-500">未选择时，监控会只保留一个工作账号；选择的账号会在切换时保持启用。</p>
+            <p class="mb-3 text-xs text-gray-500">未选择时，监控会只保留一个开启调度的账号；选择的账号会在切换时保持开启调度。</p>
             <div v-if="groupAccounts.length" class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               <label v-for="account in groupAccounts" :key="account.id" class="flex items-center gap-2 border border-gray-200 px-3 py-2 text-sm dark:border-dark-700">
                 <input :checked="selectedGroup.always_enabled_account_ids.includes(account.id)" type="checkbox" class="checkbox" @change="toggleAlwaysEnabled(account.id, ($event.target as HTMLInputElement).checked)" />
@@ -65,11 +65,11 @@
           <div class="mt-5 border-t border-gray-100 pt-4 dark:border-dark-700">
             <h3 class="mb-3 text-sm font-medium text-gray-800 dark:text-gray-100">运行状态</h3>
             <div class="grid gap-3 sm:grid-cols-2">
-              <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">当前启用账号</span><p class="mt-1 text-gray-900 dark:text-white">{{ activeAccountNames }}</p></div>
+              <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">当前开启调度账号</span><p class="mt-1 text-gray-900 dark:text-white">{{ activeAccountNames }}</p></div>
               <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">备用账号</span><p class="mt-1 text-gray-900 dark:text-white">{{ accountNames(runtimeForSelected?.backup_account_ids, '等待探测') }}</p></div>
               <div class="border border-gray-200 p-3 text-sm dark:border-dark-700"><span class="text-gray-500">最近探测</span><p class="mt-1 text-gray-900 dark:text-white">{{ formatTime(runtimeForSelected?.last_probe_at) }}</p></div>
             </div>
-            <div v-if="runtimeForSelected?.accounts?.length" class="mt-3 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs text-gray-500"><tr><th class="p-2">账号</th><th class="p-2">首字</th><th class="p-2">连续异常</th><th class="p-2">最近结果</th></tr></thead><tbody><tr v-for="state in runtimeForSelected.accounts" :key="state.account_id" class="border-t border-gray-100 dark:border-dark-700"><td class="p-2">{{ accountName(state.account_id) }}</td><td class="p-2">{{ state.last_latency_ms == null ? '-' : `${state.last_latency_ms} ms` }}</td><td class="p-2">{{ state.consecutive_failures }}</td><td class="p-2">{{ state.last_success === undefined ? '-' : state.last_success ? '成功' : '失败' }}</td></tr></tbody></table></div>
+            <div v-if="sortedRuntimeAccounts.length" class="mt-3 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs text-gray-500"><tr><th class="p-2">账号</th><th class="p-2">首字</th><th class="p-2">连续异常</th><th class="p-2">最近结果</th></tr></thead><tbody><tr v-for="state in sortedRuntimeAccounts" :key="state.account_id" class="border-t border-gray-100 dark:border-dark-700"><td class="p-2">{{ accountName(state.account_id) }}</td><td class="p-2" :class="latencyClass(state.last_latency_ms)">{{ state.last_latency_ms == null ? '-' : `${state.last_latency_ms} ms` }}</td><td class="p-2">{{ state.consecutive_failures }}</td><td class="p-2" :class="resultClass(state.last_success)">{{ state.last_success === undefined ? '-' : state.last_success ? '成功' : '失败' }}</td></tr></tbody></table></div>
           </div>
         </section>
         <section v-else class="flex min-h-80 items-center justify-center border border-dashed border-gray-300 text-sm text-gray-500 dark:border-dark-600">从左侧新增并选择一个分组。</section>
@@ -97,6 +97,12 @@ const saving = ref(false)
 const selectedGroup = computed(() => settings.value.groups.find((group) => group.group_id === selectedGroupID.value))
 const runtimeForSelected = computed(() => runtime.value.find((group) => group.group_id === selectedGroupID.value))
 const activeAccountNames = computed(() => accountNames(runtimeForSelected.value?.active_account_ids, '暂无'))
+const sortedRuntimeAccounts = computed(() => [...(runtimeForSelected.value?.accounts ?? [])].sort((left, right) => {
+  if (left.last_latency_ms == null && right.last_latency_ms == null) return left.account_id - right.account_id
+  if (left.last_latency_ms == null) return 1
+  if (right.last_latency_ms == null) return -1
+  return left.last_latency_ms - right.last_latency_ms || left.account_id - right.account_id
+}))
 
 function defaults(groupID: number): AccountLatencyMonitorGroup { return { group_id: groupID, enabled: true, latency_threshold_seconds: 10, failure_window_seconds: 30, consecutive_failures: 2, probe_interval_seconds: 60, probe_timeout_seconds: 30, probe_concurrency: 4, backup_count: 2, always_enabled_account_ids: [], probe_model: 'gpt-5.6-sol', probe_prompt: 'hi', probe_reasoning_effort: 'low' } }
 function normalizeSettings(value: AccountLatencyMonitorSettings): AccountLatencyMonitorSettings {
@@ -112,6 +118,8 @@ function groupName(id: number) { return groups.value.find((group) => group.id ==
 function accountName(id: number) { return groupAccounts.value.find((account) => account.id === id)?.name ?? `账号 #${id}` }
 function accountNames(ids: number[] | undefined, fallback: string) { return ids?.length ? ids.map(accountName).join('、') : fallback }
 function formatTime(value?: string) { return value ? new Date(value).toLocaleString() : '暂无' }
+function latencyClass(latency?: number) { if (latency == null) return 'text-gray-500 dark:text-gray-400'; if (latency > 25_000) return 'text-red-600 dark:text-red-400'; if (latency > 10_000) return 'text-orange-600 dark:text-orange-400'; return 'text-gray-900 dark:text-white' }
+function resultClass(success?: boolean) { if (success === undefined) return 'text-gray-500 dark:text-gray-400'; return success ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400' }
 async function selectGroup(id: number) {
   selectedGroupID.value = id
   const firstPage = await listAccounts(1, 1000, { group: String(id) })

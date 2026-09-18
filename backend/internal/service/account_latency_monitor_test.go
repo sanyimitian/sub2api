@@ -16,6 +16,19 @@ func TestSelectAccountLatencyMonitorBackups_PrefersFastThenGroupPriority(t *test
 	}
 }
 
+func TestSelectAccountLatencyMonitorBackups_PrefersGroupPriorityWithinFastAccounts(t *testing.T) {
+	results := []accountLatencyProbeResult{
+		{account: Account{ID: 1, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 4}}}, latency: 1_000, success: true},
+		{account: Account{ID: 2, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 1}}}, latency: 9_000, success: true},
+		{account: Account{ID: 3, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 1}}}, latency: 7_000, success: true},
+	}
+
+	chosen := selectAccountLatencyMonitorBackups(results, 7, 10_000, 3, nil)
+	if got, want := accountIDsString(chosen), "3,2,1"; got != want {
+		t.Fatalf("selected backups = %s, want %s", got, want)
+	}
+}
+
 func TestSelectAccountLatencyMonitorBackups_SortsEqualPriorityByLatency(t *testing.T) {
 	results := []accountLatencyProbeResult{
 		{account: Account{ID: 1, AccountGroups: []AccountGroup{{GroupID: 7, Priority: 2}}}, latency: 8_000, success: true},
