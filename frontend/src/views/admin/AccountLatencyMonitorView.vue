@@ -57,19 +57,32 @@
           <div class="mt-5 border-t border-gray-100 pt-4 dark:border-dark-700">
             <label class="mb-2 block text-sm font-medium text-gray-800 dark:text-gray-100">长期启用账号</label>
             <p class="mb-3 text-xs text-gray-500">选择的账号会在切换时保持开启调度；其余当前开启账号数由上方配置决定。</p>
-            <div v-if="groupAccounts.length" class="overflow-x-auto border border-gray-200 dark:border-dark-700">
-              <table class="w-full min-w-[45rem] text-left text-sm">
-                <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-700/50 dark:text-gray-400"><tr><th class="w-28 p-3">长期启用</th><th class="min-w-48 p-3">账号</th><th class="w-36 p-3">账号计费倍率</th><th class="w-32 p-3">优先级</th><th class="w-32 p-3">并发数</th></tr></thead>
+            <div v-if="groupAccountsLoading" class="border border-gray-200 px-3 py-8 text-center text-sm text-gray-500 dark:border-dark-700">正在加载账号...</div>
+            <div v-else-if="groupAccounts.length" class="overflow-x-auto border border-gray-200 dark:border-dark-700">
+              <table class="w-full min-w-[56rem] text-left text-sm">
+                <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-700/50 dark:text-gray-400"><tr>
+                  <th v-for="column in groupAccountSortColumns" :key="column.key" scope="col" :class="column.class" :aria-sort="groupAccountSortAria(column.key)"><button type="button" class="inline-flex items-center gap-1 font-medium hover:text-gray-700 dark:hover:text-gray-200" :title="`按${column.label}排序`" @click="cycleGroupAccountSort(column.key)"><span>{{ column.label }}</span><Icon :name="groupAccountSortIcon(column.key)" size="xs" /></button></th>
+                </tr></thead>
                 <tbody>
-                  <tr v-for="account in groupAccounts" :key="account.id" class="border-t border-gray-100 dark:border-dark-700">
+                  <tr v-for="account in sortedGroupAccounts" :key="account.id" class="border-t border-gray-100 dark:border-dark-700">
                     <td class="p-3"><input :checked="selectedGroup.always_enabled_account_ids.includes(account.id)" type="checkbox" class="checkbox" :aria-label="`长期启用 ${account.name}`" @change="toggleAlwaysEnabled(account.id, ($event.target as HTMLInputElement).checked)" /></td>
                     <td class="p-3"><a v-if="accountHomepageUrl(account.id)" :href="accountHomepageUrl(account.id)" target="_blank" rel="noopener noreferrer" class="inline-flex max-w-full items-center gap-1 font-medium text-primary-700 hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"><span class="truncate">{{ account.name }}</span><Icon name="externalLink" size="xs" /></a><span v-else class="font-medium text-gray-900 dark:text-white">{{ account.name }}</span></td>
                     <td class="p-3 text-gray-700 dark:text-gray-200">{{ formatRateMultiplier(account.rate_multiplier) }}</td>
                     <td class="p-3"><input v-model.number="account.priority" type="number" min="1" class="input h-8 w-full" :disabled="isAccountUpdating(account.id)" @change="updateAccountPriority(account)" /></td>
                     <td class="p-3"><input v-model.number="account.concurrency" type="number" min="1" class="input h-8 w-full" :disabled="isAccountUpdating(account.id)" @change="updateAccountConcurrency(account)" /></td>
+                    <td class="p-3"><AccountTodayStatsCell :stats="groupTodayStatsByAccountId[String(account.id)] ?? null" :loading="groupTodayStatsLoading" :error="groupTodayStatsError" /></td>
                   </tr>
                 </tbody>
               </table>
+              <div class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-3 py-2 text-xs text-gray-500 dark:border-dark-700 dark:text-gray-400">
+                <span>共 {{ groupAccountsTotal }} 个账号</span>
+                <div class="flex items-center gap-2">
+                  <label class="flex items-center gap-2">每页<select v-model.number="groupAccountsPageSize" class="input h-8 w-20 py-1 text-xs" @change="changeGroupAccountsPageSize"><option :value="20">20</option><option :value="50">50</option></select>条</label>
+                  <button class="btn btn-secondary btn-sm" :disabled="groupAccountsPage <= 1 || groupAccountsLoading" title="上一页" aria-label="上一页" @click="changeGroupAccountsPage(groupAccountsPage - 1)"><Icon name="chevronLeft" size="sm" /></button>
+                  <span class="min-w-20 text-center">第 {{ groupAccountsPage }} / {{ groupAccountsTotalPages }} 页</span>
+                  <button class="btn btn-secondary btn-sm" :disabled="groupAccountsPage >= groupAccountsTotalPages || groupAccountsLoading" title="下一页" aria-label="下一页" @click="changeGroupAccountsPage(groupAccountsPage + 1)"><Icon name="chevronRight" size="sm" /></button>
+                </div>
+              </div>
             </div>
             <p v-else class="text-sm text-gray-500">该分组暂无账号。</p>
           </div>
@@ -95,11 +108,12 @@
 import { computed, onMounted, ref } from 'vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import { useAppStore } from '@/stores/app'
 import { getAll } from '@/api/admin/groups'
-import { list as listAccounts, update as updateAccount } from '@/api/admin/accounts'
+import { getBatchTodayStats, list as listAccounts, update as updateAccount } from '@/api/admin/accounts'
 import { getRuntime, getSettings, updateSettings, type AccountLatencyMonitorGroup, type AccountLatencyMonitorGroupState, type AccountLatencyMonitorSettings } from '@/api/admin/accountLatencyMonitor'
-import type { AdminGroup, AccountListItem } from '@/types'
+import type { AdminGroup, AccountListItem, WindowStats } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 
@@ -108,6 +122,29 @@ const groups = ref<AdminGroup[]>([])
 const settings = ref<AccountLatencyMonitorSettings>({ groups: [] })
 const runtime = ref<AccountLatencyMonitorGroupState[]>([])
 const groupAccounts = ref<AccountListItem[]>([])
+const allGroupAccounts = ref<AccountListItem[]>([])
+const knownGroupAccounts = ref(new Map<number, AccountListItem>())
+const groupAccountsPage = ref(1)
+const groupAccountsPageSize = ref<20 | 50>(20)
+const groupAccountsTotal = ref(0)
+const groupAccountsTotalPages = ref(1)
+const groupAccountsLoading = ref(false)
+const groupAccountsRequestSeq = ref(0)
+const groupTodayStatsByAccountId = ref<Record<string, WindowStats>>({})
+const groupTodayStatsLoading = ref(false)
+const groupTodayStatsError = ref<string | null>(null)
+type GroupAccountSortKey = 'always_enabled' | 'name' | 'rate_multiplier' | 'priority' | 'concurrency' | 'today_stats'
+type GroupAccountSortOrder = 'asc' | 'desc'
+const groupAccountSortColumns: Array<{ key: GroupAccountSortKey; label: string; class: string }> = [
+  { key: 'always_enabled', label: '长期启用', class: 'w-28 p-3' },
+  { key: 'name', label: '账号', class: 'min-w-48 p-3' },
+  { key: 'rate_multiplier', label: '账号计费倍率', class: 'w-36 p-3' },
+  { key: 'priority', label: '优先级', class: 'w-32 p-3' },
+  { key: 'concurrency', label: '并发数', class: 'w-32 p-3' },
+  { key: 'today_stats', label: '今日统计', class: 'min-w-36 p-3' }
+]
+const groupAccountSortKey = ref<GroupAccountSortKey | null>('priority')
+const groupAccountSortOrder = ref<GroupAccountSortOrder>('asc')
 const selectedGroupID = ref<number | null>(null)
 const loading = ref(false)
 const saving = ref(false)
@@ -128,6 +165,19 @@ const sortedRuntimeAccounts = computed(() => [...(runtimeForSelected.value?.acco
   }
   return left.last_latency_ms - right.last_latency_ms || left.account_id - right.account_id
 }))
+const sortedGroupAccounts = computed(() => {
+  const sortKey = groupAccountSortKey.value
+  if (!sortKey) return allGroupAccounts.value.slice((groupAccountsPage.value - 1) * groupAccountsPageSize.value, groupAccountsPage.value * groupAccountsPageSize.value)
+  const order = groupAccountSortOrder.value === 'asc' ? 1 : -1
+  return allGroupAccounts.value
+    .map((account, index) => ({ account, index }))
+    .sort((left, right) => {
+      const compare = compareGroupAccounts(left.account, right.account, sortKey)
+      return compare === 0 ? left.index - right.index : compare * order
+    })
+    .map(({ account }) => account)
+    .slice((groupAccountsPage.value - 1) * groupAccountsPageSize.value, groupAccountsPage.value * groupAccountsPageSize.value)
+})
 
 function defaults(groupID: number): AccountLatencyMonitorGroup { return { group_id: groupID, enabled: true, latency_threshold_seconds: 10, failure_window_seconds: 30, consecutive_failures: 2, probe_interval_seconds: 60, idle_probe_interval_seconds: 1800, probe_timeout_seconds: 30, probe_concurrency: 4, active_account_count: 1, backup_count: 2, switch_cooldown_seconds: 600, immediate_switch_threshold_seconds: 40, always_enabled_account_ids: [], probe_model: 'gpt-5.6-sol', probe_prompt: 'hi', probe_reasoning_effort: 'low' } }
 function normalizeSettings(value: AccountLatencyMonitorSettings): AccountLatencyMonitorSettings {
@@ -141,7 +191,7 @@ function normalizeSettings(value: AccountLatencyMonitorSettings): AccountLatency
   }
 }
 function groupName(id: number) { return groups.value.find((group) => group.id === id)?.name ?? `分组 #${id}` }
-function accountForID(id: number) { return groupAccounts.value.find((account) => account.id === id) }
+function accountForID(id: number) { return groupAccounts.value.find((account) => account.id === id) ?? knownGroupAccounts.value.get(id) }
 function accountName(id: number) { return accountForID(id)?.name ?? `账号 #${id}` }
 function accountHomepageUrl(id: number) {
   const account = accountForID(id)
@@ -150,6 +200,36 @@ function accountHomepageUrl(id: number) {
   return baseUrl ? new URL(baseUrl).origin : ''
 }
 function formatRateMultiplier(value?: number) { return `${value ?? 1}x` }
+function compareGroupAccounts(left: AccountListItem, right: AccountListItem, key: GroupAccountSortKey) {
+  if (key === 'always_enabled') return Number(isAlwaysEnabled(left.id)) - Number(isAlwaysEnabled(right.id))
+  if (key === 'name') return left.name.localeCompare(right.name, 'zh-CN')
+  if (key === 'rate_multiplier') return (left.rate_multiplier ?? 1) - (right.rate_multiplier ?? 1)
+  if (key === 'priority') return left.priority - right.priority
+  if (key === 'concurrency') return left.concurrency - right.concurrency
+  const leftStats = groupTodayStatsByAccountId.value[String(left.id)] ?? buildDefaultTodayStats()
+  const rightStats = groupTodayStatsByAccountId.value[String(right.id)] ?? buildDefaultTodayStats()
+  return leftStats.requests - rightStats.requests || leftStats.tokens - rightStats.tokens || leftStats.cost - rightStats.cost
+}
+function isAlwaysEnabled(id: number) { return selectedGroup.value?.always_enabled_account_ids.includes(id) ?? false }
+function groupAccountSortIcon(key: GroupAccountSortKey): 'arrowsUpDown' | 'arrowUp' | 'arrowDown' {
+  if (groupAccountSortKey.value !== key) return 'arrowsUpDown'
+  return groupAccountSortOrder.value === 'asc' ? 'arrowUp' : 'arrowDown'
+}
+function groupAccountSortAria(key: GroupAccountSortKey) {
+  if (groupAccountSortKey.value !== key) return 'none'
+  return groupAccountSortOrder.value === 'asc' ? 'ascending' : 'descending'
+}
+function cycleGroupAccountSort(key: GroupAccountSortKey) {
+  if (groupAccountSortKey.value !== key) {
+    groupAccountSortKey.value = key
+    groupAccountSortOrder.value = 'asc'
+  } else if (groupAccountSortOrder.value === 'asc') {
+    groupAccountSortOrder.value = 'desc'
+  } else {
+    groupAccountSortKey.value = null
+  }
+  groupAccountsPage.value = 1
+}
 function isAccountUpdating(id: number) { return updatingAccountIDs.value.has(id) }
 function normalizePositiveInteger(value: number) { return Math.max(1, Math.trunc(Number(value) || 1)) }
 async function updateAccountPriority(account: AccountListItem) {
@@ -171,7 +251,7 @@ async function updateAccountField(account: AccountListItem, updates: { priority:
     appStore.showSuccess(`账号 ${account.name} 已更新`)
   } catch (error) {
     appStore.showError(extractApiErrorMessage(error, `更新账号 ${account.name} 失败`))
-    if (selectedGroupID.value) groupAccounts.value = await loadGroupAccounts(selectedGroupID.value)
+    if (selectedGroupID.value) await loadGroupAccounts(selectedGroupID.value)
   } finally {
     const pending = new Set(updatingAccountIDs.value)
     pending.delete(account.id)
@@ -184,13 +264,72 @@ function latencyClass(latency?: number) { if (latency == null) return 'text-gray
 function resultClass(success?: boolean) { if (success === undefined) return 'text-gray-500 dark:text-gray-400'; return success ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400' }
 async function selectGroup(id: number) {
   selectedGroupID.value = id
-  const accounts = await loadGroupAccounts(id)
-  if (selectedGroupID.value === id) groupAccounts.value = accounts
+  groupAccountsPage.value = 1
+  allGroupAccounts.value = []
+  groupAccounts.value = []
+  knownGroupAccounts.value = new Map()
+  groupTodayStatsByAccountId.value = {}
+  await loadGroupAccounts(id)
 }
-async function loadGroupAccounts(id: number): Promise<AccountListItem[]> {
+async function loadGroupAccounts(id: number): Promise<void> {
+  const requestSeq = ++groupAccountsRequestSeq.value
+  groupAccountsLoading.value = true
+  groupTodayStatsLoading.value = true
+  groupTodayStatsError.value = null
+  try {
+    const accounts = await loadAllGroupAccounts(id)
+    if (selectedGroupID.value !== id || requestSeq !== groupAccountsRequestSeq.value) return
+    allGroupAccounts.value = accounts
+    groupAccounts.value = accounts
+    groupAccountsTotal.value = accounts.length
+    groupAccountsTotalPages.value = Math.max(Math.ceil(accounts.length / groupAccountsPageSize.value), 1)
+    for (const account of accounts) knownGroupAccounts.value.set(account.id, account)
+    try {
+      const statsChunks = await Promise.all(chunkAccountIDs(accounts.map((account) => account.id), 200).map((accountIDs) => getBatchTodayStats(accountIDs)))
+      if (selectedGroupID.value !== id || requestSeq !== groupAccountsRequestSeq.value) return
+      const nextStats: Record<string, WindowStats> = {}
+      for (const stats of statsChunks) {
+        for (const [accountID, accountStats] of Object.entries(stats.stats ?? {})) nextStats[accountID] = accountStats
+      }
+      groupTodayStatsByAccountId.value = nextStats
+    } catch (error) {
+      if (selectedGroupID.value === id && requestSeq === groupAccountsRequestSeq.value) {
+        groupTodayStatsError.value = extractApiErrorMessage(error, '今日统计加载失败')
+        appStore.showError(groupTodayStatsError.value)
+      }
+    }
+  } catch (error) {
+    if (selectedGroupID.value === id && requestSeq === groupAccountsRequestSeq.value) {
+      appStore.showError(extractApiErrorMessage(error, '账号列表加载失败'))
+    }
+  } finally {
+    if (requestSeq === groupAccountsRequestSeq.value) {
+      groupAccountsLoading.value = false
+      groupTodayStatsLoading.value = false
+    }
+  }
+}
+async function loadAllGroupAccounts(id: number): Promise<AccountListItem[]> {
   const firstPage = await listAccounts(1, 1000, { group: String(id) })
-  const pages = await Promise.all(Array.from({ length: Math.max(firstPage.pages - 1, 0) }, (_, index) => listAccounts(index + 2, 1000, { group: String(id) })))
-  return [...firstPage.items, ...pages.flatMap((page) => page.items)]
+  const remainingPages = await Promise.all(Array.from({ length: Math.max((firstPage.pages ?? 1) - 1, 0) }, (_, index) => listAccounts(index + 2, 1000, { group: String(id) })))
+  return [...firstPage.items, ...remainingPages.flatMap((page) => page.items)]
+}
+async function loadAllGroupAccountIDs(id: number): Promise<number[]> {
+  return (await loadAllGroupAccounts(id)).map((account) => account.id)
+}
+function buildDefaultTodayStats(): WindowStats { return { requests: 0, tokens: 0, cost: 0, standard_cost: 0, user_cost: 0 } }
+function chunkAccountIDs(accountIDs: number[], chunkSize: number) {
+  const chunks: number[][] = []
+  for (let index = 0; index < accountIDs.length; index += chunkSize) chunks.push(accountIDs.slice(index, index + chunkSize))
+  return chunks
+}
+function changeGroupAccountsPage(page: number) {
+  if (!selectedGroupID.value || page < 1 || page > groupAccountsTotalPages.value) return
+  groupAccountsPage.value = page
+}
+function changeGroupAccountsPageSize() {
+  groupAccountsPage.value = 1
+  groupAccountsTotalPages.value = Math.max(Math.ceil(groupAccountsTotal.value / groupAccountsPageSize.value), 1)
 }
 function changeSelectedGroup(event: Event) {
   const previousID = selectedGroupID.value
@@ -226,8 +365,8 @@ async function save() {
 }
 async function reconcileAlwaysEnabledAccounts() {
   const groupsWithAccounts = await Promise.all(settings.value.groups.map(async (group) => {
-    const accounts = await loadGroupAccounts(group.group_id)
-    return [group.group_id, new Set(accounts.map((account) => account.id))] as const
+    const accountIDs = await loadAllGroupAccountIDs(group.group_id)
+    return [group.group_id, new Set(accountIDs)] as const
   }))
   const accountIDsByGroup = new Map(groupsWithAccounts)
   for (const group of settings.value.groups) {
