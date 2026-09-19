@@ -187,10 +187,30 @@ func TestAccountLatencyMonitorSetSchedulableAccounts_RollsBackWhenEnableFails(t 
 	}
 }
 
+func TestAccountLatencyMonitorFailover_IgnoresResultFromNoLongerSchedulableAccount(t *testing.T) {
+	repo := &accountLatencyMonitorRepoStub{
+		accounts: []Account{
+			{ID: 1, Schedulable: false},
+			{ID: 2, Schedulable: true},
+		},
+	}
+	monitor := &AccountLatencyMonitor{accountRepo: repo, runtime: make(map[int64]*accountLatencyMonitorGroupRuntime)}
+
+	monitor.failover(context.Background(), AccountLatencyMonitorGroup{GroupID: 7, ActiveAccountCount: 1}, 1, "user_single_latency", "迟到结果")
+
+	if len(repo.setCalls) != 0 {
+		t.Fatalf("stale result changed scheduling: %#v", repo.setCalls)
+	}
+	if repo.accounts[0].Schedulable || !repo.accounts[1].Schedulable {
+		t.Fatalf("scheduling changed: %#v", repo.accounts)
+	}
+}
+
 type accountLatencyMonitorRepoStub struct {
 	AccountRepository
 	accounts   []Account
 	failEnable int64
+	setCalls   []int64
 }
 
 func (r *accountLatencyMonitorRepoStub) ListAllWithFilters(context.Context, string, string, string, string, int64, string) ([]Account, error) {
@@ -198,6 +218,7 @@ func (r *accountLatencyMonitorRepoStub) ListAllWithFilters(context.Context, stri
 }
 
 func (r *accountLatencyMonitorRepoStub) SetSchedulable(_ context.Context, id int64, schedulable bool) error {
+	r.setCalls = append(r.setCalls, id)
 	if schedulable && id == r.failEnable {
 		r.failEnable = 0
 		return errors.New("enable failed")

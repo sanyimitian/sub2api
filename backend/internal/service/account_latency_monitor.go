@@ -655,13 +655,20 @@ func (m *AccountLatencyMonitor) failover(ctx context.Context, cfg AccountLatency
 		m.mu.Unlock()
 	}()
 
+	accounts, err := m.listGroupAccounts(ctx, cfg.GroupID)
+	if err != nil {
+		return
+	}
+	currentIDs := accountLatencyMonitorCurrentIDs(accounts, cfg.AlwaysEnabledIDs)
+	if _, stillCurrent := accountLatencyMonitorExcludedIDs(currentIDs)[failedID]; !stillCurrent {
+		// An in-flight request can finish after a prior failover has already
+		// removed its account from scheduling. It must not replace the new current account.
+		return
+	}
+
 	if backupID, ok := m.healthyBackup(cfg, failedID); ok {
-		accounts, err := m.listGroupAccounts(ctx, cfg.GroupID)
-		if err != nil {
-			return
-		}
 		nextActive := accountLatencyMonitorReplaceFailedCurrent(
-			accountLatencyMonitorCurrentIDs(accounts, cfg.AlwaysEnabledIDs),
+			currentIDs,
 			failedID,
 			backupID,
 			cfg.ActiveAccountCount,
