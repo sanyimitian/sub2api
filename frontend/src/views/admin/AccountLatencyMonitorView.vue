@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <main class="mx-auto w-full max-w-7xl space-y-5 p-4 sm:p-6">
+    <main class="mx-auto w-full max-w-[100rem] space-y-5 p-4 sm:p-6">
       <header class="flex flex-col gap-3 border-b border-gray-200 pb-5 dark:border-dark-700 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 class="text-xl font-semibold text-gray-900 dark:text-white">账号延迟监控</h1>
@@ -12,7 +12,7 @@
         </div>
       </header>
 
-      <section class="grid gap-4 lg:grid-cols-[21rem_minmax(0,1fr)]">
+      <section class="grid gap-4 lg:grid-cols-[19rem_minmax(0,1fr)]">
         <aside class="border border-gray-200 bg-white p-3 dark:border-dark-700 dark:bg-dark-800">
           <div class="mb-3 flex items-center justify-between">
             <h2 class="text-sm font-medium text-gray-900 dark:text-white">监控分组</h2>
