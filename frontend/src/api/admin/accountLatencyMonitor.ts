@@ -33,12 +33,21 @@ export interface AccountLatencyMonitorAccountState {
   last_observed_at?: string
 }
 
+export interface AccountLatencyMonitorSwitchRecord {
+  switched_at: string
+  previous_account_ids: number[]
+  current_account_ids: number[]
+  reason_code: string
+  reason: string
+}
+
 export interface AccountLatencyMonitorGroupState {
   group_id: number
   active_account_ids: number[]
   backup_account_ids: number[]
   last_probe_at?: string
   last_switch_at?: string
+  switch_history: AccountLatencyMonitorSwitchRecord[]
   accounts: AccountLatencyMonitorAccountState[]
 }
 

@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -143,6 +145,70 @@ func TestAccountLatencyMonitorPeriodicSwitchAllowed_UsesCooldown(t *testing.T) {
 	if !accountLatencyMonitorPeriodicSwitchAllowed(now, nil, 600, now) {
 		t.Fatal("initial activation should be allowed without a current account")
 	}
+}
+
+func TestAccountLatencyMonitorBackupIDsExcludingActive_RemovesStaleCurrentAccount(t *testing.T) {
+	monitor := &AccountLatencyMonitor{runtime: map[int64]*accountLatencyMonitorGroupRuntime{
+		7: {backups: []int64{1, 2, 3}},
+	}}
+	if got, want := accountIDsString(monitor.backupIDsExcludingActive(7, []int64{2})), "1,3"; got != want {
+		t.Fatalf("backup IDs = %s, want %s", got, want)
+	}
+	if got, want := accountIDsString(monitor.backupIDs(7)), "1,3"; got != want {
+		t.Fatalf("stored backup IDs = %s, want %s", got, want)
+	}
+}
+
+func TestAccountLatencyMonitorActiveAccountSwitchAllowed_UsesAccountStartTime(t *testing.T) {
+	now := time.Now().UTC()
+	monitor := &AccountLatencyMonitor{runtime: map[int64]*accountLatencyMonitorGroupRuntime{
+		7: {activeSince: map[int64]time.Time{1: now.Add(-10 * time.Minute), 2: now.Add(-5 * time.Minute)}},
+	}}
+	if !monitor.activeAccountSwitchAllowed(7, 1, 600, now) {
+		t.Fatal("account 1 should be eligible after its own switch period")
+	}
+	if monitor.activeAccountSwitchAllowed(7, 2, 600, now) {
+		t.Fatal("account 2 should remain in its own switch period")
+	}
+}
+
+func TestAccountLatencyMonitorSetSchedulableAccounts_RollsBackWhenEnableFails(t *testing.T) {
+	repo := &accountLatencyMonitorRepoStub{
+		accounts:   []Account{{ID: 1, Schedulable: true}, {ID: 2, Schedulable: false}},
+		failEnable: 2,
+	}
+	monitor := &AccountLatencyMonitor{accountRepo: repo, runtime: make(map[int64]*accountLatencyMonitorGroupRuntime)}
+	err := monitor.setSchedulableAccounts(context.Background(), AccountLatencyMonitorGroup{GroupID: 7}, []int64{2}, "test", "test")
+	if err == nil {
+		t.Fatal("expected enable failure")
+	}
+	if !repo.accounts[0].Schedulable || repo.accounts[1].Schedulable {
+		t.Fatalf("accounts were not restored: %#v", repo.accounts)
+	}
+}
+
+type accountLatencyMonitorRepoStub struct {
+	AccountRepository
+	accounts   []Account
+	failEnable int64
+}
+
+func (r *accountLatencyMonitorRepoStub) ListAllWithFilters(context.Context, string, string, string, string, int64, string) ([]Account, error) {
+	return append([]Account(nil), r.accounts...), nil
+}
+
+func (r *accountLatencyMonitorRepoStub) SetSchedulable(_ context.Context, id int64, schedulable bool) error {
+	if schedulable && id == r.failEnable {
+		r.failEnable = 0
+		return errors.New("enable failed")
+	}
+	for i := range r.accounts {
+		if r.accounts[i].ID == id {
+			r.accounts[i].Schedulable = schedulable
+			return nil
+		}
+	}
+	return errors.New("account not found")
 }
 
 func TestAccountLatencyMonitorPreferredCurrentID_ChoosesBestDynamicAccount(t *testing.T) {
