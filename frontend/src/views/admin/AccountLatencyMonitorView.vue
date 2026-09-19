@@ -45,6 +45,7 @@
             <label class="block text-sm text-gray-700 dark:text-gray-200">无用户请求时检测周期（秒）<input v-model.number="selectedGroup.idle_probe_interval_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">单次探测超时（秒）<input v-model.number="selectedGroup.probe_timeout_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">并发探测账号数<input v-model.number="selectedGroup.probe_concurrency" type="number" min="1" class="input mt-1 w-full" /></label>
+            <label class="block text-sm text-gray-700 dark:text-gray-200">当前开启调度账号数（不含长期启用）<input v-model.number="selectedGroup.active_account_count" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">备用账号数量<input v-model.number="selectedGroup.backup_count" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">周期切换运行帐号间隔（秒）<input v-model.number="selectedGroup.switch_cooldown_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
             <label class="block text-sm text-gray-700 dark:text-gray-200">单次对话超时切换阈值（秒）<input v-model.number="selectedGroup.immediate_switch_threshold_seconds" type="number" min="1" class="input mt-1 w-full" /></label>
@@ -55,12 +56,20 @@
 
           <div class="mt-5 border-t border-gray-100 pt-4 dark:border-dark-700">
             <label class="mb-2 block text-sm font-medium text-gray-800 dark:text-gray-100">长期启用账号</label>
-            <p class="mb-3 text-xs text-gray-500">未选择时，监控会只保留一个开启调度的账号；选择的账号会在切换时保持开启调度。</p>
-            <div v-if="groupAccounts.length" class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              <label v-for="account in groupAccounts" :key="account.id" class="flex items-center gap-2 border border-gray-200 px-3 py-2 text-sm dark:border-dark-700">
-                <input :checked="selectedGroup.always_enabled_account_ids.includes(account.id)" type="checkbox" class="checkbox" @change="toggleAlwaysEnabled(account.id, ($event.target as HTMLInputElement).checked)" />
-                <span class="min-w-0 truncate">{{ account.name }}</span><span class="ml-auto text-xs text-gray-500">优先级 {{ account.priority }}</span>
-              </label>
+            <p class="mb-3 text-xs text-gray-500">选择的账号会在切换时保持开启调度；其余当前开启账号数由上方配置决定。</p>
+            <div v-if="groupAccounts.length" class="overflow-x-auto border border-gray-200 dark:border-dark-700">
+              <table class="w-full min-w-[45rem] text-left text-sm">
+                <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-700/50 dark:text-gray-400"><tr><th class="w-28 p-3">长期启用</th><th class="min-w-48 p-3">账号</th><th class="w-36 p-3">账号计费倍率</th><th class="w-32 p-3">优先级</th><th class="w-32 p-3">并发数</th></tr></thead>
+                <tbody>
+                  <tr v-for="account in groupAccounts" :key="account.id" class="border-t border-gray-100 dark:border-dark-700">
+                    <td class="p-3"><input :checked="selectedGroup.always_enabled_account_ids.includes(account.id)" type="checkbox" class="checkbox" :aria-label="`长期启用 ${account.name}`" @change="toggleAlwaysEnabled(account.id, ($event.target as HTMLInputElement).checked)" /></td>
+                    <td class="p-3"><a v-if="accountHomepageUrl(account.id)" :href="accountHomepageUrl(account.id)" target="_blank" rel="noopener noreferrer" class="inline-flex max-w-full items-center gap-1 font-medium text-primary-700 hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"><span class="truncate">{{ account.name }}</span><Icon name="externalLink" size="xs" /></a><span v-else class="font-medium text-gray-900 dark:text-white">{{ account.name }}</span></td>
+                    <td class="p-3 text-gray-700 dark:text-gray-200">{{ formatRateMultiplier(account.rate_multiplier) }}</td>
+                    <td class="p-3"><input v-model.number="account.priority" type="number" min="1" class="input h-8 w-full" :disabled="isAccountUpdating(account.id)" @change="updateAccountPriority(account)" /></td>
+                    <td class="p-3"><input v-model.number="account.concurrency" type="number" min="1" class="input h-8 w-full" :disabled="isAccountUpdating(account.id)" @change="updateAccountConcurrency(account)" /></td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
             <p v-else class="text-sm text-gray-500">该分组暂无账号。</p>
           </div>
@@ -88,7 +97,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
 import { getAll } from '@/api/admin/groups'
-import { list as listAccounts } from '@/api/admin/accounts'
+import { list as listAccounts, update as updateAccount } from '@/api/admin/accounts'
 import { getRuntime, getSettings, updateSettings, type AccountLatencyMonitorGroup, type AccountLatencyMonitorGroupState, type AccountLatencyMonitorSettings } from '@/api/admin/accountLatencyMonitor'
 import type { AdminGroup, AccountListItem } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -102,6 +111,7 @@ const groupAccounts = ref<AccountListItem[]>([])
 const selectedGroupID = ref<number | null>(null)
 const loading = ref(false)
 const saving = ref(false)
+const updatingAccountIDs = ref(new Set<number>())
 const selectedGroup = computed(() => settings.value.groups.find((group) => group.group_id === selectedGroupID.value))
 const runtimeForSelected = computed(() => runtime.value.find((group) => group.group_id === selectedGroupID.value))
 const activeAccountNames = computed(() => accountNames(runtimeForSelected.value?.active_account_ids, '暂无'))
@@ -119,12 +129,13 @@ const sortedRuntimeAccounts = computed(() => [...(runtimeForSelected.value?.acco
   return left.last_latency_ms - right.last_latency_ms || left.account_id - right.account_id
 }))
 
-function defaults(groupID: number): AccountLatencyMonitorGroup { return { group_id: groupID, enabled: true, latency_threshold_seconds: 10, failure_window_seconds: 30, consecutive_failures: 2, probe_interval_seconds: 60, idle_probe_interval_seconds: 1800, probe_timeout_seconds: 30, probe_concurrency: 4, backup_count: 2, switch_cooldown_seconds: 600, immediate_switch_threshold_seconds: 40, always_enabled_account_ids: [], probe_model: 'gpt-5.6-sol', probe_prompt: 'hi', probe_reasoning_effort: 'low' } }
+function defaults(groupID: number): AccountLatencyMonitorGroup { return { group_id: groupID, enabled: true, latency_threshold_seconds: 10, failure_window_seconds: 30, consecutive_failures: 2, probe_interval_seconds: 60, idle_probe_interval_seconds: 1800, probe_timeout_seconds: 30, probe_concurrency: 4, active_account_count: 1, backup_count: 2, switch_cooldown_seconds: 600, immediate_switch_threshold_seconds: 40, always_enabled_account_ids: [], probe_model: 'gpt-5.6-sol', probe_prompt: 'hi', probe_reasoning_effort: 'low' } }
 function normalizeSettings(value: AccountLatencyMonitorSettings): AccountLatencyMonitorSettings {
   return {
     ...value,
     groups: (value.groups ?? []).map((group) => ({
       ...group,
+      active_account_count: group.active_account_count > 0 ? group.active_account_count : 1,
       always_enabled_account_ids: group.always_enabled_account_ids ?? []
     }))
   }
@@ -134,9 +145,38 @@ function accountForID(id: number) { return groupAccounts.value.find((account) =>
 function accountName(id: number) { return accountForID(id)?.name ?? `账号 #${id}` }
 function accountHomepageUrl(id: number) {
   const account = accountForID(id)
-  if (!account || account.type !== 'apikey' || typeof account.credentials?.base_url !== 'string') return ''
+  if (!account || typeof account.credentials?.base_url !== 'string') return ''
   const baseUrl = sanitizeUrl(account.credentials.base_url)
   return baseUrl ? new URL(baseUrl).origin : ''
+}
+function formatRateMultiplier(value?: number) { return `${value ?? 1}x` }
+function isAccountUpdating(id: number) { return updatingAccountIDs.value.has(id) }
+function normalizePositiveInteger(value: number) { return Math.max(1, Math.trunc(Number(value) || 1)) }
+async function updateAccountPriority(account: AccountListItem) {
+  const priority = normalizePositiveInteger(account.priority)
+  account.priority = priority
+  await updateAccountField(account, { priority })
+}
+async function updateAccountConcurrency(account: AccountListItem) {
+  const concurrency = normalizePositiveInteger(account.concurrency)
+  account.concurrency = concurrency
+  await updateAccountField(account, { concurrency })
+}
+async function updateAccountField(account: AccountListItem, updates: { priority: number } | { concurrency: number }) {
+  if (isAccountUpdating(account.id)) return
+  updatingAccountIDs.value = new Set(updatingAccountIDs.value).add(account.id)
+  try {
+    const updated = await updateAccount(account.id, updates)
+    Object.assign(account, updated)
+    appStore.showSuccess(`账号 ${account.name} 已更新`)
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, `更新账号 ${account.name} 失败`))
+    if (selectedGroupID.value) groupAccounts.value = await loadGroupAccounts(selectedGroupID.value)
+  } finally {
+    const pending = new Set(updatingAccountIDs.value)
+    pending.delete(account.id)
+    updatingAccountIDs.value = pending
+  }
 }
 function accountNames(ids: number[] | undefined, fallback: string) { return ids?.length ? ids.map(accountName).join('、') : fallback }
 function formatTime(value?: string) { return value ? new Date(value).toLocaleString() : '暂无' }

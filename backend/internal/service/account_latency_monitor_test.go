@@ -62,9 +62,9 @@ func TestSelectAccountLatencyMonitorBackups_UsesConfiguredThreeLayerOrder(t *tes
 	if got, want := accountIDsString(candidates), "2,1,3,4"; got != want {
 		t.Fatalf("ordered candidates = %s, want %s", got, want)
 	}
-	currentID, backups := accountLatencyMonitorTargets(candidates, nil, 2)
-	if currentID != 2 {
-		t.Fatalf("current account = %d, want 2", currentID)
+	currentIDs, backups := accountLatencyMonitorTargets(candidates, nil, 1, 2)
+	if got, want := accountIDsString(currentIDs), "2"; got != want {
+		t.Fatalf("current accounts = %s, want %s", got, want)
 	}
 	if got, want := accountIDsString(backups), "1,3"; got != want {
 		t.Fatalf("backup accounts = %s, want %s", got, want)
@@ -85,9 +85,9 @@ func TestSelectAccountLatencyMonitorBackups_SortsEqualPriorityByLatency(t *testi
 }
 
 func TestAccountLatencyMonitorTargets_ExcludesCurrentAndAlwaysEnabledAccountsFromBackups(t *testing.T) {
-	currentID, backups := accountLatencyMonitorTargets([]int64{1, 2, 3, 4}, []int64{2}, 2)
-	if currentID != 1 {
-		t.Fatalf("current account = %d, want 1", currentID)
+	currentIDs, backups := accountLatencyMonitorTargets([]int64{1, 2, 3, 4}, []int64{2}, 1, 2)
+	if got, want := accountIDsString(currentIDs), "1"; got != want {
+		t.Fatalf("current accounts = %s, want %s", got, want)
 	}
 	if got, want := accountIDsString(backups), "3,4"; got != want {
 		t.Fatalf("backup accounts = %s, want %s", got, want)
@@ -95,11 +95,21 @@ func TestAccountLatencyMonitorTargets_ExcludesCurrentAndAlwaysEnabledAccountsFro
 }
 
 func TestAccountLatencyMonitorTargets_DoesNotUseAlwaysEnabledAccountAsCurrent(t *testing.T) {
-	currentID, backups := accountLatencyMonitorTargets([]int64{1, 2, 3, 4}, []int64{1}, 2)
-	if currentID != 2 {
-		t.Fatalf("current account = %d, want 2", currentID)
+	currentIDs, backups := accountLatencyMonitorTargets([]int64{1, 2, 3, 4}, []int64{1}, 1, 2)
+	if got, want := accountIDsString(currentIDs), "2"; got != want {
+		t.Fatalf("current accounts = %s, want %s", got, want)
 	}
 	if got, want := accountIDsString(backups), "3,4"; got != want {
+		t.Fatalf("backup accounts = %s, want %s", got, want)
+	}
+}
+
+func TestAccountLatencyMonitorTargets_UsesConfiguredActiveAccountCount(t *testing.T) {
+	currentIDs, backups := accountLatencyMonitorTargets([]int64{1, 2, 3, 4, 5}, []int64{2}, 2, 2)
+	if got, want := accountIDsString(currentIDs), "1,3"; got != want {
+		t.Fatalf("current accounts = %s, want %s", got, want)
+	}
+	if got, want := accountIDsString(backups), "4,5"; got != want {
 		t.Fatalf("backup accounts = %s, want %s", got, want)
 	}
 }
@@ -158,6 +168,9 @@ func TestNormalizeAccountLatencyMonitorGroup_AppliesDefaultsWithoutCappingBackup
 	}
 	if cfg.BackupCount != 3 {
 		t.Fatalf("backup_count = %d, want 3", cfg.BackupCount)
+	}
+	if cfg.ActiveAccountCount != 1 {
+		t.Fatalf("active_account_count = %d, want 1", cfg.ActiveAccountCount)
 	}
 	if got, want := accountIDsString(cfg.AlwaysEnabledIDs), "2,4"; got != want {
 		t.Fatalf("always enabled IDs = %s, want %s", got, want)

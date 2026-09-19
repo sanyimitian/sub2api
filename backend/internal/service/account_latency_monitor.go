@@ -22,6 +22,7 @@ const (
 	accountLatencyMonitorDefaultProbePeriod        = 60
 	accountLatencyMonitorDefaultIdlePeriod         = 30 * 60
 	accountLatencyMonitorDefaultBackupCount        = 2
+	accountLatencyMonitorDefaultActiveAccountCount = 1
 	accountLatencyMonitorDefaultTimeout            = 30
 	accountLatencyMonitorDefaultConcurrency        = 4
 	accountLatencyMonitorDefaultSwitchCooldown     = 10 * 60
@@ -50,6 +51,7 @@ type AccountLatencyMonitorGroup struct {
 	IdleProbeIntervalSec  int     `json:"idle_probe_interval_seconds"`
 	ProbeTimeoutSec       int     `json:"probe_timeout_seconds"`
 	ProbeConcurrency      int     `json:"probe_concurrency"`
+	ActiveAccountCount    int     `json:"active_account_count"`
 	BackupCount           int     `json:"backup_count"`
 	AlwaysEnabledIDs      []int64 `json:"always_enabled_account_ids"`
 	ProbeModel            string  `json:"probe_model"`
@@ -135,6 +137,7 @@ func DefaultAccountLatencyMonitorGroup(groupID int64) AccountLatencyMonitorGroup
 		IdleProbeIntervalSec:  accountLatencyMonitorDefaultIdlePeriod,
 		ProbeTimeoutSec:       accountLatencyMonitorDefaultTimeout,
 		ProbeConcurrency:      accountLatencyMonitorDefaultConcurrency,
+		ActiveAccountCount:    accountLatencyMonitorDefaultActiveAccountCount,
 		BackupCount:           accountLatencyMonitorDefaultBackupCount,
 		ProbeModel:            accountLatencyMonitorDefaultModel,
 		ProbePrompt:           accountLatencyMonitorDefaultPrompt,
@@ -260,6 +263,9 @@ func normalizeAccountLatencyMonitorGroup(g *AccountLatencyMonitorGroup) {
 	}
 	if g.ProbeConcurrency <= 0 {
 		g.ProbeConcurrency = accountLatencyMonitorDefaultConcurrency
+	}
+	if g.ActiveAccountCount <= 0 {
+		g.ActiveAccountCount = accountLatencyMonitorDefaultActiveAccountCount
 	}
 	if g.BackupCount <= 0 {
 		g.BackupCount = accountLatencyMonitorDefaultBackupCount
@@ -627,7 +633,17 @@ func (m *AccountLatencyMonitor) failover(ctx context.Context, cfg AccountLatency
 	}()
 
 	if backupID, ok := m.healthyBackup(cfg, failedID); ok {
-		if err := m.setSchedulableAccounts(ctx, cfg, []int64{backupID}); err == nil {
+		accounts, err := m.listGroupAccounts(ctx, cfg.GroupID)
+		if err != nil {
+			return
+		}
+		nextActive := accountLatencyMonitorReplaceFailedCurrent(
+			accountLatencyMonitorCurrentIDs(accounts, cfg.AlwaysEnabledIDs),
+			failedID,
+			backupID,
+			cfg.ActiveAccountCount,
+		)
+		if err := m.setSchedulableAccounts(ctx, cfg, nextActive); err == nil {
 			// Keep the selected backup as the current account. The probe only
 			// refreshes the standby pool after a request-triggered switch.
 			m.probeAll(ctx, cfg, map[int64]struct{}{failedID: {}}, false)
@@ -675,7 +691,7 @@ func (m *AccountLatencyMonitor) probeBackups(ctx context.Context, cfg AccountLat
 	monitorIDs := make(map[int64]struct{}, len(backupIDs)+len(accounts))
 	for _, accountID := range backupIDs {
 		if _, ok := byID[accountID]; !ok {
-			m.probeAllPeriodic(ctx, cfg, nil, len(currentIDs) == 0)
+			m.probeAllPeriodic(ctx, cfg, nil, len(currentIDs) < cfg.ActiveAccountCount)
 			return
 		}
 		monitorIDs[accountID] = struct{}{}
@@ -686,7 +702,7 @@ func (m *AccountLatencyMonitor) probeBackups(ctx context.Context, cfg AccountLat
 		}
 	}
 	if len(monitorIDs) == 0 {
-		m.probeAllPeriodic(ctx, cfg, nil, len(currentIDs) == 0)
+		m.probeAllPeriodic(ctx, cfg, nil, len(currentIDs) < cfg.ActiveAccountCount)
 		return
 	}
 	monitored := make([]Account, 0, len(monitorIDs))
@@ -707,18 +723,21 @@ func (m *AccountLatencyMonitor) probeBackups(ctx context.Context, cfg AccountLat
 			}
 		}
 	}
-	if len(currentIDs) > 1 {
-		// Older versions and manual changes can leave several dynamic accounts
-		// schedulable. Reconcile that state on the next probe while preserving
-		// configured always-enabled accounts.
-		currentID := accountLatencyMonitorPreferredCurrentID(results, currentIDs, cfg, thresholdMs)
-		if currentID != 0 {
-			_ = m.setSchedulableAccounts(ctx, cfg, []int64{currentID})
-			currentIDs = []int64{currentID}
+	if len(currentIDs) != cfg.ActiveAccountCount {
+		// Settings changes and manual edits can leave a different number of
+		// dynamic accounts schedulable. Reconcile them on the next probe while
+		// preserving configured always-enabled accounts.
+		candidates := selectAccountLatencyMonitorBackups(results, cfg.GroupID, thresholdMs, len(results), nil)
+		desiredCurrentIDs, _ := accountLatencyMonitorTargets(candidates, cfg.AlwaysEnabledIDs, cfg.ActiveAccountCount, 0)
+		if len(desiredCurrentIDs) > 0 {
+			_ = m.setSchedulableAccounts(ctx, cfg, desiredCurrentIDs)
+			currentIDs = desiredCurrentIDs
+			activeIDs = append([]int64(nil), cfg.AlwaysEnabledIDs...)
+			activeIDs = append(activeIDs, currentIDs...)
 			currentSet = accountLatencyMonitorExcludedIDs(currentIDs)
 			activeUnhealthy = false
 			for _, result := range results {
-				if result.account.ID == currentID && (!result.success || result.latency >= thresholdMs) {
+				if _, active := currentSet[result.account.ID]; active && (!result.success || result.latency >= thresholdMs) {
 					activeUnhealthy = true
 				}
 			}
@@ -768,16 +787,12 @@ func (m *AccountLatencyMonitor) probeAllWithPolicy(ctx context.Context, cfg Acco
 	// can appear before the dynamic current account and must not consume its
 	// slot or one of the configured standby slots.
 	candidates := selectAccountLatencyMonitorBackups(results, cfg.GroupID, int64(cfg.LatencyThresholdSec*1000), len(accounts), excluded)
-	currentID, backups := accountLatencyMonitorTargets(candidates, cfg.AlwaysEnabledIDs, cfg.BackupCount)
+	currentIDs, backups := accountLatencyMonitorTargets(candidates, cfg.AlwaysEnabledIDs, cfg.ActiveAccountCount, cfg.BackupCount)
 	m.mu.Lock()
 	m.ensureRuntimeLocked(cfg.GroupID).backups = append([]int64(nil), backups...)
 	m.mu.Unlock()
 	if activate {
-		active := make([]int64, 0, 1)
-		if currentID != 0 {
-			active = append(active, currentID)
-		}
-		_ = m.setSchedulableAccounts(ctx, cfg, active)
+		_ = m.setSchedulableAccounts(ctx, cfg, currentIDs)
 	}
 }
 
@@ -888,27 +903,27 @@ func selectAccountLatencyMonitorBackups(results []accountLatencyProbeResult, gro
 	return chosen
 }
 
-// accountLatencyMonitorTargets separates the primary scheduling account from
-// true standby accounts. Always-enabled accounts remain schedulable but do not
-// consume a standby slot.
-func accountLatencyMonitorTargets(candidates, alwaysEnabled []int64, backupCount int) (int64, []int64) {
-	active := make(map[int64]struct{}, len(alwaysEnabled)+1)
+// accountLatencyMonitorTargets separates the configured number of dynamic
+// scheduling accounts from true standby accounts. Always-enabled accounts
+// remain schedulable but do not consume either quota.
+func accountLatencyMonitorTargets(candidates, alwaysEnabled []int64, activeCount, backupCount int) ([]int64, []int64) {
+	active := make(map[int64]struct{}, len(alwaysEnabled)+activeCount)
 	for _, accountID := range alwaysEnabled {
 		active[accountID] = struct{}{}
 	}
-	currentID := int64(0)
+	currentIDs := make([]int64, 0, activeCount)
 	for _, accountID := range candidates {
-		if _, isAlwaysEnabled := active[accountID]; !isAlwaysEnabled {
-			currentID = accountID
+		if _, alreadyActive := active[accountID]; alreadyActive {
+			continue
+		}
+		active[accountID] = struct{}{}
+		currentIDs = append(currentIDs, accountID)
+		if len(currentIDs) == activeCount {
 			break
 		}
 	}
-	if currentID == 0 {
-		return 0, nil
-	}
-	active[currentID] = struct{}{}
-	backups := make([]int64, 0, min(backupCount, len(candidates)-1))
-	for _, accountID := range candidates[1:] {
+	backups := make([]int64, 0, min(backupCount, len(candidates)-len(currentIDs)))
+	for _, accountID := range candidates {
 		if _, isActive := active[accountID]; isActive {
 			continue
 		}
@@ -917,7 +932,31 @@ func accountLatencyMonitorTargets(candidates, alwaysEnabled []int64, backupCount
 			break
 		}
 	}
-	return currentID, backups
+	return currentIDs, backups
+}
+
+func accountLatencyMonitorReplaceFailedCurrent(currentIDs []int64, failedID, backupID int64, activeCount int) []int64 {
+	next := make([]int64, 0, activeCount)
+	seen := make(map[int64]struct{}, activeCount)
+	for _, accountID := range currentIDs {
+		if accountID <= 0 || accountID == failedID {
+			continue
+		}
+		if _, duplicate := seen[accountID]; duplicate {
+			continue
+		}
+		seen[accountID] = struct{}{}
+		next = append(next, accountID)
+		if len(next) == activeCount {
+			return next
+		}
+	}
+	if backupID > 0 && len(next) < activeCount {
+		if _, exists := seen[backupID]; !exists {
+			next = append(next, backupID)
+		}
+	}
+	return next
 }
 
 func (m *AccountLatencyMonitor) replaceBackupsFromResults(cfg AccountLatencyMonitorGroup, results []accountLatencyProbeResult, activeIDs []int64) {

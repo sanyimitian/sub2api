@@ -10,6 +10,7 @@ export interface AccountLatencyMonitorGroup {
   idle_probe_interval_seconds: number
   probe_timeout_seconds: number
   probe_concurrency: number
+  active_account_count: number
   backup_count: number
   always_enabled_account_ids: number[]
   probe_model: string
