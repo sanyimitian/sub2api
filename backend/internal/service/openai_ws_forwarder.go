@@ -263,10 +263,35 @@ type OpenAIWSIngressHooks struct {
 	TurnStarted             func(turn int, startedAt time.Time)
 	BeforeTurn              func(turn int) error
 	BeforeRequest           func(turn int, payload []byte, originalModel string) error
+	// BeginTurnContext starts request-scoped observation for one logical turn.
+	// Repeated calls for an internal retry of the same turn must return the same
+	// context until CompleteTurn has been called.
+	BeginTurnContext func(turn int, parent context.Context) context.Context
+	// CompleteTurn converts request-scoped cancellation into the error that the
+	// outer account failover loop must handle.
+	CompleteTurn func(turn int, result *OpenAIForwardResult, turnErr error) error
 	// MapRequestModel resolves the current turn's client model to the model
 	// that must be written into the upstream response.create frame.
 	MapRequestModel func(turn int, originalModel string) (string, error)
 	AfterTurn       func(turn int, result *OpenAIForwardResult, turnErr error)
+}
+
+func beginOpenAIWSTurnContext(ctx context.Context, hooks *OpenAIWSIngressHooks, turn int) context.Context {
+	if hooks == nil || hooks.BeginTurnContext == nil {
+		return ctx
+	}
+	turnCtx := hooks.BeginTurnContext(turn, ctx)
+	if turnCtx == nil {
+		return ctx
+	}
+	return turnCtx
+}
+
+func completeOpenAIWSTurn(hooks *OpenAIWSIngressHooks, turn int, result *OpenAIForwardResult, turnErr error) error {
+	if hooks == nil || hooks.CompleteTurn == nil {
+		return turnErr
+	}
+	return hooks.CompleteTurn(turn, result, turnErr)
 }
 
 func (s *OpenAIGatewayService) getOpenAIWSConnPool() *openAIWSConnPool {

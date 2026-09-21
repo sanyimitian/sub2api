@@ -144,6 +144,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	scanner.Buffer(scanBuf[:0], maxLineSize)
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
+	pendingLines := make([]string, 0, 4)
 
 	type scanEvent struct {
 		line string
@@ -248,7 +249,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			if strings.HasPrefix(trimmed, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
 				if payload == "" || payload == "[DONE]" {
-					cw.Fprintf("%s\n", line)
+					if firstTokenMs == nil {
+						pendingLines = append(pendingLines, line)
+					} else {
+						cw.Fprintf("%s\n", line)
+					}
 					continue
 				}
 
@@ -282,6 +287,13 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				if firstTokenMs == nil {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
+					if !allowUpstreamFirstOutputResponse(resp) {
+						return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, upstreamAttemptResponseCancellationError(resp)
+					}
+					for _, pendingLine := range pendingLines {
+						cw.Fprintf("%s\n", pendingLine)
+					}
+					pendingLines = nil
 				}
 
 				cw.Fprintf("data: %s\n\n", payload)
@@ -296,7 +308,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				continue
 			}
 
-			cw.Fprintf("%s\n", line)
+			if firstTokenMs == nil {
+				pendingLines = append(pendingLines, line)
+			} else {
+				cw.Fprintf("%s\n", line)
+			}
 
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))
@@ -312,7 +328,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
 
 		case <-keepaliveCh:
-			if cw.Disconnected() {
+			if cw.Disconnected() || firstTokenMs == nil {
 				continue
 			}
 			if time.Since(lastDataAt) < keepaliveInterval {
@@ -439,6 +455,9 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 			if firstTokenMs == nil {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
+				if !allowUpstreamFirstOutputResponse(resp) {
+					return nil, upstreamAttemptResponseCancellationError(resp)
+				}
 			}
 
 			last = parsed
@@ -923,6 +942,9 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 				if firstTokenMs == nil {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
+					if !allowUpstreamFirstOutputResponse(resp) {
+						return nil, nil, upstreamAttemptResponseCancellationError(resp)
+					}
 				}
 			}
 
@@ -1135,6 +1157,13 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 				// 上游完成，发送结束事件
 				finalEvents, agUsage := processor.Finish()
 				if len(finalEvents) > 0 {
+					if firstTokenMs == nil {
+						ms := int(time.Since(startTime).Milliseconds())
+						firstTokenMs = &ms
+						if !allowUpstreamFirstOutputResponse(resp) {
+							return &antigravityStreamResult{usage: convertUsage(agUsage), firstTokenMs: firstTokenMs}, upstreamAttemptResponseCancellationError(resp)
+						}
+					}
 					cw.Write(finalEvents)
 				} else if !processor.MessageStartSent() && !cw.Disconnected() {
 					// 整个流未收到任何可解析的上游数据（全部 SSE 行均无法被 JSON 解析），
@@ -1170,6 +1199,9 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 				if firstTokenMs == nil {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
+					if !allowUpstreamFirstOutputResponse(resp) {
+						return &antigravityStreamResult{usage: finishUsage(), firstTokenMs: firstTokenMs}, upstreamAttemptResponseCancellationError(resp)
+					}
 				}
 				cw.Write(claudeEvents)
 			}
@@ -1188,7 +1220,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 			return &antigravityStreamResult{usage: convertUsage(nil), firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
 
 		case <-keepaliveCh:
-			if cw.Disconnected() {
+			if cw.Disconnected() || firstTokenMs == nil {
 				continue
 			}
 			if time.Since(lastDataAt) < keepaliveInterval {

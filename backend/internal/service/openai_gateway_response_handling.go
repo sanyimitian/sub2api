@@ -287,6 +287,18 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		completedTTFTEvent := eventStartsTTFTOutput
 		shouldFlush := eventShouldFlush || (queueDrained && clientOutputStarted)
 		eventInProgress = false
+		if completedTTFTEvent && firstTokenMs == nil {
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
+			if !allowUpstreamFirstOutput(ctx) {
+				streamEarlyErr = upstreamAttemptCancellationError(ctx)
+				_ = resp.Body.Close()
+				eventStartsClientOutput = false
+				eventStartsTTFTOutput = false
+				eventShouldFlush = false
+				return
+			}
+		}
 		if !clientDisconnected {
 			if completedProgressEvent {
 				applyAttemptResponseHeaders()
@@ -305,10 +317,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			firstOutputScanGuard.Store(false)
 			firstOutputProgressObserved = true
 			stopFirstOutputTimer()
-		}
-		if completedTTFTEvent && firstTokenMs == nil {
-			ms := int(time.Since(startTime).Milliseconds())
-			firstTokenMs = &ms
 		}
 		eventStartsClientOutput = false
 		eventStartsTTFTOutput = false
@@ -693,6 +701,17 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				return
 			}
 
+			if !guardFirstOutput && firstTokenMs == nil && startsTTFTOutput {
+				ms := int(time.Since(startTime).Milliseconds())
+				firstTokenMs = &ms
+				if !allowUpstreamFirstOutput(ctx) {
+					streamEarlyErr = upstreamAttemptCancellationError(ctx)
+					_ = resp.Body.Close()
+					return
+				}
+				stopFirstOutputTimer()
+			}
+
 			// 写入客户端（客户端断开后继续 drain 上游）
 			if !clientDisconnected && !failureDelivered && !suppressCurrentEvent {
 				shouldFlush := queueDrained && (clientOutputStarted || startsClientOutput)
@@ -710,12 +729,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				}
 			}
 
-			// Record first token time
-			if !guardFirstOutput && firstTokenMs == nil && startsTTFTOutput {
-				ms := int(time.Since(startTime).Milliseconds())
-				firstTokenMs = &ms
-				stopFirstOutputTimer()
-			}
 			s.parseSSEUsageBytesWithType(dataBytes, eventType, usage)
 			return
 		}

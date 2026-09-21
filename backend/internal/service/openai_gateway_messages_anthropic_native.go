@@ -396,6 +396,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 		keepaliveCh = keepaliveTimer.C
 	}
 	lastDataAt := time.Now()
+	pendingLines := make([]string, 0, 4)
 	resetKeepaliveTimer := func() {
 		if keepaliveTimer == nil {
 			return
@@ -453,6 +454,10 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
+					if !allowUpstreamFirstOutputResponse(resp) {
+						return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime),
+							upstreamAttemptResponseCancellationError(resp)
+					}
 				}
 				parseSSEUsagePassthrough(data, usage)
 			} else {
@@ -462,15 +467,25 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				}
 			}
 
-			if !clientDisconnected {
-				restored := string(reverseToolNamesIfPresent(c, []byte(line)))
+			if firstTokenMs == nil {
+				pendingLines = append(pendingLines, line)
+				continue
+			}
+
+			lines := append(pendingLines, line)
+			pendingLines = nil
+			for _, outputLine := range lines {
+				if clientDisconnected {
+					break
+				}
+				restored := string(reverseToolNamesIfPresent(c, []byte(outputLine)))
 				if _, err := io.WriteString(w, restored); err != nil {
 					clientDisconnected = true
 					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
 				} else if _, err := io.WriteString(w, "\n"); err != nil {
 					clientDisconnected = true
 					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
-				} else if line == "" {
+				} else if outputLine == "" {
 					// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
 					flusher.Flush()
 					lastDataAt = time.Now()
@@ -498,7 +513,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				fmt.Errorf("stream data interval timeout")
 
 		case <-keepaliveCh:
-			if clientDisconnected {
+			if clientDisconnected || firstTokenMs == nil {
 				continue
 			}
 			if inPartialEvent {

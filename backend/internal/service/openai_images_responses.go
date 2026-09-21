@@ -1421,6 +1421,21 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 	imageCount := 0
 	var imageOutputSizes []string
 	var firstTokenMs *int
+	var processDataErr error
+	processDataDone := false
+	observeFirstOutput := func() bool {
+		if firstTokenMs != nil {
+			return true
+		}
+		ms := int(time.Since(startTime).Milliseconds())
+		firstTokenMs = &ms
+		if allowUpstreamFirstOutputResponse(resp) {
+			return true
+		}
+		processDataErr = upstreamAttemptResponseCancellationError(resp)
+		processDataDone = true
+		return false
+	}
 	emitted := make(map[string]struct{})
 	pendingResults := make([]openAIResponsesImageResult, 0, 1)
 	pendingSeen := make(map[string]struct{})
@@ -1440,17 +1455,11 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 	clientDisconnected := false
 	lastDownstreamWriteAt := time.Now()
 	var sseData openAISSEDataAccumulator
-	var processDataErr error
-	processDataDone := false
 	writerSizeBeforeResponse := OpenAIImagesJSONKeepaliveAdjustedWrittenSize(c)
 
 	processData := func(dataBytes []byte) {
 		if processDataDone || processDataErr != nil {
 			return
-		}
-		if firstTokenMs == nil {
-			ms := int(time.Since(startTime).Milliseconds())
-			firstTokenMs = &ms
 		}
 		s.parseOpenAIImagesSSEUsageBytes(dataBytes, &usage)
 		if !gjson.ValidBytes(dataBytes) {
@@ -1469,6 +1478,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 		case "response.image_generation_call.partial_image":
 			b64 := strings.TrimSpace(gjson.GetBytes(dataBytes, "partial_image_b64").String())
 			if b64 == "" {
+				return
+			}
+			if !observeFirstOutput() {
 				return
 			}
 			eventName := streamPrefix + ".partial_image"
@@ -1495,6 +1507,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 				return
 			}
 			if !ok {
+				return
+			}
+			if !observeFirstOutput() {
 				return
 			}
 			mergeOpenAIResponsesImageMeta(&streamMeta, img)
@@ -1548,6 +1563,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 				s.tryWriteOpenAIImagesStreamEvent(c, flusher, &clientDisconnected, &lastDownstreamWriteAt, "error", buildOpenAIImagesStreamErrorBody(outputErr.Error()))
 				processDataErr = outputErr
 				processDataDone = true
+				return
+			}
+			if !observeFirstOutput() {
 				return
 			}
 			eventName := streamPrefix + ".completed"

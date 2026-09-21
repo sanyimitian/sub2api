@@ -952,6 +952,19 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	usage := OpenAIUsage{}
 	imageCounter := newOpenAIImageOutputCounter()
 	var firstTokenMs *int
+	var streamErr error
+	observeFirstOutput := func(dataBytes []byte) bool {
+		if firstTokenMs != nil || !openAIImagesSSEHasVisibleOutput(dataBytes) {
+			return true
+		}
+		ms := int(time.Since(startTime).Milliseconds())
+		firstTokenMs = &ms
+		if allowUpstreamFirstOutputResponse(resp) {
+			return true
+		}
+		streamErr = upstreamAttemptResponseCancellationError(resp)
+		return false
+	}
 	clientDisconnected := false
 	lastDownstreamWriteAt := time.Now()
 	var fallbackBody bytes.Buffer
@@ -960,13 +973,12 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	seenSSEData := false
 	fallbackTooLarge := false
 	var sseData openAISSEDataAccumulator
-	var streamErr error
 	finish := func() error {
-		if direct == nil {
-			return nil
-		}
 		if streamErr != nil {
 			return streamErr
+		}
+		if direct == nil {
+			return nil
 		}
 		if !seenSSEData || imageCounter.Count() == 0 {
 			return newOpenAIUpstreamStreamReadError(ErrOpenAIUpstreamStreamTruncated)
@@ -985,6 +997,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			if size := detectOpenAIImageResultSize(gjson.GetBytes(dataBytes, "b64_json").String()); size != "" {
 				dataBytes, _ = sjson.SetBytes(dataBytes, "size", size)
 			}
+		}
+		if !observeFirstOutput(dataBytes) {
+			return
 		}
 		mergeOpenAIUsage(&usage, dataBytes)
 		imageCounter.AddSSEData(dataBytes)
@@ -1042,12 +1057,12 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	}
 
 	processLine := func(line []byte) {
-		if len(line) == 0 {
+		if len(line) == 0 || streamErr != nil {
 			return
 		}
-		if firstTokenMs == nil {
-			ms := int(time.Since(startTime).Milliseconds())
-			firstTokenMs = &ms
+		trimmedLine := strings.TrimRight(string(line), "\r\n")
+		if data, ok := extractOpenAISSEDataLine(trimmedLine); ok && !observeFirstOutput([]byte(data)) {
+			return
 		}
 		if !clientDisconnected && direct == nil {
 			if _, writeErr := c.Writer.Write(line); writeErr != nil {
@@ -1059,7 +1074,6 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			}
 		}
 
-		trimmedLine := strings.TrimRight(string(line), "\r\n")
 		if _, ok := extractOpenAISSEDataLine(trimmedLine); ok || strings.TrimSpace(trimmedLine) == "" {
 			sseData.AddLine(trimmedLine, processSSEData)
 			return
@@ -1102,6 +1116,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			}
 			if err != nil {
 				flushSSEEvent()
+				if streamErr != nil {
+					return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, streamErr
+				}
 				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, err
 			}
 		}
@@ -1178,6 +1195,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			}
 			if ev.err != nil {
 				flushSSEEvent()
+				if streamErr != nil {
+					return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, streamErr
+				}
 				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, ev.err
 			}
 			processLine(ev.line)
@@ -1205,6 +1225,24 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			lastDownstreamWriteAt = time.Now()
 		}
 	}
+}
+
+func openAIImagesSSEHasVisibleOutput(dataBytes []byte) bool {
+	if !gjson.ValidBytes(dataBytes) {
+		return false
+	}
+	for _, path := range []string{
+		"b64_json",
+		"url",
+		"partial_image_b64",
+		"data.0.b64_json",
+		"data.0.url",
+	} {
+		if strings.TrimSpace(gjson.GetBytes(dataBytes, path).String()) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *OpenAIGatewayService) openAIImageStreamDataInterval() time.Duration {

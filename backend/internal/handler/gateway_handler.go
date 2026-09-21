@@ -490,6 +490,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if fs.SwitchCount > 0 {
 				requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 			}
+			requestCtx, latencyWatch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, requestCtx, apiKey.GroupID, account.ID)
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
 			if account.Platform == service.PlatformAntigravity {
@@ -510,12 +511,23 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
-			h.recordAccountLatencyMonitorResult(c, apiKey, account, result, err == nil)
+			var firstTokenMs *int
+			if result != nil {
+				firstTokenMs = result.FirstTokenMs
+			}
+			var latencyHandled, latencyFailedOver bool
+			err, latencyHandled, latencyFailedOver = completeAccountLatencyRequestWatch(latencyWatch, firstTokenMs, err == nil, err, fs.FailedAccountIDs)
+			if latencyFailedOver {
+				result = nil
+			}
+			if !latencyHandled {
+				h.recordAccountLatencyMonitorResult(c, apiKey, account, result, err == nil)
+			}
 			if err != nil {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
-					if c.Writer.Size() != writerSizeBeforeForward {
+					if c.Writer.Size() != writerSizeBeforeForward && !failoverErr.SafeToFailoverAfterWrite {
 						h.handleFailoverExhausted(c, failoverErr, service.PlatformGemini, true)
 						return
 					}
@@ -908,6 +920,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if fs.ForceCacheBilling {
 				requestCtx = service.WithForceCacheBilling(requestCtx)
 			}
+			requestCtx, latencyWatch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, requestCtx, currentAPIKey.GroupID, account.ID)
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
 			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
@@ -926,7 +939,18 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
-			h.recordAccountLatencyMonitorResult(c, currentAPIKey, account, result, err == nil)
+			var firstTokenMs *int
+			if result != nil {
+				firstTokenMs = result.FirstTokenMs
+			}
+			var latencyHandled, latencyFailedOver bool
+			err, latencyHandled, latencyFailedOver = completeAccountLatencyRequestWatch(latencyWatch, firstTokenMs, err == nil, err, fs.FailedAccountIDs)
+			if latencyFailedOver {
+				result = nil
+			}
+			if !latencyHandled {
+				h.recordAccountLatencyMonitorResult(c, currentAPIKey, account, result, err == nil)
+			}
 
 			// 提交 usage 记录。成功路径与"流中断但 Forward 已观测到 usage 的部分结果"
 			// 错误路径共用：后者若不入账，上游已计量的请求会完全漏记漏计费（#5148）。
@@ -1051,7 +1075,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
-					if c.Writer.Size() != writerSizeBeforeForward {
+					if c.Writer.Size() != writerSizeBeforeForward && !failoverErr.SafeToFailoverAfterWrite {
 						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
 						return
 					}

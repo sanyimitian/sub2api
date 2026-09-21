@@ -784,14 +784,23 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
 		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
 		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, account, &passthroughFailoverState)
+		attemptCtx, latencyWatch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, c.Request.Context(), apiKey.GroupID, account.ID)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
+			return h.gatewayService.Forward(attemptCtx, c, account, attemptBody)
 		}()
+		var firstTokenMs *int
+		if result != nil {
+			firstTokenMs = result.FirstTokenMs
+		}
+		err, latencyHandled, latencyFailedOver := completeAccountLatencyRequestWatch(latencyWatch, firstTokenMs, err == nil, err, failedAccountIDs)
+		if latencyFailedOver {
+			result = nil
+		}
 		var cyberBlockBodyHTTP []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyHTTP = sessionHashBody
@@ -960,7 +969,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					continue
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, result), false, nil, err)
-				h.recordAccountLatencyMonitorResult(c, apiKey, account, result, false)
+				if !latencyHandled {
+					h.recordAccountLatencyMonitorResult(c, apiKey, account, result, false)
+				}
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
@@ -987,10 +998,14 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, result), openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
-			h.recordAccountLatencyMonitorResult(c, apiKey, account, result, openAIForwardSucceededForScheduling(result))
+			if !latencyHandled {
+				h.recordAccountLatencyMonitorResult(c, apiKey, account, result, openAIForwardSucceededForScheduling(result))
+			}
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, result), openAIForwardSucceededForScheduling(result), nil)
-			h.recordAccountLatencyMonitorResult(c, apiKey, account, nil, false)
+			if !latencyHandled {
+				h.recordAccountLatencyMonitorResult(c, apiKey, account, nil, false)
+			}
 		}
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
@@ -1368,14 +1383,23 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		// 应用渠道模型映射到请求体
 		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
 		writerSizeBeforeForward := c.Writer.Size()
+		attemptCtx, latencyWatch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, c.Request.Context(), apiKey.GroupID, account.ID)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
+			return h.gatewayService.ForwardAsAnthropic(attemptCtx, c, account, forwardBody, promptCacheKey, defaultMappedModel)
 		}()
+		var firstTokenMs *int
+		if result != nil {
+			firstTokenMs = result.FirstTokenMs
+		}
+		err, latencyHandled, latencyFailedOver := completeAccountLatencyRequestWatch(latencyWatch, firstTokenMs, err == nil, err, failedAccountIDs)
+		if latencyFailedOver {
+			result = nil
+		}
 		var cyberBlockBodyMsg []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyMsg = body
@@ -1454,7 +1478,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						)
 						return
 					}
-					if c.Writer.Size() != writerSizeBeforeForward {
+					if c.Writer.Size() != writerSizeBeforeForward && !failoverErr.SafeToFailoverAfterWrite {
 						h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
 						h.handleAnthropicFailoverExhausted(c, failoverErr, true)
 						return
@@ -1518,7 +1542,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					return
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), false, nil, err)
-				h.recordAccountLatencyMonitorResult(c, apiKey, account, result, false)
+				if !latencyHandled {
+					h.recordAccountLatencyMonitorResult(c, apiKey, account, result, false)
+				}
 				wroteFallback := h.ensureAnthropicErrorResponse(c, streamStarted)
 				reqLog.Warn("openai_messages.forward_failed",
 					zap.Int64("account_id", account.ID),
@@ -1531,10 +1557,14 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		}
 		if result != nil {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), true, result.FirstTokenMs)
-			h.recordAccountLatencyMonitorResult(c, apiKey, account, result, true)
+			if !latencyHandled {
+				h.recordAccountLatencyMonitorResult(c, apiKey, account, result, true)
+			}
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), true, nil)
-			h.recordAccountLatencyMonitorResult(c, apiKey, account, nil, false)
+			if !latencyHandled {
+				h.recordAccountLatencyMonitorResult(c, apiKey, account, nil, false)
+			}
 		}
 
 		submitMessagesUsage(result)
@@ -2807,6 +2837,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// turn 级定价：首轮回退到 TurnStarted 的所属 turn 时刻；后续 turn 由
 		// BeforeTurn 重新冻结 pricingAt 并按最新门复核当前账号。
 		var turnPricing openAIWSTurnPricing
+		var latencyTurnWatchesMu sync.Mutex
+		latencyTurnContexts := make(map[int]context.Context)
+		latencyTurnWatches := make(map[int]*service.AccountLatencyRequestWatch)
 		hooks := &service.OpenAIWSIngressHooks{
 			ClientLifecycleContext:      clientLifecycleCtx,
 			InitialRequestModel:         reqModel,
@@ -2918,6 +2951,37 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
 				currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
 				return nil
+			},
+			BeginTurnContext: func(turn int, parent context.Context) context.Context {
+				latencyTurnWatchesMu.Lock()
+				defer latencyTurnWatchesMu.Unlock()
+				if turnCtx := latencyTurnContexts[turn]; turnCtx != nil {
+					return turnCtx
+				}
+				turnCtx, watch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, parent, apiKey.GroupID, account.ID)
+				latencyTurnContexts[turn] = turnCtx
+				latencyTurnWatches[turn] = watch
+				return turnCtx
+			},
+			CompleteTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) error {
+				latencyTurnWatchesMu.Lock()
+				watch := latencyTurnWatches[turn]
+				delete(latencyTurnWatches, turn)
+				delete(latencyTurnContexts, turn)
+				latencyTurnWatchesMu.Unlock()
+
+				var firstTokenMs *int
+				if result != nil {
+					firstTokenMs = result.FirstTokenMs
+				}
+				completedErr, _, _ := completeAccountLatencyRequestWatch(
+					watch,
+					firstTokenMs,
+					turnErr == nil,
+					turnErr,
+					failedAccountIDs,
+				)
+				return completedErr
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
 				turnStart := getTurnStart(turn)

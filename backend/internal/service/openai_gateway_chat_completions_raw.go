@@ -294,6 +294,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 	var usage OpenAIUsage
 	var firstTokenMs *int
+	latencyCanceled := false
 	clientDisconnected := false
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
@@ -347,6 +348,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				if firstTokenMs == nil && !usageOnlyChunk {
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
+					if !allowUpstreamFirstOutputResponse(resp) {
+						latencyCanceled = true
+						break
+					}
 				}
 			}
 		}
@@ -382,6 +387,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			Duration:                      time.Since(startTime),
 			FirstTokenMs:                  firstTokenMs,
 		}
+	}
+	if latencyCanceled {
+		return resultWithUsage(), upstreamAttemptResponseCancellationError(resp)
 	}
 
 	scanErr := scanner.Err()

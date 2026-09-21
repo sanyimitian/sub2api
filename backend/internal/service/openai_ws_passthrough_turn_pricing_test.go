@@ -70,8 +70,22 @@ func TestPassthroughIngressFollowUpCallsBeforeTurnAfterBeforeRequest(t *testing.
 
 	var hooksMu sync.Mutex
 	var callbacks []string
+	var begunTurns []int
+	var completedTurns []int
 	afterTurnCalls := 0
 	hooks := &OpenAIWSIngressHooks{
+		BeginTurnContext: func(turn int, parent context.Context) context.Context {
+			hooksMu.Lock()
+			begunTurns = append(begunTurns, turn)
+			hooksMu.Unlock()
+			return parent
+		},
+		CompleteTurn: func(turn int, _ *OpenAIForwardResult, turnErr error) error {
+			hooksMu.Lock()
+			completedTurns = append(completedTurns, turn)
+			hooksMu.Unlock()
+			return turnErr
+		},
 		BeforeRequest: func(int, []byte, string) error {
 			hooksMu.Lock()
 			callbacks = append(callbacks, "before_request")
@@ -119,10 +133,14 @@ func TestPassthroughIngressFollowUpCallsBeforeTurnAfterBeforeRequest(t *testing.
 
 	hooksMu.Lock()
 	gotCallbacks := append([]string(nil), callbacks...)
+	gotBegunTurns := append([]int(nil), begunTurns...)
+	gotCompletedTurns := append([]int(nil), completedTurns...)
 	gotAfter := afterTurnCalls
 	hooksMu.Unlock()
 
 	require.Equal(t, []string{"before_request", "before_turn"}, gotCallbacks)
+	require.Equal(t, []int{1, 2}, gotBegunTurns)
+	require.Equal(t, []int{1, 2}, gotCompletedTurns)
 	require.Equal(t, 2, gotAfter)
 }
 

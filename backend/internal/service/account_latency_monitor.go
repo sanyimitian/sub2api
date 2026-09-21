@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +28,8 @@ const (
 	accountLatencyMonitorDefaultConcurrency        = 4
 	accountLatencyMonitorDefaultSwitchCooldown     = 10 * 60
 	accountLatencyMonitorDefaultImmediateThreshold = 40
+	accountLatencyMonitorDefaultRecentIssueWindow  = 10 * 60
+	accountLatencyMonitorSwitchOperationTimeout    = 10 * time.Second
 )
 
 // AccountLatencyMonitorSettings is persisted as one JSON system setting so the
@@ -59,12 +62,14 @@ type AccountLatencyMonitorGroup struct {
 	ProbeReasoning        string  `json:"probe_reasoning_effort"`
 	SwitchCooldownSec     int     `json:"switch_cooldown_seconds"`
 	ImmediateThresholdSec int     `json:"immediate_switch_threshold_seconds"`
+	RecentIssueWindowSec  int     `json:"recent_issue_window_seconds"`
 }
 
 type AccountLatencyMonitorAccountState struct {
 	AccountID          int64      `json:"account_id"`
 	AccountPriority    int        `json:"account_priority"`
 	ConsecutiveFailure int        `json:"consecutive_failures"`
+	RecentIssueCount   int        `json:"recent_issue_count"`
 	LastLatencyMs      *int64     `json:"last_latency_ms,omitempty"`
 	LastSuccess        *bool      `json:"last_success,omitempty"`
 	LastObservedAt     *time.Time `json:"last_observed_at,omitempty"`
@@ -98,7 +103,9 @@ type accountLatencyMonitorGroupRuntime struct {
 	lastUserRequest time.Time
 	probing         bool
 	switching       bool
+	switchDone      chan struct{}
 	issues          map[int64]map[string][]time.Time
+	recentIssues    map[int64][]time.Time
 }
 
 const (
@@ -116,12 +123,14 @@ type AccountLatencyMonitor struct {
 
 	mu      sync.Mutex
 	runtime map[int64]*accountLatencyMonitorGroupRuntime
+	watches map[int64]map[int64]map[*AccountLatencyRequestWatch]struct{}
 	stop    chan struct{}
 	once    sync.Once
 
-	settingsMu       sync.RWMutex
-	cachedSettings   AccountLatencyMonitorSettings
-	runtimePersistMu sync.Mutex
+	settingsMu         sync.RWMutex
+	cachedSettings     AccountLatencyMonitorSettings
+	settingsLoaded     bool
+	runtimePersistGate chan struct{}
 }
 
 func NewAccountLatencyMonitor(settingRepo SettingRepository, accountRepo AccountRepository, groupRepo GroupRepository, tester *AccountTestService) *AccountLatencyMonitor {
@@ -131,6 +140,7 @@ func NewAccountLatencyMonitor(settingRepo SettingRepository, accountRepo Account
 		groupRepo:   groupRepo,
 		tester:      tester,
 		runtime:     make(map[int64]*accountLatencyMonitorGroupRuntime),
+		watches:     make(map[int64]map[int64]map[*AccountLatencyRequestWatch]struct{}),
 		stop:        make(chan struct{}),
 	}
 	go m.run()
@@ -155,6 +165,7 @@ func DefaultAccountLatencyMonitorGroup(groupID int64) AccountLatencyMonitorGroup
 		ProbeReasoning:        "low",
 		SwitchCooldownSec:     accountLatencyMonitorDefaultSwitchCooldown,
 		ImmediateThresholdSec: accountLatencyMonitorDefaultImmediateThreshold,
+		RecentIssueWindowSec:  accountLatencyMonitorDefaultRecentIssueWindow,
 	}
 }
 
@@ -163,7 +174,9 @@ func (m *AccountLatencyMonitor) GetSettings(ctx context.Context) (*AccountLatenc
 	if err != nil {
 		return nil, err
 	}
+	changed := m.cachedSettingsChanged(settings)
 	m.cacheSettings(settings)
+	m.reconcileRuntimeForSettings(settings, changed)
 	return &settings, nil
 }
 
@@ -287,6 +300,9 @@ func normalizeAccountLatencyMonitorGroup(g *AccountLatencyMonitorGroup) {
 	if g.ImmediateThresholdSec <= 0 {
 		g.ImmediateThresholdSec = accountLatencyMonitorDefaultImmediateThreshold
 	}
+	if g.RecentIssueWindowSec <= 0 {
+		g.RecentIssueWindowSec = accountLatencyMonitorDefaultRecentIssueWindow
+	}
 	if strings.TrimSpace(g.ProbeModel) == "" {
 		g.ProbeModel = accountLatencyMonitorDefaultModel
 	} else {
@@ -327,7 +343,14 @@ func cloneAccountLatencyMonitorSettings(settings AccountLatencyMonitorSettings) 
 func (m *AccountLatencyMonitor) cacheSettings(settings AccountLatencyMonitorSettings) {
 	m.settingsMu.Lock()
 	m.cachedSettings = cloneAccountLatencyMonitorSettings(settings)
+	m.settingsLoaded = true
 	m.settingsMu.Unlock()
+}
+
+func (m *AccountLatencyMonitor) cachedSettingsChanged(settings AccountLatencyMonitorSettings) bool {
+	m.settingsMu.RLock()
+	defer m.settingsMu.RUnlock()
+	return m.settingsLoaded && !reflect.DeepEqual(m.cachedSettings, settings)
 }
 
 func (m *AccountLatencyMonitor) cachedSettingsSnapshot() AccountLatencyMonitorSettings {
@@ -350,19 +373,44 @@ func (m *AccountLatencyMonitor) cachedGroup(groupID int64) (AccountLatencyMonito
 }
 
 func (m *AccountLatencyMonitor) resetRuntimeForSettings(settings AccountLatencyMonitorSettings) {
-	configured := make(map[int64]struct{}, len(settings.Groups))
+	m.reconcileRuntimeForSettings(settings, true)
+}
+
+func (m *AccountLatencyMonitor) reconcileRuntimeForSettings(settings AccountLatencyMonitorSettings, resetEnabled bool) {
+	enabled := make(map[int64]struct{}, len(settings.Groups))
+	watches := make([]*AccountLatencyRequestWatch, 0)
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	for _, cfg := range settings.Groups {
-		configured[cfg.GroupID] = struct{}{}
-		rt := m.ensureRuntimeLocked(cfg.GroupID)
-		rt.backups = nil
-		rt.lastProbe = time.Time{}
+		if !cfg.Enabled {
+			continue
+		}
+		enabled[cfg.GroupID] = struct{}{}
+		if resetEnabled {
+			rt := m.ensureRuntimeLocked(cfg.GroupID)
+			rt.backups = nil
+			rt.lastProbe = time.Time{}
+		}
 	}
 	for groupID := range m.runtime {
-		if _, ok := configured[groupID]; !ok {
+		if _, ok := enabled[groupID]; !ok {
 			delete(m.runtime, groupID)
 		}
+	}
+	for groupID, byAccount := range m.watches {
+		if _, ok := enabled[groupID]; ok && !resetEnabled {
+			continue
+		}
+		for _, requests := range byAccount {
+			for watch := range requests {
+				watches = append(watches, watch)
+			}
+		}
+		delete(m.watches, groupID)
+	}
+	m.mu.Unlock()
+
+	for _, watch := range watches {
+		watch.disarm()
 	}
 }
 
@@ -399,12 +447,14 @@ func (m *AccountLatencyMonitor) RecordRequest(_ context.Context, groupID, accoun
 
 	issueCount, windowIssueCount := accountLatencyMonitorWindowIssueCount(rt, accountID, issue, now, time.Duration(cfg.FailureWindowSec)*time.Second)
 	state.ConsecutiveFailure = windowIssueCount
+	state.RecentIssueCount = accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, issue != "")
 
 	shouldFailover := false
 	immediateSwitch := firstTokenMs != nil && *firstTokenMs > cfg.ImmediateThresholdSec*1000
 	reasonCode, reason := accountLatencyMonitorRequestReason(cfg, accountID, firstTokenMs, issue, issueCount, immediateSwitch)
 	if issue != "" && (immediateSwitch || issueCount >= cfg.ConsecutiveFailures) && !rt.switching {
 		rt.switching = true
+		rt.switchDone = make(chan struct{})
 		shouldFailover = true
 	}
 	m.mu.Unlock()
@@ -422,6 +472,129 @@ func accountLatencyMonitorRequestReason(cfg AccountLatencyMonitorGroup, accountI
 		return "user_latency_window", fmt.Sprintf("账号 %d 在 %d 秒内有 %d 次用户请求首字延迟超过 %d 秒", accountID, cfg.FailureWindowSec, issueCount, cfg.LatencyThresholdSec)
 	}
 	return "user_failure_window", fmt.Sprintf("账号 %d 在 %d 秒内有 %d 次用户请求发生同类失败或未返回首字", accountID, cfg.FailureWindowSec, issueCount)
+}
+
+func (m *AccountLatencyMonitor) recordFirstTokenDeadlineAndSwitch(ctx context.Context, cfg AccountLatencyMonitorGroup, accountID int64, observedLatency time.Duration, immediate, addIssue bool) (int64, map[int64]struct{}) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	now := time.Now().UTC()
+	m.mu.Lock()
+	rt := m.ensureRuntimeLocked(cfg.GroupID)
+	state := m.ensureAccountStateLocked(rt, accountID)
+	rt.lastUserRequest = now
+	state.LastSuccess = accountLatencyMonitorBoolPtr(false)
+	state.LastObservedAt = accountLatencyMonitorTimePtr(now)
+	latencyMs := observedLatency.Milliseconds()
+	if latencyMs < 0 {
+		latencyMs = 0
+	}
+	state.LastLatencyMs = accountLatencyMonitorInt64Ptr(latencyMs)
+	issue := ""
+	if addIssue {
+		issue = accountLatencyMonitorIssueLatency
+	}
+	issueCount, windowIssueCount := accountLatencyMonitorWindowIssueCount(
+		rt,
+		accountID,
+		issue,
+		now,
+		time.Duration(cfg.FailureWindowSec)*time.Second,
+	)
+	state.ConsecutiveFailure = windowIssueCount
+	state.RecentIssueCount = accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, addIssue)
+	shouldSwitch := immediate || issueCount >= cfg.ConsecutiveFailures
+	if !shouldSwitch {
+		m.mu.Unlock()
+		return 0, nil
+	}
+	for rt.switching {
+		done := rt.switchDone
+		m.mu.Unlock()
+		if done == nil {
+			return 0, nil
+		}
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return 0, nil
+		}
+		m.mu.Lock()
+		rt = m.runtime[cfg.GroupID]
+		if rt == nil {
+			m.mu.Unlock()
+			return 0, nil
+		}
+	}
+	if ctx.Err() != nil {
+		m.mu.Unlock()
+		return 0, nil
+	}
+	rt.switching = true
+	rt.switchDone = make(chan struct{})
+	m.mu.Unlock()
+
+	defer func() {
+		m.mu.Lock()
+		if rt := m.runtime[cfg.GroupID]; rt != nil {
+			rt.switching = false
+			if rt.switchDone != nil {
+				close(rt.switchDone)
+				rt.switchDone = nil
+			}
+		}
+		m.mu.Unlock()
+	}()
+
+	reasonCode := "user_latency_window"
+	reason := fmt.Sprintf("账号 %d 在 %d 秒内有 %d 次用户请求未在 %d 秒内返回首字", accountID, cfg.FailureWindowSec, issueCount, cfg.LatencyThresholdSec)
+	if immediate {
+		reasonCode = "user_single_latency"
+		reason = fmt.Sprintf("账号 %d 单次用户请求在 %d 秒内未返回首字", accountID, cfg.ImmediateThresholdSec)
+	}
+	switchResult, err := m.tryActivateHealthyBackup(ctx, cfg, accountID, reasonCode, reason)
+	if err != nil || !switchResult.stillCurrent {
+		return 0, nil
+	}
+	m.mu.Lock()
+	rt = m.runtime[cfg.GroupID]
+	if rt == nil {
+		m.mu.Unlock()
+		return 0, nil
+	}
+	if switchResult.switched {
+		rt.backups = accountLatencyMonitorStandbyIDs(rt.backups, switchResult.nextActive, cfg.AlwaysEnabledIDs)
+	}
+	m.mu.Unlock()
+	if !switchResult.backupAvailable {
+		go m.probeAll(context.Background(), cfg, map[int64]struct{}{accountID: {}}, false, "request_timeout_rebuild", "首字超时后补充备用池")
+		return 0, nil
+	}
+	if !switchResult.switched {
+		return 0, nil
+	}
+
+	m.switchPendingRequestWatches(cfg.GroupID, accountID, switchResult.backupID, switchResult.excludedIDs)
+	go func() {
+		m.probeAll(context.Background(), cfg, map[int64]struct{}{accountID: {}}, false, "request_failover", "用户请求触发切换后重新补充备用池")
+		m.markProbed(cfg.GroupID)
+	}()
+	return switchResult.backupID, switchResult.excludedIDs
+}
+
+func (m *AccountLatencyMonitor) completeDeadlineObservedRequest(cfg AccountLatencyMonitorGroup, accountID int64, firstTokenMs *int, success bool) {
+	now := time.Now().UTC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rt := m.ensureRuntimeLocked(cfg.GroupID)
+	state := m.ensureAccountStateLocked(rt, accountID)
+	state.LastSuccess = accountLatencyMonitorBoolPtr(success)
+	state.LastObservedAt = accountLatencyMonitorTimePtr(now)
+	if firstTokenMs != nil {
+		state.LastLatencyMs = accountLatencyMonitorInt64Ptr(int64(*firstTokenMs))
+	}
+	_, state.ConsecutiveFailure = accountLatencyMonitorWindowIssueCount(rt, accountID, "", now, time.Duration(cfg.FailureWindowSec)*time.Second)
+	state.RecentIssueCount = accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false)
 }
 
 func accountLatencyMonitorWindowIssueCount(rt *accountLatencyMonitorGroupRuntime, accountID int64, issue string, now time.Time, window time.Duration) (int, int) {
@@ -462,6 +635,29 @@ func accountLatencyMonitorWindowIssueCount(rt *accountLatencyMonitorGroupRuntime
 	return issueCount, maxCount
 }
 
+func accountLatencyMonitorRecentIssueCount(rt *accountLatencyMonitorGroupRuntime, accountID int64, now time.Time, window time.Duration, add bool) int {
+	if rt.recentIssues == nil {
+		rt.recentIssues = make(map[int64][]time.Time)
+	}
+	cutoff := now.Add(-window)
+	timestamps := rt.recentIssues[accountID]
+	kept := timestamps[:0]
+	for _, timestamp := range timestamps {
+		if !timestamp.Before(cutoff) {
+			kept = append(kept, timestamp)
+		}
+	}
+	if add {
+		kept = append(kept, now)
+	}
+	if len(kept) == 0 {
+		delete(rt.recentIssues, accountID)
+		return 0
+	}
+	rt.recentIssues[accountID] = kept
+	return len(kept)
+}
+
 func (m *AccountLatencyMonitor) GetRuntime(ctx context.Context) ([]AccountLatencyMonitorGroupState, error) {
 	settings, err := m.GetSettings(ctx)
 	if err != nil {
@@ -469,11 +665,11 @@ func (m *AccountLatencyMonitor) GetRuntime(ctx context.Context) ([]AccountLatenc
 	}
 	states := make([]AccountLatencyMonitorGroupState, 0, len(settings.Groups))
 	for _, cfg := range settings.Groups {
-		state := m.snapshotRuntime(cfg.GroupID)
 		accounts, err := m.listGroupAccounts(ctx, cfg.GroupID)
 		if err != nil {
 			return nil, fmt.Errorf("list accounts in group %d: %w", cfg.GroupID, err)
 		}
+		state := m.snapshotRuntime(cfg, accounts)
 		for _, account := range accounts {
 			if account.Schedulable {
 				state.ActiveAccountIDs = append(state.ActiveAccountIDs, account.ID)
@@ -501,14 +697,20 @@ func (m *AccountLatencyMonitor) GetRuntime(ctx context.Context) ([]AccountLatenc
 	return states, nil
 }
 
-func (m *AccountLatencyMonitor) snapshotRuntime(groupID int64) AccountLatencyMonitorGroupState {
+func (m *AccountLatencyMonitor) snapshotRuntime(cfg AccountLatencyMonitorGroup, accounts []Account) AccountLatencyMonitorGroupState {
+	validAccountIDs := make(map[int64]struct{}, len(accounts))
+	for _, account := range accounts {
+		validAccountIDs[account.ID] = struct{}{}
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	state := AccountLatencyMonitorGroupState{GroupID: groupID}
-	rt := m.runtime[groupID]
+	state := AccountLatencyMonitorGroupState{GroupID: cfg.GroupID}
+	rt := m.runtime[cfg.GroupID]
 	if rt == nil {
 		return state
 	}
+	pruneAccountLatencyMonitorRuntime(rt, validAccountIDs)
 	state.BackupAccountIDs = append(state.BackupAccountIDs, rt.backups...)
 	if !rt.lastProbe.IsZero() {
 		state.LastProbeAt = accountLatencyMonitorTimePtr(rt.lastProbe)
@@ -517,11 +719,46 @@ func (m *AccountLatencyMonitor) snapshotRuntime(groupID int64) AccountLatencyMon
 		state.LastSwitchAt = accountLatencyMonitorTimePtr(rt.lastSwitch)
 	}
 	state.SwitchHistory = cloneAccountLatencyMonitorSwitchHistory(rt.switchHistory)
-	for _, account := range rt.accounts {
+	now := time.Now().UTC()
+	for accountID, account := range rt.accounts {
+		account.RecentIssueCount = accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false)
 		state.Accounts = append(state.Accounts, cloneAccountLatencyMonitorState(*account))
 	}
 	sort.Slice(state.Accounts, func(i, j int) bool { return state.Accounts[i].AccountID < state.Accounts[j].AccountID })
 	return state
+}
+
+func pruneAccountLatencyMonitorRuntime(rt *accountLatencyMonitorGroupRuntime, validAccountIDs map[int64]struct{}) {
+	if rt == nil {
+		return
+	}
+	for accountID := range rt.accounts {
+		if _, valid := validAccountIDs[accountID]; !valid {
+			delete(rt.accounts, accountID)
+		}
+	}
+	for accountID := range rt.issues {
+		if _, valid := validAccountIDs[accountID]; !valid {
+			delete(rt.issues, accountID)
+		}
+	}
+	for accountID := range rt.recentIssues {
+		if _, valid := validAccountIDs[accountID]; !valid {
+			delete(rt.recentIssues, accountID)
+		}
+	}
+	for accountID := range rt.activeSince {
+		if _, valid := validAccountIDs[accountID]; !valid {
+			delete(rt.activeSince, accountID)
+		}
+	}
+	backups := make([]int64, 0, len(rt.backups))
+	for _, accountID := range rt.backups {
+		if _, valid := validAccountIDs[accountID]; valid {
+			backups = append(backups, accountID)
+		}
+	}
+	rt.backups = backups
 }
 
 func cloneAccountLatencyMonitorState(state AccountLatencyMonitorAccountState) AccountLatencyMonitorAccountState {
@@ -543,6 +780,9 @@ func sortAccountLatencyMonitorStates(states []AccountLatencyMonitorAccountState,
 		jFast := states[j].LastLatencyMs != nil && *states[j].LastLatencyMs < thresholdMs
 		if iFast != jFast {
 			return iFast
+		}
+		if states[i].RecentIssueCount != states[j].RecentIssueCount {
+			return states[i].RecentIssueCount < states[j].RecentIssueCount
 		}
 		if states[i].AccountPriority != states[j].AccountPriority {
 			return states[i].AccountPriority < states[j].AccountPriority
@@ -586,7 +826,9 @@ func (m *AccountLatencyMonitor) run() {
 func (m *AccountLatencyMonitor) refreshCachedSettings(ctx context.Context) {
 	settings, err := m.loadSettings(ctx)
 	if err == nil {
+		changed := m.cachedSettingsChanged(settings)
 		m.cacheSettings(settings)
+		m.reconcileRuntimeForSettings(settings, changed)
 	}
 }
 
@@ -651,33 +893,40 @@ func (m *AccountLatencyMonitor) finishProbe(groupID int64) {
 func (m *AccountLatencyMonitor) failover(ctx context.Context, cfg AccountLatencyMonitorGroup, failedID int64, reasonCode, reason string) {
 	defer func() {
 		m.mu.Lock()
-		m.ensureRuntimeLocked(cfg.GroupID).switching = false
+		if rt := m.runtime[cfg.GroupID]; rt != nil {
+			rt.switching = false
+			if rt.switchDone != nil {
+				close(rt.switchDone)
+				rt.switchDone = nil
+			}
+		}
 		m.mu.Unlock()
 	}()
 
-	accounts, err := m.listGroupAccounts(ctx, cfg.GroupID)
+	switchResult, err := m.tryActivateHealthyBackup(ctx, cfg, failedID, reasonCode, reason)
 	if err != nil {
+		if switchResult.backupAvailable {
+			m.markProbed(cfg.GroupID)
+		}
 		return
 	}
-	currentIDs := accountLatencyMonitorCurrentIDs(accounts, cfg.AlwaysEnabledIDs)
-	if _, stillCurrent := accountLatencyMonitorExcludedIDs(currentIDs)[failedID]; !stillCurrent {
+	if !switchResult.stillCurrent {
 		// An in-flight request can finish after a prior failover has already
 		// removed its account from scheduling. It must not replace the new current account.
 		return
 	}
+	m.mu.Lock()
+	runtimeExists := m.runtime[cfg.GroupID] != nil
+	m.mu.Unlock()
+	if !runtimeExists {
+		return
+	}
 
-	if backupID, ok := m.healthyBackup(cfg, failedID); ok {
-		nextActive := accountLatencyMonitorReplaceFailedCurrent(
-			currentIDs,
-			failedID,
-			backupID,
-			cfg.ActiveAccountCount,
-		)
-		if err := m.setSchedulableAccounts(ctx, cfg, nextActive, reasonCode, reason); err == nil {
-			// Keep the selected backup as the current account. The probe only
-			// refreshes the standby pool after a request-triggered switch.
-			m.probeAll(ctx, cfg, map[int64]struct{}{failedID: {}}, false, "request_failover", "用户请求触发切换后重新补充备用池")
-		}
+	if switchResult.switched {
+		m.switchPendingRequestWatches(cfg.GroupID, failedID, switchResult.backupID, switchResult.excludedIDs)
+		// Keep the selected backup as the current account. The probe only
+		// refreshes the standby pool after a request-triggered switch.
+		m.probeAll(ctx, cfg, map[int64]struct{}{failedID: {}}, false, "request_failover", "用户请求触发切换后重新补充备用池")
 		m.markProbed(cfg.GroupID)
 		return
 	}
@@ -687,22 +936,105 @@ func (m *AccountLatencyMonitor) failover(ctx context.Context, cfg AccountLatency
 	m.markProbed(cfg.GroupID)
 }
 
-func (m *AccountLatencyMonitor) healthyBackup(cfg AccountLatencyMonitorGroup, failedID int64) (int64, bool) {
+type accountLatencyBackupSwitchResult struct {
+	backupID        int64
+	nextActive      []int64
+	excludedIDs     map[int64]struct{}
+	stillCurrent    bool
+	backupAvailable bool
+	switched        bool
+}
+
+func (m *AccountLatencyMonitor) tryActivateHealthyBackup(
+	ctx context.Context,
+	cfg AccountLatencyMonitorGroup,
+	failedID int64,
+	reasonCode string,
+	reason string,
+) (accountLatencyBackupSwitchResult, error) {
+	var result accountLatencyBackupSwitchResult
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, accountLatencyMonitorSwitchOperationTimeout)
+	defer cancel()
+	accounts, err := m.listGroupAccounts(ctx, cfg.GroupID)
+	if err != nil {
+		return result, err
+	}
+	currentIDs := accountLatencyMonitorCurrentIDs(accounts, cfg.AlwaysEnabledIDs)
+	if _, result.stillCurrent = accountLatencyMonitorExcludedIDs(currentIDs)[failedID]; !result.stillCurrent {
+		return result, nil
+	}
+
+	backupID, ok := m.healthyBackup(cfg, failedID, accounts)
+	result.backupAvailable = ok
+	if !ok {
+		return result, nil
+	}
+	result.backupID = backupID
+	result.nextActive = accountLatencyMonitorReplaceFailedCurrent(currentIDs, failedID, backupID, cfg.ActiveAccountCount)
+	if err := m.setSchedulableAccounts(ctx, cfg, result.nextActive, reasonCode, reason); err != nil {
+		return result, err
+	}
+
+	result.excludedIDs = make(map[int64]struct{}, len(accounts)-1)
+	for _, account := range accounts {
+		if account.ID != backupID {
+			result.excludedIDs[account.ID] = struct{}{}
+		}
+	}
+	result.switched = true
+	return result, nil
+}
+
+func (m *AccountLatencyMonitor) healthyBackup(cfg AccountLatencyMonitorGroup, failedID int64, accounts []Account) (int64, bool) {
 	thresholdMs := int64(cfg.LatencyThresholdSec * 1000)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	rt := m.ensureRuntimeLocked(cfg.GroupID)
+	rt := m.runtime[cfg.GroupID]
+	if rt == nil {
+		return 0, false
+	}
+	priorities := make(map[int64]int, len(accounts))
+	members := make(map[int64]struct{}, len(accounts))
+	unavailable := accountLatencyMonitorExcludedIDs(cfg.AlwaysEnabledIDs)
+	for _, account := range accounts {
+		members[account.ID] = struct{}{}
+		priorities[account.ID] = accountLatencyMonitorPriority(account, cfg.GroupID)
+		if account.Schedulable {
+			unavailable[account.ID] = struct{}{}
+		}
+	}
+	var bestID int64
+	var best *AccountLatencyMonitorAccountState
+	validBackups := make([]int64, 0, len(rt.backups))
+	now := time.Now().UTC()
 	for _, accountID := range rt.backups {
+		if _, exists := members[accountID]; !exists {
+			continue
+		}
+		validBackups = append(validBackups, accountID)
 		if accountID == failedID {
+			continue
+		}
+		if _, skip := unavailable[accountID]; skip {
 			continue
 		}
 		state := rt.accounts[accountID]
 		if state == nil || state.LastSuccess == nil || !*state.LastSuccess || state.LastLatencyMs == nil || *state.LastLatencyMs >= thresholdMs {
 			continue
 		}
-		return accountID, true
+		state.RecentIssueCount = accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false)
+		if best == nil || state.RecentIssueCount < best.RecentIssueCount ||
+			(state.RecentIssueCount == best.RecentIssueCount && priorities[accountID] < priorities[bestID]) ||
+			(state.RecentIssueCount == best.RecentIssueCount && priorities[accountID] == priorities[bestID] && *state.LastLatencyMs < *best.LastLatencyMs) ||
+			(state.RecentIssueCount == best.RecentIssueCount && priorities[accountID] == priorities[bestID] && *state.LastLatencyMs == *best.LastLatencyMs && accountID < bestID) {
+			bestID, best = accountID, state
+		}
 	}
-	return 0, false
+	rt.backups = validBackups
+	return bestID, best != nil
 }
 
 func (m *AccountLatencyMonitor) probeBackups(ctx context.Context, cfg AccountLatencyMonitorGroup) {
@@ -791,7 +1123,9 @@ func accountLatencyMonitorBestPriorityBackup(results []accountLatencyProbeResult
 		if !result.success || result.latency >= thresholdMs || result.account.Priority >= currentPriority {
 			continue
 		}
-		if !found || result.account.Priority < best.account.Priority || (result.account.Priority == best.account.Priority && result.latency < best.latency) {
+		if !found || result.recentIssueCount < best.recentIssueCount ||
+			(result.recentIssueCount == best.recentIssueCount && result.account.Priority < best.account.Priority) ||
+			(result.recentIssueCount == best.recentIssueCount && result.account.Priority == best.account.Priority && result.latency < best.latency) {
 			best, found = result, true
 		}
 	}
@@ -885,9 +1219,10 @@ func (m *AccountLatencyMonitor) probeAllWithPolicy(ctx context.Context, cfg Acco
 }
 
 type accountLatencyProbeResult struct {
-	account Account
-	latency int64
-	success bool
+	account          Account
+	latency          int64
+	success          bool
+	recentIssueCount int
 }
 
 func (m *AccountLatencyMonitor) probeAccounts(ctx context.Context, cfg AccountLatencyMonitorGroup, accounts []Account) []accountLatencyProbeResult {
@@ -921,7 +1256,8 @@ func (m *AccountLatencyMonitor) probeAccounts(ctx context.Context, cfg AccountLa
 			if probe.success {
 				latency = accountLatencyMonitorInt64Ptr(probe.latency)
 			}
-			m.observeProbe(cfg.GroupID, account.ID, latency, probe.success)
+			m.observeProbe(cfg, account.ID, latency, probe.success)
+			probe.recentIssueCount = m.recentIssueCount(cfg, account.ID, time.Now().UTC())
 			resultCh <- probe
 		}()
 	}
@@ -933,14 +1269,26 @@ func (m *AccountLatencyMonitor) probeAccounts(ctx context.Context, cfg AccountLa
 	return results
 }
 
-func (m *AccountLatencyMonitor) observeProbe(groupID, accountID int64, latency *int64, success bool) {
+func (m *AccountLatencyMonitor) observeProbe(cfg AccountLatencyMonitorGroup, accountID int64, latency *int64, success bool) {
 	now := time.Now().UTC()
 	m.mu.Lock()
-	state := m.ensureAccountStateLocked(m.ensureRuntimeLocked(groupID), accountID)
+	rt := m.ensureRuntimeLocked(cfg.GroupID)
+	state := m.ensureAccountStateLocked(rt, accountID)
 	state.LastLatencyMs = latency
 	state.LastSuccess = accountLatencyMonitorBoolPtr(success)
 	state.LastObservedAt = accountLatencyMonitorTimePtr(now)
+	anomalous := !success || latency == nil || *latency >= int64(cfg.LatencyThresholdSec*1000)
+	state.RecentIssueCount = accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, anomalous)
 	m.mu.Unlock()
+}
+
+func (m *AccountLatencyMonitor) recentIssueCount(cfg AccountLatencyMonitorGroup, accountID int64, now time.Time) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rt := m.ensureRuntimeLocked(cfg.GroupID)
+	count := accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false)
+	m.ensureAccountStateLocked(rt, accountID).RecentIssueCount = count
+	return count
 }
 
 func selectAccountLatencyMonitorBackups(results []accountLatencyProbeResult, groupID, thresholdMs int64, backupCount int, excluded map[int64]struct{}) []int64 {
@@ -965,6 +1313,9 @@ func selectAccountLatencyMonitorBackups(results []accountLatencyProbeResult, gro
 
 	sortResults := func(candidates []accountLatencyProbeResult) {
 		sort.Slice(candidates, func(i, j int) bool {
+			if candidates[i].recentIssueCount != candidates[j].recentIssueCount {
+				return candidates[i].recentIssueCount < candidates[j].recentIssueCount
+			}
 			iPriority := accountLatencyMonitorPriority(candidates[i].account, groupID)
 			jPriority := accountLatencyMonitorPriority(candidates[j].account, groupID)
 			if iPriority != jPriority {
@@ -1211,11 +1562,23 @@ func (m *AccountLatencyMonitor) markProbed(groupID int64) {
 // setSchedulableAccounts changes only the scheduling switch. Account status is
 // owned by account management and must not be changed by latency monitoring.
 func (m *AccountLatencyMonitor) setSchedulableAccounts(ctx context.Context, cfg AccountLatencyMonitorGroup, active []int64, reasonCode, reason string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	accounts, err := m.listGroupAccounts(ctx, cfg.GroupID)
 	if err != nil {
 		return err
 	}
 	previousCurrent := accountLatencyMonitorCurrentIDs(accounts, cfg.AlwaysEnabledIDs)
+	members := make(map[int64]struct{}, len(accounts))
+	for _, account := range accounts {
+		members[account.ID] = struct{}{}
+	}
+	for _, accountID := range active {
+		if _, exists := members[accountID]; !exists {
+			return fmt.Errorf("cannot schedule account %d outside group %d", accountID, cfg.GroupID)
+		}
+	}
 	allowed := make(map[int64]bool, len(active)+len(cfg.AlwaysEnabledIDs))
 	for _, accountID := range active {
 		allowed[accountID] = true
@@ -1227,13 +1590,15 @@ func (m *AccountLatencyMonitor) setSchedulableAccounts(ctx context.Context, cfg 
 	enabled := make([]int64, 0, len(accounts))
 	rollback := func(cause error) error {
 		restoreErrors := []error{cause}
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountLatencyMonitorSwitchOperationTimeout)
+		defer cancel()
 		for i := len(enabled) - 1; i >= 0; i-- {
-			if err := m.accountRepo.SetSchedulable(ctx, enabled[i], false); err != nil {
+			if err := m.accountRepo.SetSchedulable(rollbackCtx, enabled[i], false); err != nil {
 				restoreErrors = append(restoreErrors, fmt.Errorf("rollback disable account %d: %w", enabled[i], err))
 			}
 		}
 		for i := len(disabled) - 1; i >= 0; i-- {
-			if err := m.accountRepo.SetSchedulable(ctx, disabled[i], true); err != nil {
+			if err := m.accountRepo.SetSchedulable(rollbackCtx, disabled[i], true); err != nil {
 				restoreErrors = append(restoreErrors, fmt.Errorf("rollback enable account %d: %w", disabled[i], err))
 			}
 		}
@@ -1261,6 +1626,9 @@ func (m *AccountLatencyMonitor) setSchedulableAccounts(ctx context.Context, cfg 
 		}
 	}
 	nextCurrent := accountLatencyMonitorCurrentIDs(accounts, cfg.AlwaysEnabledIDs)
+	if !accountLatencyMonitorSameAccountIDs(active, nextCurrent) {
+		return rollback(fmt.Errorf("scheduled accounts do not match requested accounts for group %d", cfg.GroupID))
+	}
 	if !accountLatencyMonitorSameAccountIDs(previousCurrent, nextCurrent) {
 		switchAt := time.Now().UTC()
 		previousSet := accountLatencyMonitorExcludedIDs(previousCurrent)
@@ -1359,8 +1727,15 @@ func (m *AccountLatencyMonitor) persistRuntimeSwitch(ctx context.Context, groupI
 	if m == nil || m.settingRepo == nil || groupID <= 0 {
 		return
 	}
-	m.runtimePersistMu.Lock()
-	defer m.runtimePersistMu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, accountLatencyMonitorSwitchOperationTimeout)
+	defer cancel()
+	if !m.lockRuntimePersistence(ctx) {
+		return
+	}
+	defer m.unlockRuntimePersistence()
 	state := accountLatencyMonitorRuntimeState{
 		LastSwitch:    make(map[string]time.Time),
 		SwitchHistory: make(map[string][]AccountLatencyMonitorSwitchRecord),
@@ -1388,6 +1763,31 @@ func (m *AccountLatencyMonitor) persistRuntimeSwitch(ctx context.Context, groupI
 	}
 }
 
+func (m *AccountLatencyMonitor) lockRuntimePersistence(ctx context.Context) bool {
+	m.mu.Lock()
+	if m.runtimePersistGate == nil {
+		m.runtimePersistGate = make(chan struct{}, 1)
+		m.runtimePersistGate <- struct{}{}
+	}
+	gate := m.runtimePersistGate
+	m.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-gate:
+		return true
+	}
+}
+
+func (m *AccountLatencyMonitor) unlockRuntimePersistence() {
+	m.mu.Lock()
+	gate := m.runtimePersistGate
+	m.mu.Unlock()
+	if gate != nil {
+		gate <- struct{}{}
+	}
+}
+
 func cloneAccountLatencyMonitorActiveSince(values map[int64]time.Time) map[int64]time.Time {
 	cloned := make(map[int64]time.Time, len(values))
 	for accountID, startedAt := range values {
@@ -1407,8 +1807,8 @@ func accountLatencyMonitorActiveSinceJSON(values map[int64]time.Time) map[string
 }
 
 func trimAccountLatencyMonitorSwitchHistory(records []AccountLatencyMonitorSwitchRecord) []AccountLatencyMonitorSwitchRecord {
-	if len(records) > 500 {
-		return append([]AccountLatencyMonitorSwitchRecord(nil), records[:500]...)
+	if len(records) > 100 {
+		return append([]AccountLatencyMonitorSwitchRecord(nil), records[:100]...)
 	}
 	return append([]AccountLatencyMonitorSwitchRecord(nil), records...)
 }
@@ -1446,9 +1846,10 @@ func (m *AccountLatencyMonitor) ensureRuntimeLocked(groupID int64) *accountLaten
 	rt := m.runtime[groupID]
 	if rt == nil {
 		rt = &accountLatencyMonitorGroupRuntime{
-			accounts:    make(map[int64]*AccountLatencyMonitorAccountState),
-			activeSince: make(map[int64]time.Time),
-			issues:      make(map[int64]map[string][]time.Time),
+			accounts:     make(map[int64]*AccountLatencyMonitorAccountState),
+			activeSince:  make(map[int64]time.Time),
+			issues:       make(map[int64]map[string][]time.Time),
+			recentIssues: make(map[int64][]time.Time),
 		}
 		m.runtime[groupID] = rt
 	}

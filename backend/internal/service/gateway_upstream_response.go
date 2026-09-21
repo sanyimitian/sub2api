@@ -1081,6 +1081,13 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					}
 					return nil, err
 				}
+				if data != "" && data != "[DONE]" && firstTokenMs == nil {
+					ms := int(time.Since(startTime).Milliseconds())
+					firstTokenMs = &ms
+					if !allowUpstreamFirstOutput(ctx) {
+						return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, upstreamAttemptCancellationError(ctx)
+					}
+				}
 
 				for _, block := range outputBlocks {
 					if !clientDisconnected {
@@ -1098,10 +1105,6 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 						}
 					}
 					if data != "" {
-						if firstTokenMs == nil && data != "[DONE]" {
-							ms := int(time.Since(startTime).Milliseconds())
-							firstTokenMs = &ms
-						}
 						if usagePatch != nil {
 							mergeSSEUsagePatch(usage, usagePatch)
 						}

@@ -388,6 +388,10 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
+			if !allowUpstreamFirstOutputResponse(resp) {
+				clientDisconnected = true
+				return
+			}
 		}
 
 		if event.Type == "message_delta" && event.Usage != nil {

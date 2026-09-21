@@ -302,6 +302,10 @@ func (s *OpenAIGatewayService) scanCCStream(
 		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
+			if !allowUpstreamFirstOutputResponse(resp) {
+				st.Err = upstreamAttemptResponseCancellationError(resp)
+				break
+			}
 		}
 		emit(&chunk)
 	}

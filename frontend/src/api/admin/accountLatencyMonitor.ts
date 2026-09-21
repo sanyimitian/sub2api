@@ -18,6 +18,7 @@ export interface AccountLatencyMonitorGroup {
   probe_reasoning_effort: string
   switch_cooldown_seconds: number
   immediate_switch_threshold_seconds: number
+  recent_issue_window_seconds: number
 }
 
 export interface AccountLatencyMonitorSettings {
@@ -28,6 +29,7 @@ export interface AccountLatencyMonitorAccountState {
   account_id: number
   account_priority: number
   consecutive_failures: number
+  recent_issue_count: number
   last_latency_ms?: number
   last_success?: boolean
   last_observed_at?: string

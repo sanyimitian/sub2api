@@ -115,6 +115,8 @@ type antigravityCompatStreamSession struct {
 	firstTokenMs   *int
 	startTime      time.Time
 	meaningfulData bool
+	aborted        bool
+	response       *http.Response
 }
 
 func newAntigravityCompatStreamSession(
@@ -122,6 +124,7 @@ func newAntigravityCompatStreamSession(
 	startTime time.Time,
 	adapter antigravityCompatStreamAdapter,
 	writer *antigravityClientWriter,
+	response *http.Response,
 ) *antigravityCompatStreamSession {
 	return &antigravityCompatStreamSession{
 		processor: antigravity.NewStreamingProcessor(model),
@@ -129,6 +132,7 @@ func newAntigravityCompatStreamSession(
 		writer:    writer,
 		usage:     &ClaudeUsage{},
 		startTime: startTime,
+		response:  response,
 	}
 }
 
@@ -145,6 +149,9 @@ func (s *antigravityCompatStreamSession) hasMeaningfulData() bool {
 }
 
 func (s *antigravityCompatStreamSession) finish() *antigravityStreamResult {
+	if s.aborted {
+		return s.result(s.writer.Disconnected())
+	}
 	finalEvents, usage := s.processor.Finish()
 	mergeAntigravityCompatUsage(s.usage, usage)
 	s.consumeClaudeEvents(finalEvents)
@@ -167,6 +174,9 @@ func (s *antigravityCompatStreamSession) result(clientDisconnect bool) *antigrav
 }
 
 func (s *antigravityCompatStreamSession) consumeClaudeEvents(data []byte) {
+	if s.aborted {
+		return
+	}
 	var eventType string
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -197,6 +207,9 @@ func (s *antigravityCompatStreamSession) consumeClaudeData(eventType, payload st
 }
 
 func (s *antigravityCompatStreamSession) emitOrBuffer(event apicompat.AnthropicStreamEvent) {
+	if s.aborted {
+		return
+	}
 	if s.meaningfulData {
 		s.adapter.Emit(&event, s.writer)
 		return
@@ -210,6 +223,11 @@ func (s *antigravityCompatStreamSession) emitOrBuffer(event apicompat.AnthropicS
 	s.meaningfulData = true
 	ms := int(time.Since(s.startTime).Milliseconds())
 	s.firstTokenMs = &ms
+	if !allowUpstreamFirstOutputResponse(s.response) {
+		s.aborted = true
+		s.pendingEvents = nil
+		return
+	}
 	for i := range s.pendingEvents {
 		s.adapter.Emit(&s.pendingEvents[i], s.writer)
 	}
@@ -274,7 +292,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 		c.Header("X-Accel-Buffering", "no")
 		c.Status(http.StatusOK)
 	}
-	session := newAntigravityCompatStreamSession(originalModel, startTime, adapter, writer)
+	session := newAntigravityCompatStreamSession(originalModel, startTime, adapter, writer, resp)
 	events, stopScanner, maxLineSize := s.startAntigravityCompatScanner(resp.Body)
 	defer stopScanner()
 
@@ -303,6 +321,9 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 			resetAntigravityCompatTimer(timeoutTimer, timeout)
 			s.observeAntigravityGeminiSSELine(c, event.line)
 			session.consume(event.line)
+			if session.aborted {
+				return session.result(false), upstreamAttemptResponseCancellationError(resp)
+			}
 
 		case <-timeoutCh:
 			if writer.Disconnected() {

@@ -534,6 +534,9 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
+			if !allowUpstreamFirstOutputResponse(resp) {
+				return true
+			}
 		}
 
 		// Extract usage from message_delta

@@ -1001,6 +1001,10 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
+			if !allowUpstreamFirstOutputResponse(resp) {
+				streamNonFailoverErr = upstreamAttemptResponseCancellationError(resp)
+				return true
+			}
 		}
 		if countSearch {
 			searchCount += countGrokNativeSearchCallsInSSEDataDedup([]byte(payload), streamSearchSeen)

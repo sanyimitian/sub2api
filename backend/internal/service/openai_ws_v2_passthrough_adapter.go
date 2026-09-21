@@ -953,6 +953,74 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	completedTurns := atomic.Int32{}
 	turnLifecycle := newOpenAIWSPassthroughTurnLifecycle(true)
 	var acceptedTurnStartedAt atomic.Pointer[time.Time]
+	relayControlCtx, relayControlCancel := context.WithCancelCause(ctx)
+	defer relayControlCancel(nil)
+	type activeLatencyTurn struct {
+		turn    int
+		ctx     context.Context
+		payload []byte
+		done    chan struct{}
+	}
+	var latencyTurnMu sync.Mutex
+	var latencyTurn activeLatencyTurn
+	beginLatencyTurn := func(turn int, payload []byte) context.Context {
+		turnCtx := beginOpenAIWSTurnContext(ctx, hooks, turn)
+		state := activeLatencyTurn{
+			turn:    turn,
+			ctx:     turnCtx,
+			payload: append([]byte(nil), payload...),
+			done:    make(chan struct{}),
+		}
+		latencyTurnMu.Lock()
+		latencyTurn = state
+		latencyTurnMu.Unlock()
+		go func() {
+			select {
+			case <-turnCtx.Done():
+				relayControlCancel(context.Cause(turnCtx))
+			case <-state.done:
+			}
+		}()
+		return turnCtx
+	}
+	activeLatencyTurnContext := func() context.Context {
+		latencyTurnMu.Lock()
+		defer latencyTurnMu.Unlock()
+		return latencyTurn.ctx
+	}
+	completeLatencyTurn := func(turn int, result *OpenAIForwardResult, turnErr error) (error, []byte) {
+		latencyTurnMu.Lock()
+		payload := append([]byte(nil), latencyTurn.payload...)
+		if latencyTurn.turn == turn && latencyTurn.done != nil {
+			close(latencyTurn.done)
+			latencyTurn = activeLatencyTurn{}
+		}
+		latencyTurnMu.Unlock()
+		return completeOpenAIWSTurn(hooks, turn, result, turnErr), payload
+	}
+	wrapLatencyTurnFailover := func(turn int, turnErr error, payload []byte) error {
+		var failoverErr *UpstreamFailoverError
+		if turn <= 1 || !errors.As(turnErr, &failoverErr) || failoverErr == nil {
+			return turnErr
+		}
+		fullInput, fullInputExists, extractErr := openAIWSExtractNormalizedInputSequence(payload)
+		if extractErr != nil {
+			return fmt.Errorf("extract websocket current-turn failover input: %w", extractErr)
+		}
+		retryPayload, retrySafe, retryPayloadErr := buildOpenAIWSCurrentTurnRetryPayload(
+			payload,
+			fullInput,
+			fullInputExists,
+			openAIWSPassthroughRequestModelForFrame(payload),
+		)
+		if retryPayloadErr != nil {
+			return fmt.Errorf("build websocket current-turn failover payload: %w", retryPayloadErr)
+		}
+		if !retrySafe {
+			retryPayload = nil
+		}
+		return newOpenAIWSCurrentTurnFailoverError(turnErr, retryPayload)
+	}
 	clientFrameConn := &openAIWSClientFrameConn{
 		conn:                 clientConn,
 		controlCtx:           ctx,
@@ -982,6 +1050,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			}
 			eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
 			isResponseCreate := eventType == "response.create"
+			retrySourcePayload := append([]byte(nil), payload...)
 			responseCreateAt := time.Time{}
 			acceptedTurn := false
 			if isResponseCreate {
@@ -1116,6 +1185,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				SetOpsUpstreamModel(c, actualModel)
 				responseCreateAtCopy := responseCreateAt
 				acceptedTurnStartedAt.Store(&responseCreateAtCopy)
+				beginLatencyTurn(turnNo, retrySourcePayload)
 				acceptedTurn = true
 			}
 			return out, blocked, policyErr
@@ -1135,15 +1205,21 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		},
 	}
 	upstreamFirstMessageSent := false
-	firstWriteCtx, cancelFirstWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
+	firstTurnCtx := beginLatencyTurn(1, originalFirstClientMessage)
+	firstWriteCtx, cancelFirstWrite := context.WithTimeout(firstTurnCtx, s.openAIWSWriteTimeout())
 	firstWriteErr := relayUpstreamFrameConn.WriteFrame(firstWriteCtx, coderws.MessageText, firstClientMessage)
 	cancelFirstWrite()
 	if firstWriteErr != nil {
-		return wrapOpenAIWSIngressTurnError(
+		turnErr := wrapOpenAIWSIngressTurnError(
 			"write_upstream",
 			fmt.Errorf("write first upstream websocket request: %w", firstWriteErr),
 			false,
 		)
+		turnErr, _ = completeLatencyTurn(1, nil, turnErr)
+		if hooks != nil && hooks.AfterTurn != nil {
+			hooks.AfterTurn(1, nil, turnErr)
+		}
+		return turnErr
 	}
 	upstreamFirstMessageSent = true
 
@@ -1168,7 +1244,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 	failureAccountSideEffectsApplied := false
 	relayResult, relayExit := openaiwsv2.RunEntry(openaiwsv2.EntryInput{
-		Ctx:                ctx,
+		Ctx:                relayControlCtx,
 		ClientConn:         policyClientConn,
 		UpstreamConn:       relayUpstreamFrameConn,
 		FirstClientMessage: firstClientMessage,
@@ -1241,8 +1317,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					turnResult.Usage.OutputTokens,
 					turnResult.Usage.CacheReadInputTokens,
 				)
+				turnErr, _ := completeLatencyTurn(turnNo, turnResult, nil)
+				if turnErr != nil {
+					relayControlCancel(turnErr)
+				}
 				if hooks != nil && hooks.AfterTurn != nil {
-					hooks.AfterTurn(turnNo, turnResult, nil)
+					hooks.AfterTurn(turnNo, turnResult, turnErr)
 				}
 			},
 			BeforeClientWrite: func(msgType coderws.MessageType, payload []byte) {
@@ -1277,6 +1357,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			BeforeWriteClient: func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error {
 				if msgType != coderws.MessageText {
 					return nil
+				}
+				if openAIWSPassthroughStartsSemanticOutput(payload) {
+					if turnCtx := activeLatencyTurnContext(); turnCtx != nil && !allowUpstreamFirstOutput(turnCtx) {
+						return upstreamAttemptCancellationError(turnCtx)
+					}
 				}
 				eventType, _, _ := parseOpenAIWSEventEnvelope(payload)
 				if eventType == "response.created" {
@@ -1329,6 +1414,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		},
 	})
 	if cause := context.Cause(ctx); cause != nil {
+		activeTurn := int(completedTurns.Load()) + 1
+		_, _ = completeLatencyTurn(activeTurn, nil, cause)
 		if isOpenAIWSSessionPreempted(ctx) {
 			return errOpenAIWSSessionPreempted
 		}
@@ -1387,7 +1474,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if hooks.TurnStarted != nil {
 				hooks.TurnStarted(1, time.Now().Add(-result.Duration))
 			}
-			hooks.AfterTurn(1, result, nil)
+			turnErr, retryPayload := completeLatencyTurn(1, result, nil)
+			hooks.AfterTurn(1, result, turnErr)
+			if turnErr != nil {
+				return wrapLatencyTurnFailover(1, turnErr, retryPayload)
+			}
 		}
 		return nil
 	}
@@ -1457,13 +1548,15 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		relayErr,
 		relayExit.WroteDownstream,
 	)
+	activeTurn := turnCount + 1
+	turnErr, retryPayload := completeLatencyTurn(activeTurn, nil, turnErr)
 	if hooks != nil && hooks.AfterTurn != nil {
 		if hooks.TurnStarted != nil {
-			hooks.TurnStarted(turnCount+1, time.Now().Add(-result.Duration))
+			hooks.TurnStarted(activeTurn, time.Now().Add(-result.Duration))
 		}
-		hooks.AfterTurn(turnCount+1, nil, turnErr)
+		hooks.AfterTurn(activeTurn, nil, turnErr)
 	}
-	return turnErr
+	return wrapLatencyTurnFailover(activeTurn, turnErr, retryPayload)
 }
 
 func openAIWSPassthroughRelayClientClose(exit openaiwsv2.RelayExit, completedTurns int) (coderws.StatusCode, string, bool) {

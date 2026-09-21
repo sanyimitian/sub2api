@@ -571,7 +571,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	}
 
 	messageID := generateAnthropicMsgID()
-	if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
+	messageStartEvent := &apicompat.AnthropicStreamEvent{
 		Type: "message_start",
 		Message: &apicompat.AnthropicResponse{
 			ID:         messageID,
@@ -582,8 +582,6 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 			StopReason: nil, // JSON null
 			Usage:      apicompat.AnthropicUsage{},
 		},
-	}) {
-		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 	}
 
 	finishReason := ""
@@ -634,9 +632,15 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 					var geminiResp map[string]any
 					if err := json.Unmarshal(rawBytes, &geminiResp); err == nil {
 						if firstChunk {
-							firstChunk = false
 							ms := int(time.Since(startTime).Milliseconds())
 							firstTokenMs = &ms
+							if !allowUpstreamFirstOutputResponse(resp) {
+								return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, upstreamAttemptResponseCancellationError(resp)
+							}
+							firstChunk = false
+							if emitAnthropicEvent(messageStartEvent) {
+								return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+							}
 						}
 						if fr := extractGeminiFinishReason(geminiResp); fr != "" {
 							finishReason = fr

@@ -164,6 +164,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp *http.Response, startTime time.Time) *antigravityStreamResult {
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
+	pendingLines := make([]string, 0, 4)
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -256,17 +257,33 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 				upstreamResponseModelObserverFromContext(c).ObserveAnthropic([]byte(strings.TrimSpace(data)))
 			}
 
-			// 记录首 token 时间
+			// 首字前先缓冲协议头，避免切换到备用账号后拼接两段 SSE 流。
 			if firstTokenMs == nil && len(line) > 0 {
-				ms := int(time.Since(startTime).Milliseconds())
-				firstTokenMs = &ms
+				if data, ok := extractAnthropicSSEDataLine(line); ok {
+					trimmed := strings.TrimSpace(data)
+					if trimmed != "" && trimmed != "[DONE]" {
+						ms := int(time.Since(startTime).Milliseconds())
+						firstTokenMs = &ms
+						if !allowUpstreamFirstOutputResponse(resp) {
+							return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}
+						}
+						for _, pendingLine := range pendingLines {
+							cw.Fprintf("%s\n", pendingLine)
+						}
+						pendingLines = nil
+					}
+				}
 			}
 
 			// 尝试从 message_delta 或 message_stop 事件提取 usage
 			s.extractSSEUsage(line, usage)
 
 			// 透传行
-			cw.Fprintf("%s\n", line)
+			if firstTokenMs == nil {
+				pendingLines = append(pendingLines, line)
+			} else {
+				cw.Fprintf("%s\n", line)
+			}
 
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))
@@ -281,7 +298,7 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}
 
 		case <-keepaliveCh:
-			if cw.Disconnected() {
+			if cw.Disconnected() || firstTokenMs == nil {
 				continue
 			}
 			if time.Since(lastDataAt) < keepaliveInterval {

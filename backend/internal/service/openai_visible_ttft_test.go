@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +40,69 @@ func TestOpenAIVisibleOutputClassification(t *testing.T) {
 			require.Equal(t, tt.want, openAIStreamDataStartsVisibleOutput(tt.data, tt.eventType))
 		})
 	}
+}
+
+func TestOpenAIImagesSSEVisibleOutputClassification(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want bool
+	}{
+		{name: "created lifecycle", data: `{"type":"response.created"}`, want: false},
+		{name: "progress lifecycle", data: `{"type":"image_generation.in_progress"}`, want: false},
+		{name: "partial image", data: `{"type":"image_generation.partial_image","b64_json":"dGVzdA=="}`, want: true},
+		{name: "responses partial image", data: `{"type":"response.image_generation_call.partial_image","partial_image_b64":"dGVzdA=="}`, want: true},
+		{name: "image URL", data: `{"type":"image_generation.completed","url":"https://example.com/image.png"}`, want: true},
+		{name: "nested image", data: `{"data":[{"b64_json":"dGVzdA=="}]}`, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, openAIImagesSSEHasVisibleOutput([]byte(tt.data)))
+		})
+	}
+}
+
+func TestOpenAIImagesOAuthStreamDisarmsLatencyWatchOnPartialImage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	monitor := &AccountLatencyMonitor{runtime: make(map[int64]*accountLatencyMonitorGroupRuntime)}
+	watch := newAccountLatencyRequestWatchForTest(monitor, DefaultAccountLatencyMonitorGroup(7), 1, time.Now())
+
+	upstreamSSE := strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"resp_test"}}`,
+		"",
+		`data: {"type":"response.image_generation_call.partial_image","partial_image_b64":"dGVzdA==","partial_image_index":0,"output_format":"png"}`,
+		"",
+		`data: {"type":"response.completed","response":{"id":"resp_test","output":[{"type":"image_generation_call","id":"img_test","result":"dGVzdA=="}]}}`,
+		"",
+	}, "\n")
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil).WithContext(watch.ctx)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(upstreamSSE)),
+		Request:    c.Request,
+	}
+
+	_, imageCount, _, firstTokenMs, err := (&OpenAIGatewayService{}).handleOpenAIImagesOAuthStreamingResponse(
+		resp,
+		c,
+		time.Now(),
+		"b64_json",
+		"image_generation",
+		"gpt-image-2",
+	)
+	require.NoError(t, err)
+	require.Equal(t, 1, imageCount)
+	require.NotNil(t, firstTokenMs)
+
+	watch.mu.Lock()
+	firstTokenSeen := watch.firstTokenSeen
+	watch.mu.Unlock()
+	require.True(t, firstTokenSeen)
+	watch.Complete(firstTokenMs, true)
 }
 
 func TestOpenAIResponsesTTFTStartsAtVisibleOutput(t *testing.T) {

@@ -400,6 +400,9 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
+			if !allowUpstreamFirstOutputResponse(resp) {
+				return true
+			}
 		}
 
 		// usage 恒累计（含客户端断开后的排水阶段，payg 上游照常计费）。

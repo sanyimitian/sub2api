@@ -2163,9 +2163,6 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			},
 		},
 	}
-	writeSSE(c.Writer, "message_start", messageStart)
-	flusher.Flush()
-
 	var firstTokenMs *int
 	var usage ClaudeUsage
 	finishReason := ""
@@ -2224,6 +2221,19 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		parts := extractGeminiParts(geminiResp)
 		for _, part := range parts {
 			if text, ok := part["text"].(string); ok && text != "" {
+				delta, newSeen := computeGeminiTextDelta(seenText, text)
+				seenText = newSeen
+				if delta == "" {
+					continue
+				}
+				if firstTokenMs == nil {
+					ms := int(time.Since(startTime).Milliseconds())
+					firstTokenMs = &ms
+					if !allowUpstreamFirstOutputResponse(resp) {
+						return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, upstreamAttemptResponseCancellationError(resp)
+					}
+					writeSSE(c.Writer, "message_start", messageStart)
+				}
 				// Close an open tool_use block before starting text, mirroring
 				// the functionCall branch (which closes open text blocks) and
 				// the chat-completions sibling's closeOpenTool(). Otherwise a
@@ -2238,12 +2248,6 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					openToolIndex = -1
 					openToolName = ""
 					seenToolJSON = ""
-				}
-
-				delta, newSeen := computeGeminiTextDelta(seenText, text)
-				seenText = newSeen
-				if delta == "" {
-					continue
 				}
 
 				if openBlockType != "text" {
@@ -2266,10 +2270,6 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					})
 				}
 
-				if firstTokenMs == nil {
-					ms := int(time.Since(startTime).Milliseconds())
-					firstTokenMs = &ms
-				}
 				writeSSE(c.Writer, "content_block_delta", map[string]any{
 					"type":  "content_block_delta",
 					"index": openBlockIndex,
@@ -2283,6 +2283,14 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			}
 
 			if fc, ok := part["functionCall"].(map[string]any); ok && fc != nil {
+				if firstTokenMs == nil {
+					ms := int(time.Since(startTime).Milliseconds())
+					firstTokenMs = &ms
+					if !allowUpstreamFirstOutputResponse(resp) {
+						return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, upstreamAttemptResponseCancellationError(resp)
+					}
+					writeSSE(c.Writer, "message_start", messageStart)
+				}
 				name, _ := fc["name"].(string)
 				args := fc["args"]
 				if strings.TrimSpace(name) == "" {
@@ -2369,6 +2377,14 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		}
 	}
 
+	if firstTokenMs == nil {
+		ms := int(time.Since(startTime).Milliseconds())
+		firstTokenMs = &ms
+		if !allowUpstreamFirstOutputResponse(resp) {
+			return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, upstreamAttemptResponseCancellationError(resp)
+		}
+		writeSSE(c.Writer, "message_start", messageStart)
+	}
 	if openBlockIndex >= 0 {
 		writeSSE(c.Writer, "content_block_stop", map[string]any{
 			"type":  "content_block_stop",
@@ -2841,6 +2857,9 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					if firstTokenMs == nil {
 						ms := int(time.Since(startTime).Milliseconds())
 						firstTokenMs = &ms
+						if !allowUpstreamFirstOutputResponse(resp) {
+							return &geminiNativeStreamResult{usage: usage, firstTokenMs: firstTokenMs}, upstreamAttemptResponseCancellationError(resp)
+						}
 					}
 
 					if isOAuth {

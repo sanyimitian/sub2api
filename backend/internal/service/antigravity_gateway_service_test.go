@@ -1603,6 +1603,7 @@ func TestStreamUpstreamResponse_TimeoutAfterClientDisconnect(t *testing.T) {
 	}()
 
 	result := svc.streamUpstreamResponse(c, resp, time.Now())
+
 	_ = pw.Close()
 	_ = pr.Close()
 

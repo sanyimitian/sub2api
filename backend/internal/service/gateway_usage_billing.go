@@ -396,7 +396,7 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
 			if deps.cfg == nil || !deps.cfg.Database.UserPlatformQuotaFlusherEnabled {
 				// 降级路径:flusher 未启用时保留原有异步直写 DB
-				dbCtx, dbCancel := detachUpstreamContext(ctx)
+				dbCtx := detachBillingPersistenceContext(ctx)
 				userID, platform, cost := p.User.ID, p.Platform, p.Cost.ActualCost
 				go func() {
 					defer func() {
@@ -404,7 +404,6 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 							logger.LegacyPrintf("service.gateway", "ALERT: panic in user platform quota incr goroutine user=%d platform=%s: %v", userID, platform, r)
 						}
 					}()
-					defer dbCancel()
 					if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(dbCtx, userID, platform, cost, time.Now().UTC()); err != nil {
 						// 失败计数器:暴露给 GatewayUserPlatformQuotaIncrStats(),由 ops 面板做斜率告警。
 						userPlatformQuotaDBIncrErrorTotal.Add(1)
@@ -529,14 +528,21 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 	if !stream {
 		return ctx, func() {}
 	}
-	return context.WithoutCancel(ctx), func() {}
+	return detachContextWithUpstreamAttemptCancellation(ctx), func() {}
 }
 
 func detachUpstreamContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		return context.Background(), func() {}
 	}
-	return context.WithoutCancel(ctx), func() {}
+	return detachContextWithUpstreamAttemptCancellation(ctx), func() {}
+}
+
+func detachBillingPersistenceContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }
 
 // billingDeps 扣费逻辑依赖的服务（由各 gateway service 提供）

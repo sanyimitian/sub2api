@@ -635,6 +635,10 @@ readLoop:
 		if firstTokenMs == nil && isTokenEvent {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
+			if !allowUpstreamFirstOutput(ctx) {
+				lease.MarkBroken()
+				return resultWithUsage(), upstreamAttemptCancellationError(ctx)
+			}
 		}
 		if debugEnabled && shouldLogOpenAIWSEvent(eventCount, eventType) {
 			logOpenAIWSModeDebug(
