@@ -734,6 +734,9 @@ func registerAccountLatencyMonitorRoutes(admin *gin.RouterGroup, h *handler.Hand
 		monitor.GET("/settings", h.Admin.AccountLatencyMonitor.GetSettings)
 		monitor.PUT("/settings", h.Admin.AccountLatencyMonitor.UpdateSettings)
 		monitor.GET("/runtime", h.Admin.AccountLatencyMonitor.GetRuntime)
+		monitor.POST("/groups/:groupID/probe", h.Admin.AccountLatencyMonitor.ProbeGroup)
+		monitor.POST("/groups/:groupID/activate-best", h.Admin.AccountLatencyMonitor.ActivateBestAccounts)
+		monitor.PUT("/accounts/:accountID/anomaly-base", h.Admin.AccountLatencyMonitor.UpdateAccountAnomalyBase)
 	}
 }
 

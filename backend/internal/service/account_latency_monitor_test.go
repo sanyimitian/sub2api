@@ -311,6 +311,11 @@ func (r *accountLatencyMonitorSettingRepoStub) GetValue(context.Context, string)
 	return r.value, nil
 }
 
+func (r *accountLatencyMonitorSettingRepoStub) Set(_ context.Context, _ string, value string) error {
+	r.value = value
+	return nil
+}
+
 func TestAccountLatencyMonitorRefreshSettingsPreservesInitialRuntimeAndDisarmsAfterChange(t *testing.T) {
 	cfg := DefaultAccountLatencyMonitorGroup(7)
 	payload, err := json.Marshal(AccountLatencyMonitorSettings{Groups: []AccountLatencyMonitorGroup{cfg}})
@@ -460,6 +465,53 @@ func TestAccountLatencyMonitorRecentIssueCount_UsesConfiguredWindow(t *testing.T
 	}
 }
 
+func TestAccountLatencyMonitorRecentIssueCountFallsBackToAccountAnomalyBase(t *testing.T) {
+	now := time.Now()
+	cfg := DefaultAccountLatencyMonitorGroup(7)
+	cfg.RecentIssueWindowSec = 60
+	account := Account{
+		ID:    1,
+		Extra: map[string]any{AccountLatencyMonitorAnomalyBaseExtraKey: float64(3)},
+	}
+	monitor := &AccountLatencyMonitor{runtime: map[int64]*accountLatencyMonitorGroupRuntime{
+		7: {
+			accounts:     map[int64]*AccountLatencyMonitorAccountState{1: {AccountID: 1}},
+			recentIssues: map[int64][]time.Time{1: {now.Add(-2 * time.Minute)}},
+		},
+	}}
+
+	state := monitor.snapshotRuntime(cfg, []Account{account})
+	if len(state.Accounts) != 1 || state.Accounts[0].AnomalyBase != 3 || state.Accounts[0].RecentIssueCount != 3 {
+		t.Fatalf("runtime anomaly state = %#v, want base and effective count 3", state.Accounts)
+	}
+}
+
+func TestAccountLatencyMonitorLoadsAndRestoresExpiredTemporaryDisable(t *testing.T) {
+	expired := time.Now().Add(-time.Minute)
+	payload, err := json.Marshal(accountLatencyMonitorRuntimeState{
+		TemporaryDisabledUntil: map[string]map[string]time.Time{"7": {"1": expired}},
+	})
+	if err != nil {
+		t.Fatalf("marshal runtime state: %v", err)
+	}
+	repo := &accountLatencyMonitorRepoStub{accounts: []Account{{ID: 1, Schedulable: false}}}
+	settingRepo := &accountLatencyMonitorSettingRepoStub{value: string(payload)}
+	monitor := &AccountLatencyMonitor{
+		accountRepo: repo,
+		settingRepo: settingRepo,
+		runtime:     make(map[int64]*accountLatencyMonitorGroupRuntime),
+	}
+	cfg := DefaultAccountLatencyMonitorGroup(7)
+	cfg.AlwaysEnabledIDs = []int64{1}
+	monitor.cacheSettings(AccountLatencyMonitorSettings{Groups: []AccountLatencyMonitorGroup{cfg}})
+
+	monitor.loadRuntimeSwitches(context.Background())
+	monitor.restoreTemporaryDisabledAccounts(context.Background())
+	if !repo.accounts[0].Schedulable {
+		t.Fatal("expired persisted temporary disable was dropped before the account could be restored")
+	}
+}
+
 func TestTrimAccountLatencyMonitorSwitchHistory_KeepsLatestHundred(t *testing.T) {
 	records := make([]AccountLatencyMonitorSwitchRecord, 150)
 	for i := range records {
@@ -491,10 +543,10 @@ func TestAccountLatencyMonitorDeadlineSwitchesOnSecondThresholdWithoutWaitingFor
 		recentIssues: make(map[int64][]time.Time),
 	}
 
-	if backupID, _ := monitor.recordFirstTokenDeadlineAndSwitch(context.Background(), cfg, 1, time.Duration(cfg.LatencyThresholdSec)*time.Second, false, true); backupID != 0 {
+	if backupID, _ := monitor.recordFirstTokenDeadlineAndSwitch(context.Background(), cfg, 1, 0, time.Duration(cfg.LatencyThresholdSec)*time.Second, false, true); backupID != 0 {
 		t.Fatalf("first threshold selected backup %d, want no switch", backupID)
 	}
-	backupID, excluded := monitor.recordFirstTokenDeadlineAndSwitch(context.Background(), cfg, 1, time.Duration(cfg.LatencyThresholdSec)*time.Second, false, true)
+	backupID, excluded := monitor.recordFirstTokenDeadlineAndSwitch(context.Background(), cfg, 1, 0, time.Duration(cfg.LatencyThresholdSec)*time.Second, false, true)
 	if backupID != 2 {
 		t.Fatalf("second threshold selected backup %d, want 2", backupID)
 	}

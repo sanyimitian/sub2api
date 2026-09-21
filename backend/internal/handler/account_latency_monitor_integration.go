@@ -13,12 +13,12 @@ func startAccountLatencyRequestWatch(
 	monitor *service.AccountLatencyMonitor,
 	ctx context.Context,
 	groupID *int64,
-	accountID int64,
+	account *service.Account,
 ) (context.Context, *service.AccountLatencyRequestWatch) {
-	if monitor == nil || groupID == nil {
+	if monitor == nil || groupID == nil || account == nil {
 		return ctx, nil
 	}
-	return monitor.StartRequestWatch(ctx, *groupID, accountID)
+	return monitor.StartRequestWatch(ctx, *groupID, account)
 }
 
 func completeAccountLatencyRequestWatch(

@@ -29,8 +29,14 @@ const (
 	accountLatencyMonitorDefaultSwitchCooldown     = 10 * 60
 	accountLatencyMonitorDefaultImmediateThreshold = 40
 	accountLatencyMonitorDefaultRecentIssueWindow  = 10 * 60
+	accountLatencyMonitorDefaultAlwaysDisable      = 3 * 60
 	accountLatencyMonitorSwitchOperationTimeout    = 10 * time.Second
+	AccountLatencyMonitorMaxAnomalyBase            = 2_147_483_647
 )
+
+// AccountLatencyMonitorAnomalyBaseExtraKey stores the account-wide anomaly
+// baseline. It is intentionally independent from per-group monitor settings.
+const AccountLatencyMonitorAnomalyBaseExtraKey = "account_latency_monitor_anomaly_base"
 
 // AccountLatencyMonitorSettings is persisted as one JSON system setting so the
 // monitor can be deployed independently of account and group schema changes.
@@ -63,22 +69,27 @@ type AccountLatencyMonitorGroup struct {
 	SwitchCooldownSec     int     `json:"switch_cooldown_seconds"`
 	ImmediateThresholdSec int     `json:"immediate_switch_threshold_seconds"`
 	RecentIssueWindowSec  int     `json:"recent_issue_window_seconds"`
+	AlwaysDisableSec      int     `json:"always_enabled_temporary_disable_seconds"`
 }
 
 type AccountLatencyMonitorAccountState struct {
-	AccountID          int64      `json:"account_id"`
-	AccountPriority    int        `json:"account_priority"`
-	ConsecutiveFailure int        `json:"consecutive_failures"`
-	RecentIssueCount   int        `json:"recent_issue_count"`
-	LastLatencyMs      *int64     `json:"last_latency_ms,omitempty"`
-	LastSuccess        *bool      `json:"last_success,omitempty"`
-	LastObservedAt     *time.Time `json:"last_observed_at,omitempty"`
+	AccountID              int64      `json:"account_id"`
+	AccountPriority        int        `json:"account_priority"`
+	AnomalyBase            int        `json:"anomaly_base"`
+	ConsecutiveFailure     int        `json:"consecutive_failures"`
+	RecentIssueCount       int        `json:"recent_issue_count"`
+	LastLatencyMs          *int64     `json:"last_latency_ms,omitempty"`
+	LastSuccess            *bool      `json:"last_success,omitempty"`
+	LastObservedAt         *time.Time `json:"last_observed_at,omitempty"`
+	TemporaryDisabledUntil *time.Time `json:"temporary_disabled_until,omitempty"`
 }
 
 type AccountLatencyMonitorGroupState struct {
 	GroupID          int64                               `json:"group_id"`
 	ActiveAccountIDs []int64                             `json:"active_account_ids"`
 	BackupAccountIDs []int64                             `json:"backup_account_ids"`
+	ProbeInProgress  bool                                `json:"probe_in_progress"`
+	LastProbeError   string                              `json:"last_probe_error,omitempty"`
 	LastProbeAt      *time.Time                          `json:"last_probe_at,omitempty"`
 	LastSwitchAt     *time.Time                          `json:"last_switch_at,omitempty"`
 	SwitchHistory    []AccountLatencyMonitorSwitchRecord `json:"switch_history"`
@@ -94,18 +105,22 @@ type AccountLatencyMonitorSwitchRecord struct {
 }
 
 type accountLatencyMonitorGroupRuntime struct {
-	accounts        map[int64]*AccountLatencyMonitorAccountState
-	backups         []int64
-	switchHistory   []AccountLatencyMonitorSwitchRecord
-	activeSince     map[int64]time.Time
-	lastProbe       time.Time
-	lastSwitch      time.Time
-	lastUserRequest time.Time
-	probing         bool
-	switching       bool
-	switchDone      chan struct{}
-	issues          map[int64]map[string][]time.Time
-	recentIssues    map[int64][]time.Time
+	accounts                 map[int64]*AccountLatencyMonitorAccountState
+	backups                  []int64
+	switchHistory            []AccountLatencyMonitorSwitchRecord
+	activeSince              map[int64]time.Time
+	lastProbe                time.Time
+	lastSwitch               time.Time
+	lastUserRequest          time.Time
+	probing                  bool
+	switching                bool
+	switchDone               chan struct{}
+	issues                   map[int64]map[string][]time.Time
+	recentIssues             map[int64][]time.Time
+	temporaryDisabledUntil   map[int64]time.Time
+	latestFullProbeResults   []accountLatencyProbeResult
+	latestFullProbeSignature string
+	lastProbeError           string
 }
 
 const (
@@ -127,22 +142,65 @@ type AccountLatencyMonitor struct {
 	stop    chan struct{}
 	once    sync.Once
 
+	temporaryBlockUntil  map[int64]time.Time
+	temporaryDisableLock map[int64]*sync.Mutex
+
 	settingsMu         sync.RWMutex
 	cachedSettings     AccountLatencyMonitorSettings
 	settingsLoaded     bool
 	runtimePersistGate chan struct{}
 }
 
+type accountTemporaryBlockObserver interface {
+	ObserveAccountTemporaryBlock(accountID int64, until time.Time, reason string)
+}
+
+var accountTemporaryBlockObserverRegistry struct {
+	sync.RWMutex
+	observer accountTemporaryBlockObserver
+}
+
+func setAccountTemporaryBlockObserver(observer accountTemporaryBlockObserver) {
+	accountTemporaryBlockObserverRegistry.Lock()
+	accountTemporaryBlockObserverRegistry.observer = observer
+	accountTemporaryBlockObserverRegistry.Unlock()
+}
+
+func clearAccountTemporaryBlockObserver(observer accountTemporaryBlockObserver) {
+	accountTemporaryBlockObserverRegistry.Lock()
+	if accountTemporaryBlockObserverRegistry.observer == observer {
+		accountTemporaryBlockObserverRegistry.observer = nil
+	}
+	accountTemporaryBlockObserverRegistry.Unlock()
+}
+
+// NotifyAccountTemporaryBlock publishes a successfully installed temporary
+// scheduling block without coupling the source to latency-monitor policy.
+func NotifyAccountTemporaryBlock(accountID int64, until time.Time, reason string) {
+	if accountID <= 0 || !until.After(time.Now()) {
+		return
+	}
+	accountTemporaryBlockObserverRegistry.RLock()
+	observer := accountTemporaryBlockObserverRegistry.observer
+	accountTemporaryBlockObserverRegistry.RUnlock()
+	if observer != nil {
+		observer.ObserveAccountTemporaryBlock(accountID, until, reason)
+	}
+}
+
 func NewAccountLatencyMonitor(settingRepo SettingRepository, accountRepo AccountRepository, groupRepo GroupRepository, tester *AccountTestService) *AccountLatencyMonitor {
 	m := &AccountLatencyMonitor{
-		settingRepo: settingRepo,
-		accountRepo: accountRepo,
-		groupRepo:   groupRepo,
-		tester:      tester,
-		runtime:     make(map[int64]*accountLatencyMonitorGroupRuntime),
-		watches:     make(map[int64]map[int64]map[*AccountLatencyRequestWatch]struct{}),
-		stop:        make(chan struct{}),
+		settingRepo:          settingRepo,
+		accountRepo:          accountRepo,
+		groupRepo:            groupRepo,
+		tester:               tester,
+		runtime:              make(map[int64]*accountLatencyMonitorGroupRuntime),
+		watches:              make(map[int64]map[int64]map[*AccountLatencyRequestWatch]struct{}),
+		stop:                 make(chan struct{}),
+		temporaryBlockUntil:  make(map[int64]time.Time),
+		temporaryDisableLock: make(map[int64]*sync.Mutex),
 	}
+	setAccountTemporaryBlockObserver(m)
 	go m.run()
 	return m
 }
@@ -166,7 +224,54 @@ func DefaultAccountLatencyMonitorGroup(groupID int64) AccountLatencyMonitorGroup
 		SwitchCooldownSec:     accountLatencyMonitorDefaultSwitchCooldown,
 		ImmediateThresholdSec: accountLatencyMonitorDefaultImmediateThreshold,
 		RecentIssueWindowSec:  accountLatencyMonitorDefaultRecentIssueWindow,
+		AlwaysDisableSec:      accountLatencyMonitorDefaultAlwaysDisable,
 	}
+}
+
+func accountLatencyMonitorAnomalyBase(account Account) int {
+	if account.Extra == nil {
+		return 0
+	}
+	value, ok := account.Extra[AccountLatencyMonitorAnomalyBaseExtraKey]
+	if !ok {
+		return 0
+	}
+	switch typed := value.(type) {
+	case int:
+		if typed >= 0 {
+			return typed
+		}
+	case int64:
+		if typed >= 0 && int64(int(typed)) == typed {
+			return int(typed)
+		}
+	case float64:
+		converted := int(typed)
+		if typed >= 0 && float64(converted) == typed {
+			return converted
+		}
+	case json.Number:
+		if parsed, err := typed.Int64(); err == nil && parsed >= 0 && int64(int(parsed)) == parsed {
+			return int(parsed)
+		}
+	}
+	return 0
+}
+
+func accountLatencyMonitorEffectiveIssueCount(dynamicCount, anomalyBase int) int {
+	if dynamicCount < 0 {
+		dynamicCount = 0
+	}
+	if anomalyBase < 0 {
+		anomalyBase = 0
+	}
+	if anomalyBase > AccountLatencyMonitorMaxAnomalyBase {
+		anomalyBase = AccountLatencyMonitorMaxAnomalyBase
+	}
+	if dynamicCount > AccountLatencyMonitorMaxAnomalyBase-anomalyBase {
+		return AccountLatencyMonitorMaxAnomalyBase
+	}
+	return dynamicCount + anomalyBase
 }
 
 func (m *AccountLatencyMonitor) GetSettings(ctx context.Context) (*AccountLatencyMonitorSettings, error) {
@@ -240,6 +345,24 @@ func (m *AccountLatencyMonitor) UpdateSettings(ctx context.Context, settings *Ac
 	return nil
 }
 
+func (m *AccountLatencyMonitor) UpdateAccountAnomalyBase(ctx context.Context, accountID int64, anomalyBase int) error {
+	if m == nil || m.accountRepo == nil {
+		return errors.New("account latency monitor is unavailable")
+	}
+	if accountID <= 0 {
+		return errors.New("account_id must be positive")
+	}
+	if anomalyBase < 0 || anomalyBase > AccountLatencyMonitorMaxAnomalyBase {
+		return fmt.Errorf("anomaly_base must be between 0 and %d", AccountLatencyMonitorMaxAnomalyBase)
+	}
+	if _, err := m.accountRepo.GetByID(ctx, accountID); err != nil {
+		return err
+	}
+	return m.accountRepo.UpdateExtra(ctx, accountID, map[string]any{
+		AccountLatencyMonitorAnomalyBaseExtraKey: anomalyBase,
+	})
+}
+
 func (m *AccountLatencyMonitor) validateGroupConfiguration(ctx context.Context, cfg AccountLatencyMonitorGroup) error {
 	if m.groupRepo == nil || m.accountRepo == nil {
 		return errors.New("account latency monitor dependencies are unavailable")
@@ -302,6 +425,9 @@ func normalizeAccountLatencyMonitorGroup(g *AccountLatencyMonitorGroup) {
 	}
 	if g.RecentIssueWindowSec <= 0 {
 		g.RecentIssueWindowSec = accountLatencyMonitorDefaultRecentIssueWindow
+	}
+	if g.AlwaysDisableSec <= 0 {
+		g.AlwaysDisableSec = accountLatencyMonitorDefaultAlwaysDisable
 	}
 	if strings.TrimSpace(g.ProbeModel) == "" {
 		g.ProbeModel = accountLatencyMonitorDefaultModel
@@ -389,11 +515,15 @@ func (m *AccountLatencyMonitor) reconcileRuntimeForSettings(settings AccountLate
 			rt := m.ensureRuntimeLocked(cfg.GroupID)
 			rt.backups = nil
 			rt.lastProbe = time.Time{}
+			rt.latestFullProbeResults = nil
+			rt.latestFullProbeSignature = ""
 		}
 	}
 	for groupID := range m.runtime {
 		if _, ok := enabled[groupID]; !ok {
-			delete(m.runtime, groupID)
+			if len(m.runtime[groupID].temporaryDisabledUntil) == 0 {
+				delete(m.runtime, groupID)
+			}
 		}
 	}
 	for groupID, byAccount := range m.watches {
@@ -412,14 +542,17 @@ func (m *AccountLatencyMonitor) reconcileRuntimeForSettings(settings AccountLate
 	for _, watch := range watches {
 		watch.disarm()
 	}
+	m.restoreTemporaryDisabledAccounts(context.Background())
 }
 
 // RecordRequest reports one user request. Repeated same-kind anomalies within
 // the configured window trigger an immediate switch to a previously tested backup.
-func (m *AccountLatencyMonitor) RecordRequest(_ context.Context, groupID, accountID int64, firstTokenMs *int, success bool) {
-	if m == nil || groupID <= 0 || accountID <= 0 {
+func (m *AccountLatencyMonitor) RecordRequest(_ context.Context, groupID int64, account *Account, firstTokenMs *int, success bool) {
+	if m == nil || groupID <= 0 || account == nil || account.ID <= 0 {
 		return
 	}
+	accountID := account.ID
+	anomalyBase := accountLatencyMonitorAnomalyBase(*account)
 	cfg, enabled := m.cachedGroup(groupID)
 	if !enabled {
 		return
@@ -447,21 +580,184 @@ func (m *AccountLatencyMonitor) RecordRequest(_ context.Context, groupID, accoun
 
 	issueCount, windowIssueCount := accountLatencyMonitorWindowIssueCount(rt, accountID, issue, now, time.Duration(cfg.FailureWindowSec)*time.Second)
 	state.ConsecutiveFailure = windowIssueCount
-	state.RecentIssueCount = accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, issue != "")
+	state.AnomalyBase = anomalyBase
+	state.RecentIssueCount = accountLatencyMonitorEffectiveIssueCount(
+		accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, issue != ""),
+		anomalyBase,
+	)
 
 	shouldFailover := false
+	shouldDisableAlways := false
 	immediateSwitch := firstTokenMs != nil && *firstTokenMs > cfg.ImmediateThresholdSec*1000
 	reasonCode, reason := accountLatencyMonitorRequestReason(cfg, accountID, firstTokenMs, issue, issueCount, immediateSwitch)
-	if issue != "" && (immediateSwitch || issueCount >= cfg.ConsecutiveFailures) && !rt.switching {
+	if issue != "" && (immediateSwitch || issueCount >= cfg.ConsecutiveFailures) && accountLatencyMonitorContainsID(cfg.AlwaysEnabledIDs, accountID) {
+		shouldDisableAlways = true
+	} else if issue != "" && (immediateSwitch || issueCount >= cfg.ConsecutiveFailures) && !rt.switching {
 		rt.switching = true
 		rt.switchDone = make(chan struct{})
 		shouldFailover = true
 	}
 	m.mu.Unlock()
 
+	if shouldDisableAlways {
+		m.temporarilyDisableAlwaysEnabledAccount(context.Background(), cfg, accountID, reasonCode, reason)
+		return
+	}
 	if shouldFailover {
 		go m.failover(context.Background(), cfg, accountID, reasonCode, reason)
 	}
+}
+
+// ObserveAccountTemporaryBlock handles account-wide temporary scheduling
+// blocks. Model-scoped rate limits must not publish this signal.
+func (m *AccountLatencyMonitor) ObserveAccountTemporaryBlock(accountID int64, until time.Time, reason string) {
+	if m == nil || accountID <= 0 || until.IsZero() || !until.After(time.Now()) {
+		return
+	}
+	m.mu.Lock()
+	if m.temporaryBlockUntil == nil {
+		m.temporaryBlockUntil = make(map[int64]time.Time)
+	}
+	if observedUntil := m.temporaryBlockUntil[accountID]; !until.After(observedUntil) {
+		m.mu.Unlock()
+		return
+	}
+	m.temporaryBlockUntil[accountID] = until
+	m.mu.Unlock()
+	go m.handleAccountTemporaryBlock(accountID, until, reason)
+}
+
+func (m *AccountLatencyMonitor) handleAccountTemporaryBlock(accountID int64, until time.Time, blockReason string) {
+	settings := m.settingsForTemporaryBlock()
+	type failoverTarget struct {
+		cfg           AccountLatencyMonitorGroup
+		anomalyBase   int
+		alwaysEnabled bool
+		reason        string
+	}
+	targets := make([]failoverTarget, 0, len(settings.Groups))
+	for _, cfg := range settings.Groups {
+		if !cfg.Enabled {
+			continue
+		}
+		accounts, err := m.listGroupAccounts(context.Background(), cfg.GroupID)
+		if err != nil {
+			continue
+		}
+		var matched *Account
+		for i := range accounts {
+			if accounts[i].ID == accountID {
+				matched = &accounts[i]
+				break
+			}
+		}
+		alwaysEnabled := accountLatencyMonitorContainsID(cfg.AlwaysEnabledIDs, accountID)
+		if matched == nil || (!matched.Schedulable && !alwaysEnabled) {
+			continue
+		}
+		targets = append(targets, failoverTarget{
+			cfg:           cfg,
+			anomalyBase:   accountLatencyMonitorAnomalyBase(*matched),
+			alwaysEnabled: alwaysEnabled,
+			reason:        accountLatencyMonitorTemporaryBlockReason(accountID, blockReason),
+		})
+	}
+
+	now := time.Now().UTC()
+	for _, target := range targets {
+		m.mu.Lock()
+		rt := m.ensureRuntimeLocked(target.cfg.GroupID)
+		startFailover := !target.alwaysEnabled && !rt.switching
+		state := m.ensureAccountStateLocked(rt, accountID)
+		state.AnomalyBase = target.anomalyBase
+		state.LastSuccess = accountLatencyMonitorBoolPtr(false)
+		state.LastObservedAt = accountLatencyMonitorTimePtr(now)
+		state.LastLatencyMs = nil
+		_, state.ConsecutiveFailure = accountLatencyMonitorWindowIssueCount(
+			rt,
+			accountID,
+			accountLatencyMonitorIssueFailure,
+			now,
+			time.Duration(target.cfg.FailureWindowSec)*time.Second,
+		)
+		state.RecentIssueCount = accountLatencyMonitorEffectiveIssueCount(
+			accountLatencyMonitorRecentIssueCount(
+				rt,
+				accountID,
+				now,
+				time.Duration(target.cfg.RecentIssueWindowSec)*time.Second,
+				true,
+			),
+			target.anomalyBase,
+		)
+		if startFailover {
+			rt.switching = true
+			rt.switchDone = make(chan struct{})
+		}
+		m.mu.Unlock()
+
+		if target.alwaysEnabled {
+			m.temporarilyDisableAlwaysEnabledAccountUntil(
+				context.Background(),
+				target.cfg,
+				accountID,
+				until,
+				"always_enabled_external_temporary_block",
+				target.reason,
+			)
+			continue
+		}
+		if startFailover {
+			go m.failover(context.Background(), target.cfg, accountID, "temporary_block", target.reason)
+		} else {
+			go m.queueTemporaryBlockFailover(target.cfg, accountID, target.reason)
+		}
+	}
+}
+
+func (m *AccountLatencyMonitor) queueTemporaryBlockFailover(cfg AccountLatencyMonitorGroup, accountID int64, reason string) {
+	for {
+		m.mu.Lock()
+		rt := m.ensureRuntimeLocked(cfg.GroupID)
+		if !rt.switching {
+			rt.switching = true
+			rt.switchDone = make(chan struct{})
+			m.mu.Unlock()
+			m.failover(context.Background(), cfg, accountID, "temporary_block", reason)
+			return
+		}
+		done := rt.switchDone
+		m.mu.Unlock()
+		if done == nil {
+			continue
+		}
+		<-done
+	}
+}
+
+func (m *AccountLatencyMonitor) settingsForTemporaryBlock() AccountLatencyMonitorSettings {
+	m.settingsMu.RLock()
+	loaded := m.settingsLoaded
+	m.settingsMu.RUnlock()
+	if loaded {
+		return m.cachedSettingsSnapshot()
+	}
+	settings, err := m.loadSettings(context.Background())
+	if err != nil {
+		return emptyAccountLatencyMonitorSettings()
+	}
+	changed := m.cachedSettingsChanged(settings)
+	m.cacheSettings(settings)
+	m.reconcileRuntimeForSettings(settings, changed)
+	return settings
+}
+
+func accountLatencyMonitorTemporaryBlockReason(accountID int64, blockReason string) string {
+	blockReason = strings.TrimSpace(blockReason)
+	if blockReason == "" {
+		return fmt.Sprintf("账号 %d 进入临时封锁状态，自动切换", accountID)
+	}
+	return fmt.Sprintf("账号 %d 进入临时封锁状态（%s），自动切换", accountID, blockReason)
 }
 
 func accountLatencyMonitorRequestReason(cfg AccountLatencyMonitorGroup, accountID int64, firstTokenMs *int, issue string, issueCount int, immediate bool) (string, string) {
@@ -474,7 +770,227 @@ func accountLatencyMonitorRequestReason(cfg AccountLatencyMonitorGroup, accountI
 	return "user_failure_window", fmt.Sprintf("账号 %d 在 %d 秒内有 %d 次用户请求发生同类失败或未返回首字", accountID, cfg.FailureWindowSec, issueCount)
 }
 
-func (m *AccountLatencyMonitor) recordFirstTokenDeadlineAndSwitch(ctx context.Context, cfg AccountLatencyMonitorGroup, accountID int64, observedLatency time.Duration, immediate, addIssue bool) (int64, map[int64]struct{}) {
+func (m *AccountLatencyMonitor) temporarilyDisableAlwaysEnabledAccount(ctx context.Context, cfg AccountLatencyMonitorGroup, accountID int64, _ string, reason string) {
+	until := time.Now().UTC().Add(time.Duration(cfg.AlwaysDisableSec) * time.Second)
+	m.temporarilyDisableAlwaysEnabledAccountUntil(ctx, cfg, accountID, until, "always_enabled_temporary_disable", fmt.Sprintf("%s；临时关闭 %d 秒", reason, cfg.AlwaysDisableSec))
+}
+
+func (m *AccountLatencyMonitor) temporarilyDisableAlwaysEnabledAccountUntil(ctx context.Context, cfg AccountLatencyMonitorGroup, accountID int64, until time.Time, reasonCode, reason string) {
+	if m == nil || m.accountRepo == nil || !accountLatencyMonitorContainsID(cfg.AlwaysEnabledIDs, accountID) {
+		return
+	}
+	operationLock := m.temporaryDisableOperationLock(accountID)
+	operationLock.Lock()
+	defer operationLock.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	now := time.Now().UTC()
+	if !until.After(now) {
+		return
+	}
+	m.mu.Lock()
+	rt := m.ensureRuntimeLocked(cfg.GroupID)
+	previousUntil := rt.temporaryDisabledUntil[accountID]
+	if !until.After(previousUntil) {
+		m.mu.Unlock()
+		return
+	}
+	rt.temporaryDisabledUntil[accountID] = until
+	m.mu.Unlock()
+
+	if !previousUntil.After(now) {
+		operationCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountLatencyMonitorSwitchOperationTimeout)
+		err := m.accountRepo.SetSchedulable(operationCtx, accountID, false)
+		cancel()
+		if err != nil {
+			m.mu.Lock()
+			if rt := m.runtime[cfg.GroupID]; rt != nil && rt.temporaryDisabledUntil[accountID].Equal(until) {
+				if previousUntil.IsZero() {
+					delete(rt.temporaryDisabledUntil, accountID)
+				} else {
+					rt.temporaryDisabledUntil[accountID] = previousUntil
+				}
+			}
+			m.mu.Unlock()
+			return
+		}
+	}
+
+	record := AccountLatencyMonitorSwitchRecord{
+		SwitchedAt:         now,
+		PreviousAccountIDs: []int64{accountID},
+		CurrentAccountIDs:  nil,
+		ReasonCode:         reasonCode,
+		Reason:             reason,
+	}
+	m.mu.Lock()
+	rt = m.ensureRuntimeLocked(cfg.GroupID)
+	rt.switchHistory = trimAccountLatencyMonitorSwitchHistory(append([]AccountLatencyMonitorSwitchRecord{record}, rt.switchHistory...))
+	m.mu.Unlock()
+	m.persistRuntimeTemporaryDisabled(context.Background(), cfg.GroupID, &record)
+}
+
+func (m *AccountLatencyMonitor) temporaryDisableOperationLock(accountID int64) *sync.Mutex {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.temporaryDisableLock == nil {
+		m.temporaryDisableLock = make(map[int64]*sync.Mutex)
+	}
+	operationLock := m.temporaryDisableLock[accountID]
+	if operationLock == nil {
+		operationLock = &sync.Mutex{}
+		m.temporaryDisableLock[accountID] = operationLock
+	}
+	return operationLock
+}
+
+func (m *AccountLatencyMonitor) accountHasActiveTemporaryDisableLocked(accountID int64, now time.Time) bool {
+	for _, rt := range m.runtime {
+		if rt != nil && rt.temporaryDisabledUntil[accountID].After(now) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *AccountLatencyMonitor) restoreTemporaryDisabledAccounts(ctx context.Context) {
+	if m == nil || m.accountRepo == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	settings := m.cachedSettingsSnapshot()
+	configured := make(map[int64]map[int64]struct{}, len(settings.Groups))
+	for _, cfg := range settings.Groups {
+		if cfg.Enabled {
+			configured[cfg.GroupID] = accountLatencyMonitorExcludedIDs(cfg.AlwaysEnabledIDs)
+		}
+	}
+	type restoreTarget struct {
+		groupID   int64
+		accountID int64
+		until     time.Time
+	}
+	now := time.Now().UTC()
+	targets := make([]restoreTarget, 0)
+	m.mu.Lock()
+	for groupID, rt := range m.runtime {
+		alwaysEnabled := configured[groupID]
+		for accountID, until := range rt.temporaryDisabledUntil {
+			_, stillConfigured := alwaysEnabled[accountID]
+			if !stillConfigured || !until.After(now) {
+				targets = append(targets, restoreTarget{groupID: groupID, accountID: accountID, until: until})
+			}
+		}
+	}
+	m.mu.Unlock()
+
+	for _, target := range targets {
+		operationLock := m.temporaryDisableOperationLock(target.accountID)
+		operationLock.Lock()
+		m.mu.Lock()
+		rt := m.runtime[target.groupID]
+		currentUntil := time.Time{}
+		if rt != nil {
+			currentUntil = rt.temporaryDisabledUntil[target.accountID]
+		}
+		alwaysEnabled := configured[target.groupID]
+		_, stillConfigured := alwaysEnabled[target.accountID]
+		if rt == nil || !currentUntil.Equal(target.until) || (stillConfigured && currentUntil.After(time.Now().UTC())) {
+			m.mu.Unlock()
+			operationLock.Unlock()
+			continue
+		}
+		delete(rt.temporaryDisabledUntil, target.accountID)
+		shouldEnable := !m.accountHasActiveTemporaryDisableLocked(target.accountID, time.Now().UTC())
+		m.mu.Unlock()
+
+		if shouldEnable {
+			accounts, err := m.listGroupAccounts(ctx, target.groupID)
+			if err != nil {
+				m.mu.Lock()
+				rt := m.ensureRuntimeLocked(target.groupID)
+				rt.temporaryDisabledUntil[target.accountID] = target.until
+				m.mu.Unlock()
+				m.persistRuntimeTemporaryDisabled(context.Background(), target.groupID, nil)
+				operationLock.Unlock()
+				continue
+			}
+			found := false
+			accountBlockUntil := time.Time{}
+			now := time.Now().UTC()
+			for _, account := range accounts {
+				if account.ID != target.accountID {
+					continue
+				}
+				found = true
+				accountBlockUntil = accountLatencyMonitorTemporaryBlockUntil(account)
+				if accountBlockUntil.After(now) {
+					shouldEnable = false
+				}
+				break
+			}
+			if !found {
+				shouldEnable = false
+			}
+			if accountBlockUntil.After(now) {
+				// The account-level block can outlive the monitor's own cooldown.
+				// Keep the account in the restore queue until all external blocks end.
+				if target.until.After(accountBlockUntil) {
+					accountBlockUntil = target.until
+				}
+				m.mu.Lock()
+				rt := m.ensureRuntimeLocked(target.groupID)
+				if accountBlockUntil.After(rt.temporaryDisabledUntil[target.accountID]) {
+					rt.temporaryDisabledUntil[target.accountID] = accountBlockUntil
+				}
+				m.mu.Unlock()
+				m.persistRuntimeTemporaryDisabled(context.Background(), target.groupID, nil)
+				operationLock.Unlock()
+				continue
+			}
+		}
+
+		if shouldEnable {
+			operationCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountLatencyMonitorSwitchOperationTimeout)
+			err := m.accountRepo.SetSchedulable(operationCtx, target.accountID, true)
+			cancel()
+			if err != nil {
+				m.mu.Lock()
+				rt := m.ensureRuntimeLocked(target.groupID)
+				if _, replaced := rt.temporaryDisabledUntil[target.accountID]; !replaced {
+					rt.temporaryDisabledUntil[target.accountID] = target.until
+				}
+				m.mu.Unlock()
+				operationLock.Unlock()
+				continue
+			}
+		}
+
+		m.mu.Lock()
+		if rt := m.runtime[target.groupID]; rt != nil {
+			if _, groupEnabled := configured[target.groupID]; !groupEnabled && len(rt.temporaryDisabledUntil) == 0 {
+				delete(m.runtime, target.groupID)
+			}
+		}
+		m.mu.Unlock()
+		m.persistRuntimeTemporaryDisabled(context.Background(), target.groupID, nil)
+		operationLock.Unlock()
+	}
+}
+
+func accountLatencyMonitorContainsID(ids []int64, accountID int64) bool {
+	for _, id := range ids {
+		if id == accountID {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *AccountLatencyMonitor) recordFirstTokenDeadlineAndSwitch(ctx context.Context, cfg AccountLatencyMonitorGroup, accountID int64, anomalyBase int, observedLatency time.Duration, immediate, addIssue bool) (int64, map[int64]struct{}) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -482,6 +998,7 @@ func (m *AccountLatencyMonitor) recordFirstTokenDeadlineAndSwitch(ctx context.Co
 	m.mu.Lock()
 	rt := m.ensureRuntimeLocked(cfg.GroupID)
 	state := m.ensureAccountStateLocked(rt, accountID)
+	state.AnomalyBase = anomalyBase
 	rt.lastUserRequest = now
 	state.LastSuccess = accountLatencyMonitorBoolPtr(false)
 	state.LastObservedAt = accountLatencyMonitorTimePtr(now)
@@ -502,10 +1019,24 @@ func (m *AccountLatencyMonitor) recordFirstTokenDeadlineAndSwitch(ctx context.Co
 		time.Duration(cfg.FailureWindowSec)*time.Second,
 	)
 	state.ConsecutiveFailure = windowIssueCount
-	state.RecentIssueCount = accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, addIssue)
+	state.RecentIssueCount = accountLatencyMonitorEffectiveIssueCount(
+		accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, addIssue),
+		anomalyBase,
+	)
 	shouldSwitch := immediate || issueCount >= cfg.ConsecutiveFailures
 	if !shouldSwitch {
 		m.mu.Unlock()
+		return 0, nil
+	}
+	if accountLatencyMonitorContainsID(cfg.AlwaysEnabledIDs, accountID) {
+		m.mu.Unlock()
+		reasonCode := "user_latency_window"
+		reason := fmt.Sprintf("长期启用账号 %d 在 %d 秒内有 %d 次用户请求未在 %d 秒内返回首字", accountID, cfg.FailureWindowSec, issueCount, cfg.LatencyThresholdSec)
+		if immediate {
+			reasonCode = "user_single_latency"
+			reason = fmt.Sprintf("长期启用账号 %d 单次用户请求在 %d 秒内未返回首字", accountID, cfg.ImmediateThresholdSec)
+		}
+		m.temporarilyDisableAlwaysEnabledAccount(context.Background(), cfg, accountID, reasonCode, reason)
 		return 0, nil
 	}
 	for rt.switching {
@@ -582,19 +1113,23 @@ func (m *AccountLatencyMonitor) recordFirstTokenDeadlineAndSwitch(ctx context.Co
 	return switchResult.backupID, switchResult.excludedIDs
 }
 
-func (m *AccountLatencyMonitor) completeDeadlineObservedRequest(cfg AccountLatencyMonitorGroup, accountID int64, firstTokenMs *int, success bool) {
+func (m *AccountLatencyMonitor) completeDeadlineObservedRequest(cfg AccountLatencyMonitorGroup, accountID int64, anomalyBase int, firstTokenMs *int, success bool) {
 	now := time.Now().UTC()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	rt := m.ensureRuntimeLocked(cfg.GroupID)
 	state := m.ensureAccountStateLocked(rt, accountID)
+	state.AnomalyBase = anomalyBase
 	state.LastSuccess = accountLatencyMonitorBoolPtr(success)
 	state.LastObservedAt = accountLatencyMonitorTimePtr(now)
 	if firstTokenMs != nil {
 		state.LastLatencyMs = accountLatencyMonitorInt64Ptr(int64(*firstTokenMs))
 	}
 	_, state.ConsecutiveFailure = accountLatencyMonitorWindowIssueCount(rt, accountID, "", now, time.Duration(cfg.FailureWindowSec)*time.Second)
-	state.RecentIssueCount = accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false)
+	state.RecentIssueCount = accountLatencyMonitorEffectiveIssueCount(
+		accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false),
+		anomalyBase,
+	)
 }
 
 func accountLatencyMonitorWindowIssueCount(rt *accountLatencyMonitorGroupRuntime, accountID int64, issue string, now time.Time, window time.Duration) (int, int) {
@@ -658,6 +1193,293 @@ func accountLatencyMonitorRecentIssueCount(rt *accountLatencyMonitorGroupRuntime
 	return len(kept)
 }
 
+var (
+	ErrAccountLatencyMonitorGroupDisabled = errors.New("该分组未启用账号延迟监控")
+	ErrAccountLatencyMonitorBusy          = errors.New("该分组正在执行探测或切换操作")
+	ErrAccountLatencyMonitorNoProbeResult = errors.New("尚无有效的完整探测结果，请重新探测账号")
+)
+
+type accountLatencyMonitorFullProbeSignature struct {
+	Configuration AccountLatencyMonitorGroup                   `json:"configuration"`
+	Accounts      []accountLatencyMonitorProbeAccountSignature `json:"accounts"`
+}
+
+type accountLatencyMonitorProbeAccountSignature struct {
+	ID       int64 `json:"id"`
+	Priority int   `json:"priority"`
+}
+
+func accountLatencyMonitorFullProbeSignatureValue(cfg AccountLatencyMonitorGroup, accounts []Account) string {
+	accountSignatures := make([]accountLatencyMonitorProbeAccountSignature, 0, len(accounts))
+	for _, account := range accounts {
+		accountSignatures = append(accountSignatures, accountLatencyMonitorProbeAccountSignature{
+			ID:       account.ID,
+			Priority: account.Priority,
+		})
+	}
+	sort.Slice(accountSignatures, func(i, j int) bool { return accountSignatures[i].ID < accountSignatures[j].ID })
+	payload, _ := json.Marshal(accountLatencyMonitorFullProbeSignature{
+		Configuration: cloneAccountLatencyMonitorSettings(AccountLatencyMonitorSettings{Groups: []AccountLatencyMonitorGroup{cfg}}).Groups[0],
+		Accounts:      accountSignatures,
+	})
+	return string(payload)
+}
+
+// ProbeGroup probes every account in one enabled group and refreshes the
+// ranked standby pool without changing scheduling.
+func (m *AccountLatencyMonitor) ProbeGroup(ctx context.Context, groupID int64) error {
+	cfg, err := m.enabledGroup(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if !m.beginManualProbe(groupID) {
+		return ErrAccountLatencyMonitorBusy
+	}
+	return m.probeGroupStarted(ctx, cfg)
+}
+
+// StartProbeGroup detaches a complete probe from the HTTP request. Its status
+// and terminal error are exposed by GetRuntime.
+func (m *AccountLatencyMonitor) StartProbeGroup(ctx context.Context, groupID int64) error {
+	cfg, err := m.enabledGroup(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if !m.beginManualProbe(groupID) {
+		return ErrAccountLatencyMonitorBusy
+	}
+	go func() {
+		_ = m.probeGroupStarted(context.Background(), cfg)
+	}()
+	return nil
+}
+
+func (m *AccountLatencyMonitor) probeGroupStarted(ctx context.Context, cfg AccountLatencyMonitorGroup) (err error) {
+	defer func() { m.finishManualProbe(cfg.GroupID, err) }()
+	groupID := cfg.GroupID
+	accounts, err := m.listGroupAccounts(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if len(accounts) == 0 {
+		return errors.New("当前分组没有可探测的账号")
+	}
+	results := m.probeAccounts(ctx, cfg, accounts)
+	if len(results) != len(accounts) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return errors.New("账号探测未完整完成")
+	}
+	currentCfg, enabled := m.cachedGroup(groupID)
+	if !enabled {
+		return ErrAccountLatencyMonitorGroupDisabled
+	}
+	currentAccounts, err := m.listGroupAccounts(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	signature := accountLatencyMonitorFullProbeSignatureValue(cfg, accounts)
+	if signature != accountLatencyMonitorFullProbeSignatureValue(currentCfg, currentAccounts) {
+		return errors.New("探测期间分组配置或账号成员发生变化，请重新探测")
+	}
+	activeIDs := accountLatencyMonitorSchedulableIDs(accounts)
+	m.mu.Lock()
+	rt := m.ensureRuntimeLocked(groupID)
+	rt.latestFullProbeResults = append([]accountLatencyProbeResult(nil), results...)
+	rt.latestFullProbeSignature = signature
+	m.mu.Unlock()
+	m.replaceBackupsFromResults(cfg, results, activeIDs)
+	return nil
+}
+
+// ActivateBestAccounts rebuilds both the dynamic active pool and standby pool
+// from the most recent complete all-account probe.
+func (m *AccountLatencyMonitor) ActivateBestAccounts(ctx context.Context, groupID int64) error {
+	cfg, err := m.enabledGroup(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	rt := m.ensureRuntimeLocked(groupID)
+	if rt.probing || rt.switching {
+		m.mu.Unlock()
+		return ErrAccountLatencyMonitorBusy
+	}
+	results := append([]accountLatencyProbeResult(nil), rt.latestFullProbeResults...)
+	probeSignature := rt.latestFullProbeSignature
+	if len(results) == 0 || probeSignature == "" {
+		m.mu.Unlock()
+		return ErrAccountLatencyMonitorNoProbeResult
+	}
+	rt.switching = true
+	rt.switchDone = make(chan struct{})
+	m.mu.Unlock()
+	defer m.finishSwitch(groupID)
+
+	accounts, err := m.listGroupAccounts(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	currentAccounts := make(map[int64]Account, len(accounts))
+	for _, account := range accounts {
+		currentAccounts[account.ID] = account
+	}
+	if probeSignature != accountLatencyMonitorFullProbeSignatureValue(cfg, accounts) {
+		m.mu.Lock()
+		if rt := m.runtime[groupID]; rt != nil {
+			rt.latestFullProbeResults = nil
+			rt.latestFullProbeSignature = ""
+		}
+		m.mu.Unlock()
+		return ErrAccountLatencyMonitorNoProbeResult
+	}
+	filteredResults := make([]accountLatencyProbeResult, 0, len(results))
+	now := time.Now().UTC()
+	for _, result := range results {
+		account, exists := currentAccounts[result.account.ID]
+		if !exists || accountLatencyMonitorAccountTemporarilyBlocked(account, now) {
+			continue
+		}
+		result.account = account
+		filteredResults = append(filteredResults, result)
+	}
+	m.refreshProbeResultIssueCounts(cfg, filteredResults, now)
+	excluded := m.temporaryDisabledAccountIDs(groupID, now)
+	candidates := selectAccountLatencyMonitorBackups(filteredResults, groupID, int64(cfg.LatencyThresholdSec*1000), len(accounts), excluded)
+	currentIDs, backups := accountLatencyMonitorTargets(candidates, cfg.AlwaysEnabledIDs, cfg.ActiveAccountCount, cfg.BackupCount)
+	if len(currentIDs) == 0 && cfg.ActiveAccountCount > 0 {
+		return errors.New("最近一次探测中没有可开启调度的健康账号")
+	}
+	if err := m.setSchedulableAccounts(ctx, cfg, currentIDs, "manual_best_accounts", "管理员按最近一次完整探测结果更换最优账号池"); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.ensureRuntimeLocked(groupID).backups = append([]int64(nil), backups...)
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *AccountLatencyMonitor) enabledGroup(ctx context.Context, groupID int64) (AccountLatencyMonitorGroup, error) {
+	if groupID <= 0 {
+		return AccountLatencyMonitorGroup{}, ErrAccountLatencyMonitorGroupDisabled
+	}
+	if cfg, ok := m.cachedGroup(groupID); ok {
+		return cfg, nil
+	}
+	settings, err := m.GetSettings(ctx)
+	if err != nil {
+		return AccountLatencyMonitorGroup{}, err
+	}
+	for _, cfg := range settings.Groups {
+		if cfg.GroupID == groupID && cfg.Enabled {
+			return cfg, nil
+		}
+	}
+	return AccountLatencyMonitorGroup{}, ErrAccountLatencyMonitorGroupDisabled
+}
+
+func (m *AccountLatencyMonitor) beginManualProbe(groupID int64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rt := m.ensureRuntimeLocked(groupID)
+	if rt.probing || rt.switching {
+		return false
+	}
+	rt.probing = true
+	rt.lastProbeError = ""
+	return true
+}
+
+func (m *AccountLatencyMonitor) abortProbe(groupID int64) {
+	m.mu.Lock()
+	if rt := m.runtime[groupID]; rt != nil {
+		rt.probing = false
+	}
+	m.mu.Unlock()
+}
+
+func (m *AccountLatencyMonitor) finishManualProbe(groupID int64, probeErr error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rt := m.ensureRuntimeLocked(groupID)
+	rt.probing = false
+	if probeErr != nil {
+		rt.lastProbeError = probeErr.Error()
+		return
+	}
+	rt.lastProbeError = ""
+	rt.lastProbe = time.Now().UTC()
+}
+
+func (m *AccountLatencyMonitor) finishSwitch(groupID int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if rt := m.runtime[groupID]; rt != nil {
+		rt.switching = false
+		if rt.switchDone != nil {
+			close(rt.switchDone)
+			rt.switchDone = nil
+		}
+	}
+}
+
+func (m *AccountLatencyMonitor) temporaryDisabledAccountIDs(groupID int64, now time.Time) map[int64]struct{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	excluded := make(map[int64]struct{})
+	for accountID, until := range m.ensureRuntimeLocked(groupID).temporaryDisabledUntil {
+		if until.After(now) {
+			excluded[accountID] = struct{}{}
+		}
+	}
+	return excluded
+}
+
+func accountLatencyMonitorTemporaryBlockUntil(account Account) time.Time {
+	until := time.Time{}
+	for _, candidate := range []*time.Time{
+		account.RateLimitResetAt,
+		account.OverloadUntil,
+		account.TempUnschedulableUntil,
+	} {
+		if candidate != nil && candidate.After(until) {
+			until = *candidate
+		}
+	}
+	return until
+}
+
+func accountLatencyMonitorAccountTemporarilyBlocked(account Account, now time.Time) bool {
+	return accountLatencyMonitorTemporaryBlockUntil(account).After(now)
+}
+
+func accountLatencyMonitorBlockedAccountIDs(accounts []Account, now time.Time) map[int64]struct{} {
+	blocked := make(map[int64]struct{})
+	for _, account := range accounts {
+		if accountLatencyMonitorAccountTemporarilyBlocked(account, now) {
+			blocked[account.ID] = struct{}{}
+		}
+	}
+	return blocked
+}
+
+func (m *AccountLatencyMonitor) refreshProbeResultIssueCounts(cfg AccountLatencyMonitorGroup, results []accountLatencyProbeResult, now time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rt := m.ensureRuntimeLocked(cfg.GroupID)
+	for i := range results {
+		anomalyBase := accountLatencyMonitorAnomalyBase(results[i].account)
+		results[i].recentIssueCount = accountLatencyMonitorEffectiveIssueCount(
+			accountLatencyMonitorRecentIssueCount(rt, results[i].account.ID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false),
+			anomalyBase,
+		)
+		state := m.ensureAccountStateLocked(rt, results[i].account.ID)
+		state.AnomalyBase = anomalyBase
+		state.RecentIssueCount = results[i].recentIssueCount
+	}
+}
+
 func (m *AccountLatencyMonitor) GetRuntime(ctx context.Context) ([]AccountLatencyMonitorGroupState, error) {
 	settings, err := m.GetSettings(ctx)
 	if err != nil {
@@ -699,8 +1521,10 @@ func (m *AccountLatencyMonitor) GetRuntime(ctx context.Context) ([]AccountLatenc
 
 func (m *AccountLatencyMonitor) snapshotRuntime(cfg AccountLatencyMonitorGroup, accounts []Account) AccountLatencyMonitorGroupState {
 	validAccountIDs := make(map[int64]struct{}, len(accounts))
+	anomalyBases := make(map[int64]int, len(accounts))
 	for _, account := range accounts {
 		validAccountIDs[account.ID] = struct{}{}
+		anomalyBases[account.ID] = accountLatencyMonitorAnomalyBase(account)
 	}
 
 	m.mu.Lock()
@@ -712,6 +1536,8 @@ func (m *AccountLatencyMonitor) snapshotRuntime(cfg AccountLatencyMonitorGroup, 
 	}
 	pruneAccountLatencyMonitorRuntime(rt, validAccountIDs)
 	state.BackupAccountIDs = append(state.BackupAccountIDs, rt.backups...)
+	state.ProbeInProgress = rt.probing
+	state.LastProbeError = rt.lastProbeError
 	if !rt.lastProbe.IsZero() {
 		state.LastProbeAt = accountLatencyMonitorTimePtr(rt.lastProbe)
 	}
@@ -721,8 +1547,16 @@ func (m *AccountLatencyMonitor) snapshotRuntime(cfg AccountLatencyMonitorGroup, 
 	state.SwitchHistory = cloneAccountLatencyMonitorSwitchHistory(rt.switchHistory)
 	now := time.Now().UTC()
 	for accountID, account := range rt.accounts {
-		account.RecentIssueCount = accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false)
-		state.Accounts = append(state.Accounts, cloneAccountLatencyMonitorState(*account))
+		account.AnomalyBase = anomalyBases[accountID]
+		account.RecentIssueCount = accountLatencyMonitorEffectiveIssueCount(
+			accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false),
+			account.AnomalyBase,
+		)
+		cloned := cloneAccountLatencyMonitorState(*account)
+		if until := rt.temporaryDisabledUntil[accountID]; until.After(now) {
+			cloned.TemporaryDisabledUntil = accountLatencyMonitorTimePtr(until)
+		}
+		state.Accounts = append(state.Accounts, cloned)
 	}
 	sort.Slice(state.Accounts, func(i, j int) bool { return state.Accounts[i].AccountID < state.Accounts[j].AccountID })
 	return state
@@ -752,6 +1586,11 @@ func pruneAccountLatencyMonitorRuntime(rt *accountLatencyMonitorGroupRuntime, va
 			delete(rt.activeSince, accountID)
 		}
 	}
+	for accountID := range rt.temporaryDisabledUntil {
+		if _, valid := validAccountIDs[accountID]; !valid {
+			delete(rt.temporaryDisabledUntil, accountID)
+		}
+	}
 	backups := make([]int64, 0, len(rt.backups))
 	for _, accountID := range rt.backups {
 		if _, valid := validAccountIDs[accountID]; valid {
@@ -770,6 +1609,9 @@ func cloneAccountLatencyMonitorState(state AccountLatencyMonitorAccountState) Ac
 	}
 	if state.LastObservedAt != nil {
 		state.LastObservedAt = accountLatencyMonitorTimePtr(*state.LastObservedAt)
+	}
+	if state.TemporaryDisabledUntil != nil {
+		state.TemporaryDisabledUntil = accountLatencyMonitorTimePtr(*state.TemporaryDisabledUntil)
 	}
 	return state
 }
@@ -812,6 +1654,7 @@ func (m *AccountLatencyMonitor) run() {
 	for {
 		select {
 		case <-ticker.C:
+			m.restoreTemporaryDisabledAccounts(context.Background())
 			if time.Since(lastSettingsRefresh) >= accountLatencyMonitorSettingsRefresh {
 				m.refreshCachedSettings(context.Background())
 				lastSettingsRefresh = time.Now()
@@ -834,7 +1677,10 @@ func (m *AccountLatencyMonitor) refreshCachedSettings(ctx context.Context) {
 
 func (m *AccountLatencyMonitor) Stop() {
 	if m != nil {
-		m.once.Do(func() { close(m.stop) })
+		m.once.Do(func() {
+			clearAccountTemporaryBlockObserver(m)
+			close(m.stop)
+		})
 	}
 }
 
@@ -997,19 +1843,24 @@ func (m *AccountLatencyMonitor) healthyBackup(cfg AccountLatencyMonitorGroup, fa
 		return 0, false
 	}
 	priorities := make(map[int64]int, len(accounts))
+	anomalyBases := make(map[int64]int, len(accounts))
 	members := make(map[int64]struct{}, len(accounts))
 	unavailable := accountLatencyMonitorExcludedIDs(cfg.AlwaysEnabledIDs)
+	now := time.Now().UTC()
 	for _, account := range accounts {
 		members[account.ID] = struct{}{}
 		priorities[account.ID] = accountLatencyMonitorPriority(account, cfg.GroupID)
+		anomalyBases[account.ID] = accountLatencyMonitorAnomalyBase(account)
 		if account.Schedulable {
+			unavailable[account.ID] = struct{}{}
+		}
+		if accountLatencyMonitorAccountTemporarilyBlocked(account, now) {
 			unavailable[account.ID] = struct{}{}
 		}
 	}
 	var bestID int64
 	var best *AccountLatencyMonitorAccountState
 	validBackups := make([]int64, 0, len(rt.backups))
-	now := time.Now().UTC()
 	for _, accountID := range rt.backups {
 		if _, exists := members[accountID]; !exists {
 			continue
@@ -1025,7 +1876,11 @@ func (m *AccountLatencyMonitor) healthyBackup(cfg AccountLatencyMonitorGroup, fa
 		if state == nil || state.LastSuccess == nil || !*state.LastSuccess || state.LastLatencyMs == nil || *state.LastLatencyMs >= thresholdMs {
 			continue
 		}
-		state.RecentIssueCount = accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false)
+		state.AnomalyBase = anomalyBases[accountID]
+		state.RecentIssueCount = accountLatencyMonitorEffectiveIssueCount(
+			accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false),
+			state.AnomalyBase,
+		)
 		if best == nil || state.RecentIssueCount < best.RecentIssueCount ||
 			(state.RecentIssueCount == best.RecentIssueCount && priorities[accountID] < priorities[bestID]) ||
 			(state.RecentIssueCount == best.RecentIssueCount && priorities[accountID] == priorities[bestID] && *state.LastLatencyMs < *best.LastLatencyMs) ||
@@ -1108,6 +1963,7 @@ func accountLatencyMonitorBestPriorityBackup(results []accountLatencyProbeResult
 		return accountLatencyProbeResult{}, false
 	}
 	priorities := make(map[int64]int, len(accounts))
+	blocked := accountLatencyMonitorBlockedAccountIDs(accounts, time.Now().UTC())
 	for _, account := range accounts {
 		priorities[account.ID] = account.Priority
 	}
@@ -1121,6 +1977,9 @@ func accountLatencyMonitorBestPriorityBackup(results []accountLatencyProbeResult
 	found := false
 	for _, result := range results {
 		if !result.success || result.latency >= thresholdMs || result.account.Priority >= currentPriority {
+			continue
+		}
+		if _, unavailable := blocked[result.account.ID]; unavailable {
 			continue
 		}
 		if !found || result.recentIssueCount < best.recentIssueCount ||
@@ -1201,6 +2060,13 @@ func (m *AccountLatencyMonitor) probeAllWithPolicy(ctx context.Context, cfg Acco
 		return
 	}
 	results := m.probeAccounts(ctx, cfg, accounts)
+	if len(results) == len(accounts) {
+		m.mu.Lock()
+		rt := m.ensureRuntimeLocked(cfg.GroupID)
+		rt.latestFullProbeResults = append([]accountLatencyProbeResult(nil), results...)
+		rt.latestFullProbeSignature = accountLatencyMonitorFullProbeSignatureValue(cfg, accounts)
+		m.mu.Unlock()
+	}
 	if periodic && !accountLatencyMonitorPeriodicSwitchAllowed(m.runtimeLastSwitch(cfg.GroupID), accountLatencyMonitorCurrentIDs(accounts, cfg.AlwaysEnabledIDs), cfg.SwitchCooldownSec, time.Now().UTC()) {
 		m.replaceBackupsFromResults(cfg, results, accountLatencyMonitorSchedulableIDs(accounts))
 		return
@@ -1208,7 +2074,17 @@ func (m *AccountLatencyMonitor) probeAllWithPolicy(ctx context.Context, cfg Acco
 	// Keep every successful result through ranking. Long-term enabled accounts
 	// can appear before the dynamic current account and must not consume its
 	// slot or one of the configured standby slots.
-	candidates := selectAccountLatencyMonitorBackups(results, cfg.GroupID, int64(cfg.LatencyThresholdSec*1000), len(accounts), excluded)
+	rankingExcluded := accountLatencyMonitorExcludedIDs(cfg.AlwaysEnabledIDs)
+	for accountID := range excluded {
+		rankingExcluded[accountID] = struct{}{}
+	}
+	for accountID := range m.temporaryDisabledAccountIDs(cfg.GroupID, time.Now().UTC()) {
+		rankingExcluded[accountID] = struct{}{}
+	}
+	for accountID := range accountLatencyMonitorBlockedAccountIDs(accounts, time.Now().UTC()) {
+		rankingExcluded[accountID] = struct{}{}
+	}
+	candidates := selectAccountLatencyMonitorBackups(results, cfg.GroupID, int64(cfg.LatencyThresholdSec*1000), len(accounts), rankingExcluded)
 	currentIDs, backups := accountLatencyMonitorTargets(candidates, cfg.AlwaysEnabledIDs, cfg.ActiveAccountCount, cfg.BackupCount)
 	m.mu.Lock()
 	m.ensureRuntimeLocked(cfg.GroupID).backups = append([]int64(nil), backups...)
@@ -1256,8 +2132,8 @@ func (m *AccountLatencyMonitor) probeAccounts(ctx context.Context, cfg AccountLa
 			if probe.success {
 				latency = accountLatencyMonitorInt64Ptr(probe.latency)
 			}
-			m.observeProbe(cfg, account.ID, latency, probe.success)
-			probe.recentIssueCount = m.recentIssueCount(cfg, account.ID, time.Now().UTC())
+			m.observeProbe(cfg, account, latency, probe.success)
+			probe.recentIssueCount = m.recentIssueCount(cfg, account, time.Now().UTC())
 			resultCh <- probe
 		}()
 	}
@@ -1269,25 +2145,37 @@ func (m *AccountLatencyMonitor) probeAccounts(ctx context.Context, cfg AccountLa
 	return results
 }
 
-func (m *AccountLatencyMonitor) observeProbe(cfg AccountLatencyMonitorGroup, accountID int64, latency *int64, success bool) {
+func (m *AccountLatencyMonitor) observeProbe(cfg AccountLatencyMonitorGroup, account Account, latency *int64, success bool) {
 	now := time.Now().UTC()
+	accountID := account.ID
+	anomalyBase := accountLatencyMonitorAnomalyBase(account)
 	m.mu.Lock()
 	rt := m.ensureRuntimeLocked(cfg.GroupID)
 	state := m.ensureAccountStateLocked(rt, accountID)
+	state.AnomalyBase = anomalyBase
 	state.LastLatencyMs = latency
 	state.LastSuccess = accountLatencyMonitorBoolPtr(success)
 	state.LastObservedAt = accountLatencyMonitorTimePtr(now)
 	anomalous := !success || latency == nil || *latency >= int64(cfg.LatencyThresholdSec*1000)
-	state.RecentIssueCount = accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, anomalous)
+	state.RecentIssueCount = accountLatencyMonitorEffectiveIssueCount(
+		accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, anomalous),
+		anomalyBase,
+	)
 	m.mu.Unlock()
 }
 
-func (m *AccountLatencyMonitor) recentIssueCount(cfg AccountLatencyMonitorGroup, accountID int64, now time.Time) int {
+func (m *AccountLatencyMonitor) recentIssueCount(cfg AccountLatencyMonitorGroup, account Account, now time.Time) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	rt := m.ensureRuntimeLocked(cfg.GroupID)
-	count := accountLatencyMonitorRecentIssueCount(rt, accountID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false)
-	m.ensureAccountStateLocked(rt, accountID).RecentIssueCount = count
+	anomalyBase := accountLatencyMonitorAnomalyBase(account)
+	count := accountLatencyMonitorEffectiveIssueCount(
+		accountLatencyMonitorRecentIssueCount(rt, account.ID, now, time.Duration(cfg.RecentIssueWindowSec)*time.Second, false),
+		anomalyBase,
+	)
+	state := m.ensureAccountStateLocked(rt, account.ID)
+	state.AnomalyBase = anomalyBase
+	state.RecentIssueCount = count
 	return count
 }
 
@@ -1400,6 +2288,11 @@ func accountLatencyMonitorReplaceFailedCurrent(currentIDs []int64, failedID, bac
 
 func (m *AccountLatencyMonitor) replaceBackupsFromResults(cfg AccountLatencyMonitorGroup, results []accountLatencyProbeResult, activeIDs []int64) {
 	excluded := accountLatencyMonitorExcludedIDs(activeIDs, cfg.AlwaysEnabledIDs)
+	for _, result := range results {
+		if accountLatencyMonitorAccountTemporarilyBlocked(result.account, time.Now().UTC()) {
+			excluded[result.account.ID] = struct{}{}
+		}
+	}
 	backups := selectAccountLatencyMonitorBackups(
 		results,
 		cfg.GroupID,
@@ -1583,8 +2476,14 @@ func (m *AccountLatencyMonitor) setSchedulableAccounts(ctx context.Context, cfg 
 	for _, accountID := range active {
 		allowed[accountID] = true
 	}
+	m.mu.Lock()
+	temporaryDisabled := cloneAccountLatencyMonitorTimes(m.ensureRuntimeLocked(cfg.GroupID).temporaryDisabledUntil)
+	m.mu.Unlock()
+	now := time.Now().UTC()
 	for _, accountID := range cfg.AlwaysEnabledIDs {
-		allowed[accountID] = true
+		if until := temporaryDisabled[accountID]; !until.After(now) {
+			allowed[accountID] = true
+		}
 	}
 	disabled := make([]int64, 0, len(accounts))
 	enabled := make([]int64, 0, len(accounts))
@@ -1672,9 +2571,10 @@ func (m *AccountLatencyMonitor) setSchedulableAccounts(ctx context.Context, cfg 
 }
 
 type accountLatencyMonitorRuntimeState struct {
-	LastSwitch    map[string]time.Time                           `json:"last_switch"`
-	SwitchHistory map[string][]AccountLatencyMonitorSwitchRecord `json:"switch_history"`
-	ActiveSince   map[string]map[string]time.Time                `json:"active_since"`
+	LastSwitch             map[string]time.Time                           `json:"last_switch"`
+	SwitchHistory          map[string][]AccountLatencyMonitorSwitchRecord `json:"switch_history"`
+	ActiveSince            map[string]map[string]time.Time                `json:"active_since"`
+	TemporaryDisabledUntil map[string]map[string]time.Time                `json:"temporary_disabled_until,omitempty"`
 }
 
 func (m *AccountLatencyMonitor) loadRuntimeSwitches(ctx context.Context) {
@@ -1721,6 +2621,19 @@ func (m *AccountLatencyMonitor) loadRuntimeSwitches(ctx context.Context) {
 			}
 		}
 	}
+	for groupID, values := range state.TemporaryDisabledUntil {
+		parsed, err := strconv.ParseInt(groupID, 10, 64)
+		if err != nil || parsed <= 0 {
+			continue
+		}
+		rt := m.ensureRuntimeLocked(parsed)
+		for accountID, until := range values {
+			id, err := strconv.ParseInt(accountID, 10, 64)
+			if err == nil && id > 0 && !until.IsZero() {
+				rt.temporaryDisabledUntil[id] = until
+			}
+		}
+	}
 }
 
 func (m *AccountLatencyMonitor) persistRuntimeSwitch(ctx context.Context, groupID int64, record AccountLatencyMonitorSwitchRecord, activeSince map[int64]time.Time) {
@@ -1737,9 +2650,10 @@ func (m *AccountLatencyMonitor) persistRuntimeSwitch(ctx context.Context, groupI
 	}
 	defer m.unlockRuntimePersistence()
 	state := accountLatencyMonitorRuntimeState{
-		LastSwitch:    make(map[string]time.Time),
-		SwitchHistory: make(map[string][]AccountLatencyMonitorSwitchRecord),
-		ActiveSince:   make(map[string]map[string]time.Time),
+		LastSwitch:             make(map[string]time.Time),
+		SwitchHistory:          make(map[string][]AccountLatencyMonitorSwitchRecord),
+		ActiveSince:            make(map[string]map[string]time.Time),
+		TemporaryDisabledUntil: make(map[string]map[string]time.Time),
 	}
 	if raw, err := m.settingRepo.GetValue(ctx, SettingKeyAccountLatencyMonitorRuntime); err == nil && raw != "" {
 		_ = json.Unmarshal([]byte(raw), &state)
@@ -1752,11 +2666,65 @@ func (m *AccountLatencyMonitor) persistRuntimeSwitch(ctx context.Context, groupI
 		if state.ActiveSince == nil {
 			state.ActiveSince = make(map[string]map[string]time.Time)
 		}
+		if state.TemporaryDisabledUntil == nil {
+			state.TemporaryDisabledUntil = make(map[string]map[string]time.Time)
+		}
 	}
 	key := strconv.FormatInt(groupID, 10)
 	state.LastSwitch[key] = record.SwitchedAt
 	state.SwitchHistory[key] = trimAccountLatencyMonitorSwitchHistory(append([]AccountLatencyMonitorSwitchRecord{record}, state.SwitchHistory[key]...))
 	state.ActiveSince[key] = accountLatencyMonitorActiveSinceJSON(activeSince)
+	payload, err := json.Marshal(state)
+	if err == nil {
+		_ = m.settingRepo.Set(ctx, SettingKeyAccountLatencyMonitorRuntime, string(payload))
+	}
+}
+
+func (m *AccountLatencyMonitor) persistRuntimeTemporaryDisabled(ctx context.Context, groupID int64, record *AccountLatencyMonitorSwitchRecord) {
+	if m == nil || m.settingRepo == nil || groupID <= 0 {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, accountLatencyMonitorSwitchOperationTimeout)
+	defer cancel()
+	if !m.lockRuntimePersistence(ctx) {
+		return
+	}
+	defer m.unlockRuntimePersistence()
+	m.mu.Lock()
+	values := make(map[int64]time.Time)
+	if rt := m.runtime[groupID]; rt != nil {
+		values = cloneAccountLatencyMonitorTimes(rt.temporaryDisabledUntil)
+	}
+	m.mu.Unlock()
+	state := accountLatencyMonitorRuntimeState{
+		LastSwitch:             make(map[string]time.Time),
+		SwitchHistory:          make(map[string][]AccountLatencyMonitorSwitchRecord),
+		ActiveSince:            make(map[string]map[string]time.Time),
+		TemporaryDisabledUntil: make(map[string]map[string]time.Time),
+	}
+	if raw, err := m.settingRepo.GetValue(ctx, SettingKeyAccountLatencyMonitorRuntime); err == nil && raw != "" {
+		_ = json.Unmarshal([]byte(raw), &state)
+	}
+	if state.LastSwitch == nil {
+		state.LastSwitch = make(map[string]time.Time)
+	}
+	if state.SwitchHistory == nil {
+		state.SwitchHistory = make(map[string][]AccountLatencyMonitorSwitchRecord)
+	}
+	if state.ActiveSince == nil {
+		state.ActiveSince = make(map[string]map[string]time.Time)
+	}
+	if state.TemporaryDisabledUntil == nil {
+		state.TemporaryDisabledUntil = make(map[string]map[string]time.Time)
+	}
+	key := strconv.FormatInt(groupID, 10)
+	state.TemporaryDisabledUntil[key] = accountLatencyMonitorTimesJSON(values)
+	if record != nil {
+		state.SwitchHistory[key] = trimAccountLatencyMonitorSwitchHistory(append([]AccountLatencyMonitorSwitchRecord{*record}, state.SwitchHistory[key]...))
+	}
 	payload, err := json.Marshal(state)
 	if err == nil {
 		_ = m.settingRepo.Set(ctx, SettingKeyAccountLatencyMonitorRuntime, string(payload))
@@ -1794,6 +2762,24 @@ func cloneAccountLatencyMonitorActiveSince(values map[int64]time.Time) map[int64
 		cloned[accountID] = startedAt
 	}
 	return cloned
+}
+
+func cloneAccountLatencyMonitorTimes(values map[int64]time.Time) map[int64]time.Time {
+	cloned := make(map[int64]time.Time, len(values))
+	for accountID, value := range values {
+		cloned[accountID] = value
+	}
+	return cloned
+}
+
+func accountLatencyMonitorTimesJSON(values map[int64]time.Time) map[string]time.Time {
+	encoded := make(map[string]time.Time, len(values))
+	for accountID, value := range values {
+		if accountID > 0 && !value.IsZero() {
+			encoded[strconv.FormatInt(accountID, 10)] = value
+		}
+	}
+	return encoded
 }
 
 func accountLatencyMonitorActiveSinceJSON(values map[int64]time.Time) map[string]time.Time {
@@ -1843,15 +2829,34 @@ func (m *AccountLatencyMonitor) listGroupAccounts(ctx context.Context, groupID i
 }
 
 func (m *AccountLatencyMonitor) ensureRuntimeLocked(groupID int64) *accountLatencyMonitorGroupRuntime {
+	if m.runtime == nil {
+		m.runtime = make(map[int64]*accountLatencyMonitorGroupRuntime)
+	}
 	rt := m.runtime[groupID]
 	if rt == nil {
 		rt = &accountLatencyMonitorGroupRuntime{
-			accounts:     make(map[int64]*AccountLatencyMonitorAccountState),
-			activeSince:  make(map[int64]time.Time),
-			issues:       make(map[int64]map[string][]time.Time),
-			recentIssues: make(map[int64][]time.Time),
+			accounts:               make(map[int64]*AccountLatencyMonitorAccountState),
+			activeSince:            make(map[int64]time.Time),
+			issues:                 make(map[int64]map[string][]time.Time),
+			recentIssues:           make(map[int64][]time.Time),
+			temporaryDisabledUntil: make(map[int64]time.Time),
 		}
 		m.runtime[groupID] = rt
+	}
+	if rt.accounts == nil {
+		rt.accounts = make(map[int64]*AccountLatencyMonitorAccountState)
+	}
+	if rt.activeSince == nil {
+		rt.activeSince = make(map[int64]time.Time)
+	}
+	if rt.issues == nil {
+		rt.issues = make(map[int64]map[string][]time.Time)
+	}
+	if rt.recentIssues == nil {
+		rt.recentIssues = make(map[int64][]time.Time)
+	}
+	if rt.temporaryDisabledUntil == nil {
+		rt.temporaryDisabledUntil = make(map[int64]time.Time)
 	}
 	return rt
 }

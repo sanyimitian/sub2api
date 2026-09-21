@@ -12,10 +12,11 @@ import (
 // semantic token. It only cancels the attempt after the monitor has switched
 // the failed dynamic account to a verified standby account.
 type AccountLatencyRequestWatch struct {
-	monitor   *AccountLatencyMonitor
-	cfg       AccountLatencyMonitorGroup
-	accountID int64
-	startedAt time.Time
+	monitor     *AccountLatencyMonitor
+	cfg         AccountLatencyMonitorGroup
+	accountID   int64
+	anomalyBase int
+	startedAt   time.Time
 
 	ctx    context.Context
 	cancel context.CancelCauseFunc
@@ -43,13 +44,14 @@ type AccountLatencyRequestWatch struct {
 	doneOnce         sync.Once
 }
 
-func (m *AccountLatencyMonitor) StartRequestWatch(parent context.Context, groupID, accountID int64) (context.Context, *AccountLatencyRequestWatch) {
+func (m *AccountLatencyMonitor) StartRequestWatch(parent context.Context, groupID int64, account *Account) (context.Context, *AccountLatencyRequestWatch) {
 	if parent == nil {
 		parent = context.Background()
 	}
-	if m == nil || groupID <= 0 || accountID <= 0 {
+	if m == nil || groupID <= 0 || account == nil || account.ID <= 0 {
 		return parent, nil
 	}
+	accountID := account.ID
 	cfg, enabled := m.cachedGroup(groupID)
 	if !enabled {
 		return parent, nil
@@ -62,6 +64,7 @@ func (m *AccountLatencyMonitor) StartRequestWatch(parent context.Context, groupI
 		monitor:          m,
 		cfg:              cfg,
 		accountID:        accountID,
+		anomalyBase:      accountLatencyMonitorAnomalyBase(*account),
 		startedAt:        time.Now(),
 		ctx:              watchCtx,
 		cancel:           cancel,
@@ -158,7 +161,7 @@ func (w *AccountLatencyRequestWatch) observeDeadline(immediate bool) {
 		w.deadlineObserved = true
 		w.mu.Unlock()
 
-		_, _ = w.monitor.recordFirstTokenDeadlineAndSwitch(w.evaluationCtx, w.cfg, w.accountID, time.Since(w.startedAt), immediate, addIssue)
+		_, _ = w.monitor.recordFirstTokenDeadlineAndSwitch(w.evaluationCtx, w.cfg, w.accountID, w.anomalyBase, time.Since(w.startedAt), immediate, addIssue)
 
 		w.mu.Lock()
 		w.evaluating = false
@@ -206,7 +209,7 @@ func (w *AccountLatencyRequestWatch) Complete(firstTokenMs *int, success bool) *
 		w.doneOnce.Do(func() { close(w.done) })
 
 		if handled && !disarmed && !switched {
-			w.monitor.completeDeadlineObservedRequest(w.cfg, w.accountID, firstTokenMs, success)
+			w.monitor.completeDeadlineObservedRequest(w.cfg, w.accountID, w.anomalyBase, firstTokenMs, success)
 		}
 		if !switched {
 			return nil

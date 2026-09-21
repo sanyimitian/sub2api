@@ -329,8 +329,13 @@ func (s *OpenAIGatewayService) BlockAccountScheduling(account *Account, until ti
 	}
 	mu := s.openAIAccountRuntimeBlockLock(account.ID)
 	mu.Lock()
-	defer mu.Unlock()
-	_, _ = s.blockAccountSchedulingLocked(account, until, reason)
+	_, changed := s.blockAccountSchedulingLocked(account, until, reason)
+	installed, _ := s.openaiAccountRuntimeBlockUntil.Load(account.ID)
+	installedUntil, _ := installed.(time.Time)
+	mu.Unlock()
+	if changed {
+		NotifyAccountTemporaryBlock(account.ID, installedUntil, reason)
+	}
 }
 
 func (s *OpenAIGatewayService) openAIAccountRuntimeBlockLock(accountID int64) *sync.Mutex {

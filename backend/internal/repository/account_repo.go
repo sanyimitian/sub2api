@@ -68,9 +68,10 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 }
 
 var schedulerNeutralExtraKeys = map[string]struct{}{
-	"codex_usage_updated_at":     {},
-	"grok_billing_snapshot":      {},
-	"session_window_utilization": {},
+	"codex_usage_updated_at":                         {},
+	"grok_billing_snapshot":                          {},
+	"session_window_utilization":                     {},
+	service.AccountLatencyMonitorAnomalyBaseExtraKey: {},
 }
 
 const postgresParameterBatchSize = 50000
@@ -2210,7 +2211,7 @@ func (r *accountRepository) ListModelAvailabilityCandidates(
 
 func (r *accountRepository) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
 	now := time.Now()
-	_, err := r.client.Account.Update().
+	updated, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetRateLimitedAt(now).
 		SetRateLimitResetAt(resetAt).
@@ -2222,6 +2223,9 @@ func (r *accountRepository) SetRateLimited(ctx context.Context, id int64, resetA
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue rate limit failed: account=%d err=%v", id, err)
 	}
 	r.syncSchedulerAccountSnapshot(ctx, id)
+	if updated > 0 {
+		service.NotifyAccountTemporaryBlock(id, resetAt, "rate_limited")
+	}
 	return nil
 }
 
@@ -2254,6 +2258,7 @@ func (r *accountRepository) SetRateLimitedIfLater(ctx context.Context, id int64,
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue extended rate limit failed: account=%d err=%v", id, err)
 	}
 	r.syncSchedulerAccountSnapshot(ctx, id)
+	service.NotifyAccountTemporaryBlock(id, resetAt, "rate_limited")
 	return nil
 }
 
@@ -2338,6 +2343,7 @@ func (r *accountRepository) SetRateLimitedIfUnchanged(
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue rate limit failed: account=%d err=%v", id, err)
 	}
 	r.syncSchedulerAccountSnapshot(ctx, id)
+	service.NotifyAccountTemporaryBlock(id, newResetAt, "rate_limited")
 	return true, nil
 }
 
@@ -2395,7 +2401,7 @@ func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, sco
 }
 
 func (r *accountRepository) SetOverloaded(ctx context.Context, id int64, until time.Time) error {
-	_, err := r.client.Account.Update().
+	updated, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetOverloadUntil(until).
 		Save(ctx)
@@ -2406,6 +2412,9 @@ func (r *accountRepository) SetOverloaded(ctx context.Context, id int64, until t
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue overload failed: account=%d err=%v", id, err)
 	}
 	r.syncSchedulerAccountSnapshot(ctx, id)
+	if updated > 0 {
+		service.NotifyAccountTemporaryBlock(id, until, "overloaded")
+	}
 	return nil
 }
 
@@ -2433,6 +2442,7 @@ func (r *accountRepository) SetTempUnschedulable(ctx context.Context, id int64, 
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue temp unschedulable failed: account=%d err=%v", id, err)
 	}
 	r.syncSchedulerAccountSnapshot(ctx, id)
+	service.NotifyAccountTemporaryBlock(id, until, "temp_unschedulable")
 	return nil
 }
 
@@ -2478,6 +2488,7 @@ func (r *accountRepository) SetGrokCredentialTempUnschedulableIfMatch(
 		return false, err
 	}
 	r.syncSchedulerAccountSnapshotDetached(ctx, id)
+	service.NotifyAccountTemporaryBlock(id, until, "grok_credential_temp_unschedulable")
 	return true, nil
 }
 

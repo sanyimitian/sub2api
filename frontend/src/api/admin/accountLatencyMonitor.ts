@@ -19,6 +19,7 @@ export interface AccountLatencyMonitorGroup {
   switch_cooldown_seconds: number
   immediate_switch_threshold_seconds: number
   recent_issue_window_seconds: number
+  always_enabled_temporary_disable_seconds: number
 }
 
 export interface AccountLatencyMonitorSettings {
@@ -28,11 +29,13 @@ export interface AccountLatencyMonitorSettings {
 export interface AccountLatencyMonitorAccountState {
   account_id: number
   account_priority: number
+  anomaly_base: number
   consecutive_failures: number
   recent_issue_count: number
   last_latency_ms?: number
   last_success?: boolean
   last_observed_at?: string
+  temporary_disabled_until?: string
 }
 
 export interface AccountLatencyMonitorSwitchRecord {
@@ -47,6 +50,8 @@ export interface AccountLatencyMonitorGroupState {
   group_id: number
   active_account_ids: number[]
   backup_account_ids: number[]
+  probe_in_progress: boolean
+  last_probe_error?: string
   last_probe_at?: string
   last_switch_at?: string
   switch_history: AccountLatencyMonitorSwitchRecord[]
@@ -66,4 +71,18 @@ export async function updateSettings(settings: AccountLatencyMonitorSettings): P
 export async function getRuntime(): Promise<{ groups: AccountLatencyMonitorGroupState[] }> {
   const { data } = await apiClient.get<{ groups: AccountLatencyMonitorGroupState[] }>('/admin/account-latency-monitor/runtime')
   return data
+}
+
+export async function probeGroup(groupID: number): Promise<void> {
+  await apiClient.post(`/admin/account-latency-monitor/groups/${groupID}/probe`)
+}
+
+export async function activateBestAccounts(groupID: number): Promise<void> {
+  await apiClient.post(`/admin/account-latency-monitor/groups/${groupID}/activate-best`)
+}
+
+export async function updateAccountAnomalyBase(accountID: number, anomalyBase: number): Promise<void> {
+  await apiClient.put(`/admin/account-latency-monitor/accounts/${accountID}/anomaly-base`, {
+    anomaly_base: anomalyBase
+  })
 }

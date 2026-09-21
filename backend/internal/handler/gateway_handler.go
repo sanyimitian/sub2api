@@ -74,7 +74,7 @@ func (h *GatewayHandler) recordAccountLatencyMonitorResult(c *gin.Context, apiKe
 	if result != nil {
 		firstTokenMs = result.FirstTokenMs
 	}
-	h.accountLatencyMonitor.RecordRequest(c.Request.Context(), *apiKey.GroupID, account.ID, firstTokenMs, success)
+	h.accountLatencyMonitor.RecordRequest(c.Request.Context(), *apiKey.GroupID, account, firstTokenMs, success)
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -490,7 +490,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if fs.SwitchCount > 0 {
 				requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 			}
-			requestCtx, latencyWatch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, requestCtx, apiKey.GroupID, account.ID)
+			requestCtx, latencyWatch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, requestCtx, apiKey.GroupID, account)
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
 			if account.Platform == service.PlatformAntigravity {
@@ -920,7 +920,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if fs.ForceCacheBilling {
 				requestCtx = service.WithForceCacheBilling(requestCtx)
 			}
-			requestCtx, latencyWatch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, requestCtx, currentAPIKey.GroupID, account.ID)
+			requestCtx, latencyWatch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, requestCtx, currentAPIKey.GroupID, account)
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
 			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {

@@ -64,7 +64,7 @@ func (h *OpenAIGatewayHandler) recordAccountLatencyMonitorResult(c *gin.Context,
 	if result != nil {
 		firstTokenMs = result.FirstTokenMs
 	}
-	h.accountLatencyMonitor.RecordRequest(c.Request.Context(), *apiKey.GroupID, account.ID, firstTokenMs, success)
+	h.accountLatencyMonitor.RecordRequest(c.Request.Context(), *apiKey.GroupID, account, firstTokenMs, success)
 }
 
 type openAIWSTurnChannelMappingSnapshot struct {
@@ -784,7 +784,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
 		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
 		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, account, &passthroughFailoverState)
-		attemptCtx, latencyWatch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, c.Request.Context(), apiKey.GroupID, account.ID)
+		attemptCtx, latencyWatch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, c.Request.Context(), apiKey.GroupID, account)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
@@ -1383,7 +1383,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		// 应用渠道模型映射到请求体
 		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
 		writerSizeBeforeForward := c.Writer.Size()
-		attemptCtx, latencyWatch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, c.Request.Context(), apiKey.GroupID, account.ID)
+		attemptCtx, latencyWatch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, c.Request.Context(), apiKey.GroupID, account)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
@@ -2958,7 +2958,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if turnCtx := latencyTurnContexts[turn]; turnCtx != nil {
 					return turnCtx
 				}
-				turnCtx, watch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, parent, apiKey.GroupID, account.ID)
+				turnCtx, watch := startAccountLatencyRequestWatch(h.accountLatencyMonitor, parent, apiKey.GroupID, account)
 				latencyTurnContexts[turn] = turnCtx
 				latencyTurnWatches[turn] = watch
 				return turnCtx
