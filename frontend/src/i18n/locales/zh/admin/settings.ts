@@ -470,6 +470,18 @@ export default {
         saved: 'Ollama Cloud 用量刷新设置已保存',
         saveFailed: '保存 Ollama Cloud 用量刷新设置失败'
       },
+      opencodeGoUsage: {
+        title: 'OpenCode Go 用量刷新',
+        description: '刷新上游 OpenCode Go 账号上报的用量窗口；默认关闭，仅对单独开启的账号生效。',
+        enabled: '启用全局自动刷新',
+        enabledHint: '仅刷新账号自身也开启自动刷新的账号。手动刷新不受影响。',
+        intervalMinutes: '请求持续时的最长等待（分钟）',
+        intervalHint: '范围 5–1440 分钟。请求持续不断导致 debounce 一直后移时，最晚在此时间强制刷新。',
+        debounceMinutes: '请求安静等待（分钟）',
+        debounceHint: '范围 1–60 分钟，且必须小于刷新间隔。最后一次模型请求安静满此时长后再抓取用量。',
+        saved: 'OpenCode Go 用量刷新设置已保存',
+        saveFailed: '保存 OpenCode Go 用量刷新设置失败'
+      },
       gatewayForwarding: {
         title: '请求转发行为',
         description: '控制请求转发到上游 OAuth 账号时的行为',
@@ -535,15 +547,12 @@ export default {
         openaiCodexVersionAutoSync: '自动同步 Codex 版本号',
         openaiCodexVersionAutoSyncHint: '每 6 小时从官方仓库获取最新稳定版客户端版本号，无需为了跟版本而升级本服务。关闭后仅使用上方手填版本或内置版本。',
         openaiCodexVersionSyncedValue: '当前同步到：{version}',
+        claudeCodeClientVersion: 'Claude Code 客户端版本号',
+        claudeCodeClientVersionHint: '网关伪装为官方 Claude Code CLI 时对上游声明的客户端版本号。留空表示使用自动同步到的官方最新版本；填写后固定为该版本，不再跟随同步。仅在手填值和同步值均不可用时，才回退到环境变量 SUB2API_CLAUDE_CLI_VERSION 或内置版本。',
+        claudeCodeVersionAutoSync: '自动同步 Claude Code 版本号',
+        claudeCodeVersionAutoSyncHint: '每小时从官方发布渠道获取最新版本的 Claude Code 客户端版本号，无需为了跟版本而升级本服务。关闭后停止获取新版本，已同步的版本仍可使用；上方手填版本始终优先。',
+        claudeCodeVersionSyncedValue: '当前同步到：{version}',
         codexHardeningTitle: 'Codex 设置',
-        codexTicketEnabled: '292 打票',
-        codexTicketEnabledDesc:
-          '关闭后不打票、不注入 x-codex-turn-state，按原链路转发。开启后后台打票，并在业务请求中覆盖该头。',
-        codexTicketHarvestProxy: '292 打票代理',
-        codexTicketHarvestProxyDesc:
-          '仅在门票功能开启时用于打票，保存后后续探测会使用新代理，无需重启。日常业务仍走账号自己的住宅代理。填写完整代理 URL（http 或 socks5h，含用户名和密码）。代理服务商需自行负责出口 IP 轮换。留空并保存表示不改已保存的值。',
-        codexTicketHarvestProxyPlaceholder: "http://user:pass{'@'}proxy.example.com:1080",
-        codexTicketHarvestProxyConfigured: '已配置（密码已隐藏）。要更换请整段粘贴新的代理 URL。',
         codexClientRestrictionTitle: 'Codex 客户端限制',
         codexHardeningDesc:
           '仅对已开启「仅允许 Codex 官方客户端」的 OpenAI OAuth 账号生效（全局）。在 User-Agent/Originator 之外，用版本区间、引擎指纹门与黑/白名单巩固判定。',
@@ -1221,8 +1230,9 @@ export default {
         lowRatePriorityTitle: '低倍率优先',
         lowRatePriorityDescription: '开启后优先选择计费倍率较低的账号；倍率相同时，再比较账号优先级和当前负载等。启用实验调度策略后，此开关不生效。',
         oauthRateTitle: 'OAuth 调度参考倍率',
-        oauthRatePriorityDescription: '同一分组同时包含 API Key 和 OAuth 账号时，OAuth 账号按此倍率与已探测的 API Key 计费倍率一起排序。',
-        oauthRateWeightedDescription: '同一分组同时包含 API Key 和 OAuth 账号时，计算“计费倍率”得分时，OAuth 账号按此倍率参与计算。',
+        oauthRatePriorityDescription: 'OAuth 账号按此参考倍率参与低倍率优先排序；留空时使用各自的账号倍率。API Key 账号优先使用有效探测倍率，无有效探测时使用账号倍率。',
+        oauthRateWeightedDescription: '计算“计费倍率”得分时，OAuth 账号使用此参考倍率；留空时使用各自的账号倍率。API Key 账号优先使用有效探测倍率，无有效探测时使用账号倍率。',
+        oauthRateInvalid: 'OAuth 调度参考倍率必须是非负数字，或留空以使用账号倍率。',
         stickyWeightedTitle: '粘性加权',
         stickyWeightedDescription: '开启后 previous_response_id 和 session_hash 粘性进入高级调度打分；关闭时仍按旧逻辑硬命中粘性账号。',
         subscriptionPriorityTitle: '订阅优先',

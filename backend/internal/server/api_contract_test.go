@@ -897,9 +897,6 @@ func TestAPIContracts(t *testing.T) {
 						"table_page_size_options": [10, 20, 50, 100],
 					"min_claude_code_version": "",
 					"max_claude_code_version": "",
-					"openai_codex_ticket_enabled": false,
-					"openai_codex_ticket_harvest_proxy_url": "",
-					"openai_codex_ticket_harvest_proxy_configured": false,
 					"min_codex_version": "",
 					"max_codex_version": "",
 					"codex_cli_only_blacklist": "",
@@ -956,6 +953,9 @@ func TestAPIContracts(t *testing.T) {
 					"openai_codex_client_version":       "",
 					"openai_codex_client_version_synced": "",
 					"openai_codex_version_auto_sync_enabled": true,
+					"claude_code_client_version": "",
+					"claude_code_client_version_synced": "",
+					"claude_code_version_auto_sync_enabled": true,
 					"openai_fast_policy_settings": {
 						"rules": []
 					},
@@ -1229,9 +1229,6 @@ func TestAPIContracts(t *testing.T) {
 					"rewrite_message_cache_control": false,
 					"enable_client_dateline_normalization": true,
 					"antigravity_user_agent_version": "",
-					"openai_codex_ticket_enabled": false,
-					"openai_codex_ticket_harvest_proxy_url": "",
-					"openai_codex_ticket_harvest_proxy_configured": false,
 					"min_codex_version": "",
 					"max_codex_version": "",
 					"codex_cli_only_blacklist": "",
@@ -1276,6 +1273,9 @@ func TestAPIContracts(t *testing.T) {
 					"openai_codex_client_version":       "",
 					"openai_codex_client_version_synced": "",
 					"openai_codex_version_auto_sync_enabled": true,
+					"claude_code_client_version": "",
+					"claude_code_client_version_synced": "",
+					"claude_code_version_auto_sync_enabled": true,
 					"openai_fast_policy_settings": {
 						"rules": []
 					},
