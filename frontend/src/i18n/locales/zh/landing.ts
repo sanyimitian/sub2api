@@ -111,6 +111,27 @@ export default {
     },
     footer: {
       allRightsReserved: '保留所有权利。'
+    },
+    hub: {
+      nav: '枢纽',
+      title: '中转枢纽',
+      badge: '一个密钥 / 统一计费 / 极简接入',
+      titleLine1: '一个密钥，',
+      titleLine2: '连接所有主流 AI 模型，',
+      titleLine3: '极简接入。',
+      lead: '免去海外支付、多平台注册和余额分散的繁琐。一个统一接口，就能把 OpenAI、Claude、Gemini 等模型全部接入你的应用。',
+      detail: '一个余额覆盖全部模型，按实际调用量结算。切换模型时，无需重复充值，也不必管理多套账单。',
+      recharge: '立即充值',
+      console: '进入控制台',
+      pricing: '查看价格',
+      eyebrow: '引力轨道',
+      center: '支持模型',
+      description: '中心代表这个站点。六个模型节点沿椭圆轨道公转，离中心越近越快。连接丝线按引力偏折弯开，粒子沿丝线流动。',
+      request: '请求：枢纽 → 模型',
+      response: '响应：模型 → 枢纽',
+      hint: '移动鼠标旋转视角。节点会缓慢公转，按钮切换数据流方向。',
+      formula: 'n^2 = GM / a^3',
+      webglError: '当前浏览器无法创建 WebGL 上下文。'
     }
   },
 

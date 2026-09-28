@@ -40,6 +40,16 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/hub',
+    name: 'HubHome',
+    component: () => import('@/views/HubHomeView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Relay Hub',
+      titleKey: 'home.hub.title'
+    }
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('@/views/auth/LoginView.vue'),

@@ -129,6 +129,13 @@
           <!-- Language Switcher -->
           <LocaleSwitcher />
 
+          <router-link
+            to="/hub"
+            class="rounded-lg px-2.5 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+          >
+            {{ t('home.hub.nav') }}
+          </router-link>
+
           <!-- Doc Link -->
           <a
             v-if="docUrl"
