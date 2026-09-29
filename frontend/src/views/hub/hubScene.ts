@@ -42,11 +42,20 @@ const NODE_RADIUS = 0.3
  * 鼠标移动驱动的球面相机，方位角和极角的更新方式与 OrbitControls 相同。
  * 当前安装的 three 包没有附带 examples/jsm/controls/OrbitControls.js。
  */
+export interface HubNodeLabel {
+  name: string
+  color: string
+  x: number
+  y: number
+  visible: boolean
+}
+
 export interface HubView {
   resize(width: number, height: number): void
   setPointer(x: number, y: number): void
   addDistance(delta: number): void
   setFlow(flow: number): void
+  getLabels(): HubNodeLabel[]
   render(time: number): void
   dispose(): void
 }
@@ -367,12 +376,24 @@ export function createHubView(canvas: HTMLCanvasElement): HubView | null {
     side: new THREE.Vector3(),
   }
 
+  let viewWidth = 1
+  let viewHeight = 1
+  const projectPoint = new THREE.Vector3()
+  const labelAnchors: HubNodeLabel[] = HUB_NODES.map((node) => ({
+    name: node.name,
+    color: node.color,
+    x: 0,
+    y: 0,
+    visible: false,
+  }))
+
   let flow = 1
-  let distance = 12.5
-  let azimuth = 0.48
-  let polar = 0.92
-  let targetAzimuth = 0.48
-  let targetPolar = 0.92
+  // 右栏画布更大后略拉近，恢复接近全屏时的月球体量。
+  let distance = 9.2
+  let azimuth = 0.32
+  let polar = 0.95
+  let targetAzimuth = 0.32
+  let targetPolar = 0.95
 
   function writeLine(position: THREE.BufferAttribute, along: THREE.BufferAttribute) {
     for (let i = 0; i < LINE_POINTS; i += 1) {
@@ -404,9 +425,36 @@ export function createHubView(canvas: HTMLCanvasElement): HubView | null {
       Math.cos(polar) * distance,
       sinPolar * Math.cos(azimuth) * distance,
     )
-    // 注视点略偏左，让月球落在画面右半，给左侧文案留出呼吸空间。
-    const frameShift = distance * 0.28
-    camera.lookAt(-frameShift, 0, 0)
+    // lookAt 偏左 → 月球偏右，不要往页面中缝挤。
+    camera.lookAt(-0.45, 0.18, 0)
+  }
+
+  function toScreen(x: number, y: number, z: number): { x: number; y: number; visible: boolean } {
+    projectPoint.set(x, y, z).project(camera)
+    const visible = projectPoint.z > -1 && projectPoint.z < 1
+      && projectPoint.x > -1.15 && projectPoint.x < 1.15
+      && projectPoint.y > -1.15 && projectPoint.y < 1.15
+    return {
+      x: (projectPoint.x * 0.5 + 0.5) * viewWidth,
+      y: (-projectPoint.y * 0.5 + 0.5) * viewHeight,
+      visible,
+    }
+  }
+
+  function placeLabelBelow(
+    target: HubNodeLabel,
+    x: number,
+    y: number,
+    z: number,
+    radius: number,
+    gap: number,
+  ) {
+    const center = toScreen(x, y, z)
+    const rim = toScreen(x, y - radius, z)
+    const offset = Math.max(12, Math.abs(rim.y - center.y) + gap)
+    target.x = Math.min(viewWidth - 6, Math.max(6, center.x))
+    target.y = Math.min(viewHeight - 6, Math.max(6, center.y + offset))
+    target.visible = center.visible
   }
 
   return {
@@ -424,16 +472,21 @@ export function createHubView(canvas: HTMLCanvasElement): HubView | null {
       bloomB.setSize(bloomWidth, bloomHeight)
       camera.aspect = width / Math.max(height, 1)
       camera.updateProjectionMatrix()
+      viewWidth = width
+      viewHeight = height
     },
     setPointer(x: number, y: number) {
-      targetAzimuth = 0.48 + x * 0.7
-      targetPolar = Math.min(1.25, Math.max(0.5, 0.92 + y * 0.35))
+      targetAzimuth = 0.32 + x * 0.55
+      targetPolar = Math.min(1.25, Math.max(0.6, 0.95 + y * 0.3))
     },
     addDistance(delta: number) {
-      distance = Math.min(20, Math.max(9, distance + delta))
+      distance = Math.min(15, Math.max(7.5, distance + delta))
     },
     setFlow(next: number) {
       flow = next
+    },
+    getLabels() {
+      return labelAnchors
     },
     render(now: number) {
       const seconds = now / 1000
@@ -466,6 +519,7 @@ export function createHubView(canvas: HTMLCanvasElement): HubView | null {
         const surface = Math.max(radius - NODE_RADIUS * compensate * 0.92, HUB_RADIUS + 0.05)
         cursor.c.set((x / radius) * surface, (y / radius) * surface, (z / radius) * surface)
         writeLine(filaments[index].position, filaments[index].along)
+        placeLabelBelow(labelAnchors[index], x, y, z, NODE_RADIUS * compensate, 8)
 
         const direction = flow < 0 ? -1 : 1
         const [nr, ng, nb] = nodeRgbs[index]
