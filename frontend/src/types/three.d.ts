@@ -27,6 +27,7 @@ declare module 'three' {
     length(): number
     cross(v: Vector3): this
     dot(v: Vector3): number
+    project(camera: Camera): this
   }
 
   export class Euler {
