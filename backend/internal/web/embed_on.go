@@ -219,6 +219,10 @@ func (s *FrontendServer) injectSettings(settingsJSON []byte) []byte {
 
 // injectSiteFavicon replaces the static favicon with a configured, browser-safe image URL.
 func injectSiteFavicon(html, settingsJSON []byte) []byte {
+	if bytes.Contains(html, []byte(`<meta name="codebot-seo-favicon" content="managed"`)) {
+		return html
+	}
+
 	var cfg struct {
 		SiteLogo string `json:"site_logo"`
 	}

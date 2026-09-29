@@ -124,6 +124,15 @@ func TestInjectSiteTitle(t *testing.T) {
 }
 
 func TestInjectSiteFavicon(t *testing.T) {
+	t.Run("preserves_managed_seo_favicon", func(t *testing.T) {
+		html := []byte(`<html><head><link rel="icon" type="image/png" href="/codebot-favicon.png" /><meta name="codebot-seo-favicon" content="managed" /></head></html>`)
+		settingsJSON := []byte(`{"site_logo":"data:image/png;base64,abc"}`)
+
+		result := injectSiteFavicon(html, settingsJSON)
+
+		assert.Equal(t, string(html), string(result))
+	})
+
 	t.Run("replaces_favicon_with_site_logo", func(t *testing.T) {
 		html := []byte(`<html><head><link rel="icon" type="image/png" href="/logo.png" /></head></html>`)
 		settingsJSON := []byte(`{"site_logo":"https://example.com/custom-logo.png"}`)

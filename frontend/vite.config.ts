@@ -38,7 +38,8 @@ function injectBranding(html: string, config: { site_name?: string; site_logo?: 
   }
 
   const siteLogo = config.site_logo?.trim()
-  if (siteLogo && isSafeImageUrl(siteLogo)) {
+  const hasManagedSeoFavicon = /<meta\s+name=["']codebot-seo-favicon["']\s+content=["']managed["']\s*\/?\s*>/i.test(html)
+  if (siteLogo && isSafeImageUrl(siteLogo) && !hasManagedSeoFavicon) {
     brandedHtml = brandedHtml.replace(
       /<link\s+rel=["']icon["'][^>]*>/i,
       `<link rel="icon" href="${escapeHtml(siteLogo)}" />`,

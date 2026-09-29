@@ -19,4 +19,13 @@ describe('updateFavicon', () => {
     const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
     expect(link?.getAttribute('href')).toBe('/logo.svg')
   })
+
+  it('keeps the crawlable SEO favicon when a managed favicon is configured', () => {
+    document.head.innerHTML = '<link rel="icon" type="image/png" href="/codebot-favicon.png"><meta name="codebot-seo-favicon" content="managed">'
+
+    updateFavicon('data:image/png;base64,abc')
+
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+    expect(link?.getAttribute('href')).toBe('/codebot-favicon.png')
+  })
 })

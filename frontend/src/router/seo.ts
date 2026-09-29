@@ -8,7 +8,7 @@ const ROUTE_SEO: Record<string, RouteSEO> = {
   Home: {
     title: 'codebot.one（codebot API）- 稳定高速的 AI API 中转站',
     description:
-      'codebot.one（codebot API）为开发者及企业提供稳定、高速的 AI API 中转站，支持通过统一接口接入多种主流大模型。查看模型价格、API 接入文档及开发教程，快速完成模型集成。',
+      'codebot.one(codebot API) 为开发者及企业提供稳定、高速的 AI API 中转站，支持通过统一接口接入多种主流大模型。',
     canonical: 'https://codebot.one/home',
   },
   HubHome: {

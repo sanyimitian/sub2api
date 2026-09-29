@@ -1,6 +1,10 @@
 import { sanitizeUrl } from '@/utils/url'
 
 export function updateFavicon(logoUrl: string): void {
+  if (document.head.querySelector('meta[name="codebot-seo-favicon"][content="managed"]')) {
+    return
+  }
+
   const sanitizedLogoUrl = sanitizeUrl(logoUrl, {
     allowRelative: true,
     allowDataUrl: true,

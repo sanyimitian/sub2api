@@ -12,7 +12,9 @@ describe('route SEO metadata', () => {
     applyRouteSEO('Home')
 
     expect(document.title).toBe('codebot.one（codebot API）- 稳定高速的 AI API 中转站')
-    expect(document.querySelector('meta[name="description"]')?.getAttribute('content')).toContain('为开发者及企业提供稳定、高速的 AI API 中转站')
+    expect(document.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
+      'codebot.one(codebot API) 为开发者及企业提供稳定、高速的 AI API 中转站，支持通过统一接口接入多种主流大模型。',
+    )
     expect(document.querySelector('meta[property="og:url"]')?.getAttribute('content')).toBe('https://codebot.one/home')
     expect(document.querySelector('link[rel="canonical"]')?.getAttribute('href')).toBe('https://codebot.one/home')
     expect(document.querySelector('meta[name="robots"]')?.getAttribute('content')).toBe('index,follow')
