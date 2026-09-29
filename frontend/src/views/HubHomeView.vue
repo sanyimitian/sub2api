@@ -1,7 +1,8 @@
 <template>
-  <div class="relative h-screen overflow-hidden text-white">
+  <div class="relative min-h-screen overflow-x-hidden text-white">
+    <div class="fixed inset-0 -z-20 bg-black" aria-hidden="true" />
     <!-- 3D 全屏背景：固定铺满，沉在内容之下 -->
-    <canvas ref="canvasRef" class="fixed inset-0 -z-10 h-full w-full" />
+    <canvas ref="canvasRef" class="fixed inset-0 -z-10 h-full w-full opacity-25 lg:opacity-100" />
 
     <div
       v-if="webglError"
@@ -55,19 +56,19 @@
     </header>
 
     <!-- 左右分栏：左文案垂直居中，右半留给月球 -->
-    <main class="pointer-events-none relative z-10 grid h-full grid-cols-1 lg:grid-cols-2">
+    <main class="pointer-events-none relative z-10 grid min-h-screen grid-cols-1 lg:grid-cols-2">
       <section
-        class="flex h-full flex-col justify-center pl-[6vw] pr-6 pt-20 pb-28 sm:pl-[8vw] sm:pr-10 lg:pl-[8vw] lg:pr-8"
+        class="flex min-h-screen flex-col justify-center pl-[6vw] pr-6 pt-20 pb-28 sm:pl-[8vw] sm:pr-10 lg:pl-[8vw] lg:pr-8"
       >
         <div class="w-full max-w-[560px] font-sans">
           <p class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[12px] leading-none text-white/55">
             <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-white/70" />
             {{ t('home.hub.badge') }}
           </p>
-          <h1 class="mt-6 text-[42px] font-bold leading-[1.2] tracking-tight sm:text-[48px] xl:text-[52px]">
-            <span class="block whitespace-nowrap text-white">{{ t('home.hub.titleLine1') }}</span>
-            <span class="block whitespace-nowrap text-zinc-300">{{ t('home.hub.titleLine2') }}</span>
-            <span class="block whitespace-nowrap text-zinc-300">{{ t('home.hub.titleLine3') }}</span>
+          <h1 class="mt-6 text-[36px] font-bold leading-[1.2] tracking-tight sm:text-[48px] xl:text-[52px]">
+            <span class="block text-white sm:whitespace-nowrap">{{ t('home.hub.titleLine1') }}</span>
+            <span class="block text-zinc-300 sm:whitespace-nowrap">{{ t('home.hub.titleLine2') }}</span>
+            <span class="block text-zinc-300 sm:whitespace-nowrap">{{ t('home.hub.titleLine3') }}</span>
           </h1>
           <p class="mt-6 text-[15px] leading-[1.6] text-zinc-400">
             {{ t('home.hub.lead') }}
