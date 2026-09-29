@@ -271,6 +271,10 @@ func safeImageURL(value string) string {
 // injectSiteTitle replaces the static <title> in HTML with the configured site name.
 // This ensures the browser tab shows the correct title before JS executes.
 func injectSiteTitle(html, settingsJSON []byte) []byte {
+	if bytes.Contains(html, []byte(`<meta name="codebot-seo-title" content="managed"`)) {
+		return html
+	}
+
 	var cfg struct {
 		SiteName string `json:"site_name"`
 	}

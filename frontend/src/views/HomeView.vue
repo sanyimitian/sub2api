@@ -515,9 +515,16 @@ const authStore = useAuthStore()
 const appStore = useAppStore()
 
 // Site settings - directly from appStore (already initialized from injected config)
-const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'Sub2API')
+const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'codebot API')
 const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
-const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'AI API Gateway Platform')
+const defaultSiteSubtitle =
+  'codebot.one（codebot API）为开发者及企业提供稳定、高速的 AI API 中转站，支持通过统一接口接入多种主流大模型。查看模型价格、API 接入文档及开发教程，快速完成模型集成。'
+const siteSubtitle = computed(() => {
+  const configuredSubtitle = appStore.cachedPublicSettings?.site_subtitle?.trim()
+  return configuredSubtitle && !configuredSubtitle.startsWith('原站点：')
+    ? configuredSubtitle
+    : defaultSiteSubtitle
+})
 const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
 const hasHomeContent = computed(() => homeContent.value.trim().length > 0)

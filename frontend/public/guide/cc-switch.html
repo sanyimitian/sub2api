@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CC Switch 配置教程：接入 Codebot API 中转站</title>
+    <meta name="description" content="学习用 CC Switch 配置 Codebot API 中转站，分别设置 Claude Code 与 Codex 的接口地址和 API Key，并管理客户端连接配置。" />
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="https://codebot.one/guide/cc-switch.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="codebot.one（codebot API）" />
+    <meta property="og:title" content="CC Switch 配置教程：接入 Codebot API 中转站" />
+    <meta property="og:description" content="通过 CC Switch 管理 Claude Code、Codex 等开发工具的 Codebot API 接入配置。" />
+    <link rel="icon" href="/logo.svg" />
+    <link rel="stylesheet" href="/guide-assets/guide.css" />
+    <script src="/guide-assets/guide.js" defer></script>
+  </head>
+  <body>
+    <button class="menu-toggle" type="button" aria-label="打开教程导航" aria-expanded="false" aria-controls="doc-sidebar"><span></span><span></span><span></span></button>
+    <div class="nav-overlay" aria-hidden="true"></div>
+    <aside class="sidebar" id="doc-sidebar" aria-label="教程导航">
+      <div class="brand-block"><a class="brand-name" href="/home">Codebot API</a><span>开发接入教程</span></div>
+      <a class="back-link" href="/home">返回 codebot.one</a>
+      <div class="sidebar-label">相关教程</div>
+      <nav class="toc">
+        <a href="/guide/api-key.html">创建 API Key</a>
+        <a href="/guide/cc-switch.html">配置 CC Switch</a>
+        <a href="/guide/claude-code.html">接入 Claude Code</a>
+        <a href="/guide/codex.html">接入 Codex</a>
+      </nav>
+    </aside>
+    <main class="content">
+      <header class="page-header">
+        <div class="eyebrow">Codebot API 开发教程</div>
+        <h1>使用 CC Switch 配置 Codebot API</h1>
+        <p class="lead">CC Switch 可以集中保存和切换多个 AI 开发工具的服务商配置。为 Codebot API 添加接口地址和 API Key 后，即可在支持的客户端中选择使用。</p>
+        <div class="header-actions"><a class="site-badge" href="https://ccswitch.io/zh/download" target="_blank" rel="noopener noreferrer">下载 CC Switch</a></div>
+      </header>
+      <section class="doc-section">
+        <div class="section-title"><span class="section-number">1</span><h2>准备 API Key</h2></div>
+        <p>先在 Codebot API 控制台创建 API Key，并确认密钥所属分组支持计划使用的模型。密钥创建步骤见 <a href="/guide/api-key.html">API Key 创建教程</a>。</p>
+      </section>
+      <section class="doc-section">
+        <div class="section-title"><span class="section-number">2</span><h2>添加 Codebot API 服务商</h2></div>
+        <p>打开 CC Switch 的服务商设置，按目标客户端填写接口地址和密钥：</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>配置项</th><th>Claude Code</th><th>Codex / OpenAI 兼容客户端</th></tr></thead>
+          <tbody>
+            <tr><td>服务商名称</td><td colspan="2">Codebot API</td></tr>
+            <tr><td>接口地址</td><td><code>https://codebot.one</code></td><td><code>https://codebot.one/v1</code></td></tr>
+            <tr><td>API Key</td><td colspan="2">粘贴在 Codebot API 控制台创建的密钥</td></tr>
+            <tr><td>模型</td><td colspan="2">选择控制台当前显示且客户端支持的模型</td></tr>
+          </tbody>
+        </table></div>
+        <div class="callout warning"><span class="callout-icon" aria-hidden="true">!</span><p><strong>不同协议的接口地址不要混用。</strong>Claude Code 使用站点根地址；OpenAI 兼容客户端使用带 <code>/v1</code> 的地址。</p></div>
+      </section>
+      <section class="doc-section">
+        <div class="section-title"><span class="section-number">3</span><h2>启用配置并验证</h2></div>
+        <ol class="step-list">
+          <li><span>1</span><div>保存服务商配置，并在 CC Switch 中切换到对应客户端页签。</div></li>
+          <li><span>2</span><div>启用 Codebot API 配置。</div></li>
+          <li><span>3</span><div>完全退出并重新打开 AI 客户端，再用控制台支持的模型发送一条测试请求。</div></li>
+        </ol>
+        <p>如果站点控制台显示「导入到 CC Switch」入口，也可以按页面提示导入配置；导入后请核对接口地址和服务商名称。</p>
+      </section>
+      <section class="doc-section">
+        <div class="section-title"><span class="section-number">4</span><h2>按客户端继续阅读</h2></div>
+        <div class="route-links" aria-label="客户端接入教程"><a href="/guide/claude-code.html">Claude Code 配置</a><a href="/guide/codex.html">Codex 配置</a></div>
+      </section>
+      <footer class="doc-footer"><a href="/guide.html">查看完整使用指南</a><span>codebot.one · Codebot API</span></footer>
+    </main>
+  </body>
+</html>

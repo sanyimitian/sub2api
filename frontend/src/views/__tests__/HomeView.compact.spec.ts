@@ -87,6 +87,12 @@ describe('HomeView compact mode', () => {
     expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(false)
   })
 
+  it('uses the approved Codebot description when the saved subtitle is an old source-domain placeholder', () => {
+    const wrapper = mountHome({ site_subtitle: '原站点：llmbridge.top' })
+
+    expect(wrapper.text()).toContain('codebot.one（codebot API）为开发者及企业提供稳定、高速的 AI API 中转站')
+  })
+
   it('renders custom URL content ahead of compact mode', () => {
     const wrapper = mountHome({
       compact_home_enabled: true,

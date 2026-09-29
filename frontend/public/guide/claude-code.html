@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Claude Code API 中转配置教程 | Codebot API</title>
+    <meta name="description" content="Claude Code API 中转配置教程：通过 CC Switch 或环境变量连接 Codebot API，完成 Windows、macOS 与 Linux 环境设置。" />
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="https://codebot.one/guide/claude-code.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="codebot.one（codebot API）" />
+    <meta property="og:title" content="Claude Code API 中转配置教程 | Codebot API" />
+    <meta property="og:description" content="使用 Codebot API 接入 Claude Code，并按操作系统配置接口地址和 API Key。" />
+    <link rel="icon" href="/logo.svg" />
+    <link rel="stylesheet" href="/guide-assets/guide.css" />
+    <script src="/guide-assets/guide.js" defer></script>
+  </head>
+  <body>
+    <button class="menu-toggle" type="button" aria-label="打开教程导航" aria-expanded="false" aria-controls="doc-sidebar"><span></span><span></span><span></span></button>
+    <div class="nav-overlay" aria-hidden="true"></div>
+    <aside class="sidebar" id="doc-sidebar" aria-label="教程导航">
+      <div class="brand-block"><a class="brand-name" href="/home">Codebot API</a><span>开发接入教程</span></div>
+      <a class="back-link" href="/home">返回 codebot.one</a>
+      <div class="sidebar-label">相关教程</div>
+      <nav class="toc">
+        <a href="/guide/api-key.html">创建 API Key</a>
+        <a href="/guide/cc-switch.html">配置 CC Switch</a>
+        <a href="/guide/claude-code.html">接入 Claude Code</a>
+        <a href="/guide/codex.html">接入 Codex</a>
+      </nav>
+    </aside>
+    <main class="content">
+      <header class="page-header">
+        <div class="eyebrow">Codebot API 开发教程</div>
+        <h1>Claude Code 接入 Codebot API</h1>
+        <p class="lead">通过统一接口将 Claude Code 连接到 Codebot API。你可以用 CC Switch 管理配置，也可以直接设置环境变量。</p>
+        <div class="header-actions"><a class="site-badge" href="/guide/api-key.html">先创建 API Key</a><a class="site-badge" href="/guide/cc-switch.html">使用 CC Switch 配置</a></div>
+      </header>
+      <section class="doc-section">
+        <div class="section-title"><span class="section-number">1</span><h2>安装 Claude Code</h2></div>
+        <p>按 Claude Code 官方文档安装所需运行环境和客户端。Windows 用户可使用 PowerShell；macOS 与 Linux 用户可使用终端。</p>
+        <div class="code-block"><button class="copy-button" type="button" aria-label="复制 Claude Code 安装命令">复制</button><pre><code>npm install -g @anthropic-ai/claude-code</code></pre></div>
+      </section>
+      <section class="doc-section">
+        <div class="section-title"><span class="section-number">2</span><h2>使用环境变量配置接口</h2></div>
+        <p>将接口地址设置为 Codebot API 站点根地址，并把占位内容替换成你创建的 API Key。</p>
+        <h3>Windows PowerShell</h3>
+        <div class="code-block"><button class="copy-button" type="button" aria-label="复制 Windows 环境变量命令">复制</button><pre><code>[Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "https://codebot.one", "User")
+[Environment]::SetEnvironmentVariable("ANTHROPIC_AUTH_TOKEN", "你的API-Key", "User")</code></pre></div>
+        <h3>macOS 或 Linux</h3>
+        <p>将下面内容加入 shell 配置文件，例如 zsh 用户的 <code>~/.zshrc</code> 或 bash 用户的 <code>~/.bashrc</code>：</p>
+        <div class="code-block"><button class="copy-button" type="button" aria-label="复制 macOS 和 Linux 环境变量配置">复制</button><pre><code>export ANTHROPIC_BASE_URL="https://codebot.one"
+export ANTHROPIC_AUTH_TOKEN="你的API-Key"</code></pre></div>
+        <div class="callout warning"><span class="callout-icon" aria-hidden="true">!</span><p><strong>不要把真实 API Key 写入公开文件。</strong>环境变量配置文件也应限制访问权限；密钥泄露后请立即在控制台停用。</p></div>
+      </section>
+      <section class="doc-section">
+        <div class="section-title"><span class="section-number">3</span><h2>重启终端并测试</h2></div>
+        <p>保存环境变量后，关闭并重新打开终端，让新配置生效。进入项目目录后运行 <code>claude</code>，再选择控制台中当前可用的模型进行测试。</p>
+        <p>如果请求失败，请检查 API Key 是否有效、账户是否有可用额度，以及所选模型是否受该密钥分组支持。</p>
+      </section>
+      <section class="doc-section">
+        <div class="section-title"><span class="section-number">4</span><h2>其他接入方式</h2></div>
+        <div class="route-links" aria-label="相关接入教程"><a href="/guide/cc-switch.html">通过 CC Switch 配置</a><a href="/guide/codex.html">配置 Codex</a></div>
+      </section>
+      <footer class="doc-footer"><a href="/guide.html">查看完整使用指南</a><span>codebot.one · Codebot API</span></footer>
+    </main>
+  </body>
+</html>

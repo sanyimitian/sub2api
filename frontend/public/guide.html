@@ -5,9 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="llmbridge 使用指南：兑换额度、创建 API Key，并配置 Claude Code、Codex 和兼容客户端。"
+      content="codebot.one（codebot API）开发接入指南：创建 API Key，并通过 CC Switch、Claude Code、Codex 和兼容客户端连接 AI API 中转站。"
     />
-    <title>llmbridge 使用指南</title>
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="https://codebot.one/guide.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="codebot.one（codebot API）" />
+    <meta property="og:title" content="codebot API 使用指南：AI API 中转站接入教程" />
+    <meta property="og:description" content="创建 API Key，并配置 CC Switch、Claude Code、Codex 和兼容客户端。" />
+    <meta property="og:url" content="https://codebot.one/guide.html" />
+    <title>codebot API 使用指南：AI API 中转站接入教程</title>
     <link rel="icon" href="/logo.svg" />
     <link rel="stylesheet" href="/guide-assets/guide.css" />
     <script src="/guide-assets/guide.js" defer></script>
@@ -20,7 +27,7 @@
 
     <aside class="sidebar" id="doc-sidebar" aria-label="文档目录" aria-hidden="false">
       <div class="brand-block">
-        <a class="brand-name" href="/">llmbridge</a>
+        <a class="brand-name" href="/">Codebot API</a>
         <span>AI API 网关使用指南</span>
       </div>
       <a class="back-link" href="/">
@@ -44,8 +51,8 @@
 
     <main class="content">
       <header class="page-header">
-        <div class="eyebrow"><span class="eyebrow-dot"></span> llmbridge 使用文档</div>
-        <h1>llmbridge 使用指南</h1>
+        <div class="eyebrow"><span class="eyebrow-dot"></span> Codebot API 使用文档</div>
+        <h1>Codebot API 使用指南</h1>
         <p class="lead">从兑换额度、创建 API Key，到连接 Claude Code 或 Codex，按顺序操作即可。</p>
         <div class="header-actions">
           <a class="site-badge" href="/" target="_blank" rel="noopener">
@@ -59,6 +66,13 @@
         </div>
       </header>
 
+      <div class="route-links" aria-label="独立开发教程">
+        <a href="/guide/api-key.html">创建 API Key 教程</a>
+        <a href="/guide/cc-switch.html">CC Switch 配置教程</a>
+        <a href="/guide/claude-code.html">Claude Code 接入教程</a>
+        <a href="/guide/codex.html">Codex 接入教程</a>
+      </div>
+
       <section class="doc-section" id="account">
         <div class="section-title">
           <span class="section-number">1</span>
@@ -66,7 +80,7 @@
         </div>
 
         <h3>第一步：购买兑换码并兑换额度</h3>
-        <p>先从 <a href="https://wzyp.cn/shop/Y7F3IMDX/15tttf" target="_blank" rel="noopener">兑换码购买页面</a> 获取兑换码，再登录 llmbridge，打开「兑换」页面。</p>
+        <p>先从 <a href="https://wzyp.cn/shop/Y7F3IMDX/15tttf" target="_blank" rel="noopener">兑换码购买页面</a> 获取兑换码，再登录 Codebot API，打开「兑换」页面。</p>
         <ol class="step-list">
           <li><span>1</span><div>复制购买后得到的完整兑换码。</div></li>
           <li><span>2</span><div>点击站内的「兑换」，粘贴兑换码。</div></li>
@@ -90,8 +104,8 @@
           <li><span>3</span><div>创建后立即复制完整 Key，并妥善保存。</div></li>
         </ol>
         <figure class="screenshot usage-shot">
-          <img src="/guide-assets/llmbridge-key-usage-zh.png" alt="llmbridge API Key 用量查询中文页面" loading="lazy" />
-          <figcaption>输入 Key 可以查询实时消费金额与使用状态</figcaption>
+          <img src="/guide-assets/llmbridge-key-usage-zh.png" alt="历史版 API Key 用量查询页面示意" loading="lazy" />
+          <figcaption>页面为历史版本示意，输入 Key 后可查询用量与使用状态</figcaption>
         </figure>
       </section>
 
@@ -110,9 +124,9 @@
           <table>
             <thead><tr><th>字段</th><th>填写内容</th></tr></thead>
             <tbody>
-              <tr><td>供应商名称</td><td><code>llmbridge</code></td></tr>
+              <tr><td>供应商名称</td><td><code>Codebot API</code></td></tr>
               <tr><td>API Key</td><td>第一章创建的完整 Key，一般以 <code>sk-</code> 开头</td></tr>
-              <tr><td>请求地址</td><td><strong>Claude Code：</strong><code>https://llmbridge.top</code><br /><strong>Codex：</strong><code>https://llmbridge.top/v1</code></td></tr>
+              <tr><td>请求地址</td><td><strong>Claude Code：</strong><code>https://codebot.one</code><br /><strong>Codex：</strong><code>https://codebot.one/v1</code></td></tr>
             </tbody>
           </table>
         </div>
@@ -126,21 +140,21 @@
           <li><span>1</span><div>打开「API 密钥」，在对应密钥右侧点击「导入到 CCS」。</div></li>
         </ol>
         <figure class="screenshot">
-          <img src="/guide-assets/llmbridge-keys-import-ccs.png" alt="在 llmbridge API 密钥页面点击导入到 CCS" loading="lazy" />
+          <img src="/guide-assets/llmbridge-keys-import-ccs.png" alt="历史版 API 密钥页面导入到 CC Switch 的示意" loading="lazy" />
           <figcaption>在密钥右侧点击「导入到 CCS」</figcaption>
         </figure>
         <ol class="step-list" start="2">
           <li><span>2</span><div>CC Switch 会显示即将导入的内容，确认站点地址和供应商名称无误后点击「导入」。</div></li>
         </ol>
         <figure class="screenshot screenshot-dialog">
-          <img src="/guide-assets/cc-switch-import-confirm.png" alt="CC Switch 确认导入 llmbridge 供应商配置" loading="lazy" />
+          <img src="/guide-assets/cc-switch-import-confirm.png" alt="CC Switch 确认导入 API 服务商配置的示意" loading="lazy" />
           <figcaption>确认信息无误后点击「导入」</figcaption>
         </figure>
         <ol class="step-list" start="3">
-          <li><span>3</span><div>进入 CC Switch 的 Codex 标签，找到导入的 llmbridge 供应商并点击「启用」。</div></li>
+          <li><span>3</span><div>进入 CC Switch 的 Codex 标签，找到导入的 Codebot API 供应商并点击「启用」。</div></li>
         </ol>
         <figure class="screenshot screenshot-wide">
-          <img src="/guide-assets/cc-switch-enable-provider.png" alt="在 CC Switch 中启用 llmbridge 供应商" loading="lazy" />
+          <img src="/guide-assets/cc-switch-enable-provider.png" alt="在 CC Switch 中启用 API 服务商配置的示意" loading="lazy" />
           <figcaption>点击「启用」后，再重新打开 Codex</figcaption>
         </figure>
       </section>
@@ -160,9 +174,9 @@
             <h3>1. 安装所需软件</h3>
             <p>安装 <a href="https://nodejs.org/" target="_blank" rel="noopener">Node.js 长期支持版</a> 和 <a href="https://git-scm.com/install/windows" target="_blank" rel="noopener">Git for Windows</a>，安装时保持默认选项即可。然后打开 PowerShell，运行：</p>
             <div class="code-block"><button class="copy-button" type="button" aria-label="复制安装命令">复制</button><pre><code>npm install -g @anthropic-ai/claude-code</code></pre></div>
-            <h3>2. 连接 llmbridge</h3>
-            <p>使用 CC Switch 时，选择第二章创建的 <code>llmbridge</code> 配置即可。不使用 CC Switch 时，在 PowerShell 运行：</p>
-            <div class="code-block"><button class="copy-button" type="button" aria-label="复制环境变量命令">复制</button><pre><code>[Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "https://llmbridge.top", "User")
+            <h3>2. 连接 Codebot API</h3>
+            <p>使用 CC Switch 时，选择第二章创建的 <code>Codebot API</code> 配置即可。不使用 CC Switch 时，在 PowerShell 运行：</p>
+            <div class="code-block"><button class="copy-button" type="button" aria-label="复制环境变量命令">复制</button><pre><code>[Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "https://codebot.one", "User")
 [Environment]::SetEnvironmentVariable("ANTHROPIC_AUTH_TOKEN", "把这里换成你的API-Key", "User")</code></pre></div>
             <h3>3. 启动</h3>
             <p>关闭并重新打开 PowerShell，进入项目目录后运行 <code>claude</code>。能正常进入对话界面即表示配置成功。</p>
@@ -172,9 +186,9 @@
             <p>先安装 <a href="https://nodejs.org/" target="_blank" rel="noopener">Node.js 长期支持版</a>，再打开终端运行：</p>
             <div class="code-block"><button class="copy-button" type="button" aria-label="复制安装命令">复制</button><pre><code>npm install -g @anthropic-ai/claude-code
 claude --version</code></pre></div>
-            <h3>2. 连接 llmbridge</h3>
-            <p>使用 CC Switch 时直接选择 <code>llmbridge</code> 配置。不使用时，将下面内容加入 <code>~/.zshrc</code>；Linux 的 bash 用户改为 <code>~/.bashrc</code>。</p>
-            <div class="code-block"><button class="copy-button" type="button" aria-label="复制环境变量配置">复制</button><pre><code>export ANTHROPIC_BASE_URL="https://llmbridge.top"
+            <h3>2. 连接 Codebot API</h3>
+            <p>使用 CC Switch 时直接选择 <code>Codebot API</code> 配置。不使用时，将下面内容加入 <code>~/.zshrc</code>；Linux 的 bash 用户改为 <code>~/.bashrc</code>。</p>
+            <div class="code-block"><button class="copy-button" type="button" aria-label="复制环境变量配置">复制</button><pre><code>export ANTHROPIC_BASE_URL="https://codebot.one"
 export ANTHROPIC_AUTH_TOKEN="把这里换成你的API-Key"</code></pre></div>
             <h3>3. 启动</h3>
             <p>重新打开终端，进入项目目录后运行 <code>claude</code>。</p>
@@ -215,14 +229,14 @@ export ANTHROPIC_AUTH_TOKEN="把这里换成你的API-Key"</code></pre></div>
         <p class="muted-note">如果官方地址无法访问(可能需要魔法)，可<a href="https://1832852070.share.123pan.cn/123pan/kCPdTd-csuwA" target="_blank" rel="noopener">前往123网盘下载</a>。</p>
         <p>安装完成后，建议直接通过 CC Switch 添加 OpenAI 兼容供应商，也可以在其他支持自定义接口地址的客户端中填写：</p>
         <div class="endpoint-box">
-          <div><span>供应商名称</span><code>llmbridge</code></div>
-          <div><span>Base URL</span><code>https://llmbridge.top/v1</code></div>
+          <div><span>供应商名称</span><code>Codebot API</code></div>
+          <div><span>Base URL</span><code>https://codebot.one/v1</code></div>
           <div><span>API Key</span><code>第一章创建的 API Key</code></div>
           <div><span>模型</span><code>选择页面中实际可用的模型</code></div>
         </div>
         <div class="callout info">
           <span class="callout-icon" aria-hidden="true">i</span>
-          <p>ChatGPT 官方网页和官方客户端不能直接填写第三方接口地址。需要使用 llmbridge 时，请选择 Codex 或支持自定义 OpenAI 接口地址的客户端。</p>
+          <p>ChatGPT 官方网页和官方客户端不能直接填写第三方接口地址。需要使用 Codebot API 时，请选择 Codex 或支持自定义 OpenAI 接口地址的客户端。</p>
         </div>
         <p>保存后完全退出并重新打开客户端，再发送一条短消息。能收到回复即表示连接成功。</p>
       </section>
@@ -234,7 +248,7 @@ export ANTHROPIC_AUTH_TOKEN="把这里换成你的API-Key"</code></pre></div>
         </div>
         <p>自己的程序可以直接调用 OpenAI 兼容接口。请把 Key 和模型名换成控制台中的实际内容。</p>
         <h3>curl 示例</h3>
-        <div class="code-block"><button class="copy-button" type="button" aria-label="复制 curl 示例">复制</button><pre><code>curl https://llmbridge.top/v1/chat/completions \
+        <div class="code-block"><button class="copy-button" type="button" aria-label="复制 curl 示例">复制</button><pre><code>curl https://codebot.one/v1/chat/completions \
   -H 'Authorization: Bearer 你的API-Key' \
   -H 'Content-Type: application/json' \
   -d '{"model":"你的模型名","messages":[{"role":"user","content":"你好，请用一句话介绍自己。"}]}'</code></pre></div>
@@ -243,7 +257,7 @@ export ANTHROPIC_AUTH_TOKEN="把这里换成你的API-Key"</code></pre></div>
 
 client = OpenAI(
     api_key="你的API-Key",
-    base_url="https://llmbridge.top/v1",
+    base_url="https://codebot.one/v1",
 )
 
 response = client.chat.completions.create(
@@ -265,7 +279,7 @@ print(response.choices[0].message.content)</code></pre></div>
 
         <details open>
           <summary>请求失败、超时或返回 404</summary>
-          <div class="details-body"><ol class="check-list"><li>Claude 地址应为 <code>https://llmbridge.top</code>。</li><li>Codex 地址应为 <code>https://llmbridge.top/v1</code>，不要重复添加 <code>/v1</code>。</li><li>确认 API Key 完整、额度充足，并且所选分组支持当前模型。</li></ol></div>
+          <div class="details-body"><ol class="check-list"><li>Claude 地址应为 <code>https://codebot.one</code>。</li><li>Codex 地址应为 <code>https://codebot.one/v1</code>，不要重复添加 <code>/v1</code>。</li><li>确认 API Key 完整、额度充足，并且所选分组支持当前模型。</li></ol></div>
         </details>
         <details>
           <summary>CC Switch 切换后没有生效</summary>
@@ -273,7 +287,7 @@ print(response.choices[0].message.content)</code></pre></div>
         </details>
         <details>
           <summary>模型不可用或不知道模型名称</summary>
-          <div class="details-body"><p>不要照抄其他教程中的模型名。请使用 llmbridge 页面或管理员提供的可用模型名称，并确认 API Key 所属分组支持它。</p></div>
+          <div class="details-body"><p>不要照抄其他教程中的模型名。请使用 Codebot API 页面或管理员提供的可用模型名称，并确认 API Key 所属分组支持它。</p></div>
         </details>
         <details>
           <summary>API Key 泄露了怎么办</summary>
@@ -287,8 +301,8 @@ print(response.choices[0].message.content)</code></pre></div>
       </section>
 
       <footer class="doc-footer">
-        <span>llmbridge 使用指南</span>
-        <span>页面截图来自 <a href="https://llmbridge.top/" target="_blank" rel="noopener">llmbridge.top</a></span>
+        <span>Codebot API 使用指南</span>
+        <span>截图为历史界面示意，具体操作项以 <a href="https://codebot.one/" target="_blank" rel="noopener">codebot.one</a> 当前页面为准</span>
       </footer>
     </main>
   </body>

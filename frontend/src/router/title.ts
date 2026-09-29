@@ -1,4 +1,5 @@
 import { i18n } from '@/i18n'
+import { getRouteSEO } from './seo'
 import type { RouteLocationNormalizedLoaded } from 'vue-router'
 import type { CustomMenuItem } from '@/types'
 import type { SiteBillingMode } from '@/utils/siteBillingMode'
@@ -68,6 +69,9 @@ export function resolveRouteDocumentTitle(
   customMenuItems: CustomMenuItem[] = [],
   options: RouteTitleOptions = {},
 ): string {
+  const seoTitle = getRouteSEO(route.name)?.title
+  if (seoTitle) return seoTitle
+
   const id = typeof route.params.id === 'string' ? route.params.id : ''
   const menuItem = route.name === 'CustomPage' && id
     ? customMenuItems.find((item) => item.id === id)

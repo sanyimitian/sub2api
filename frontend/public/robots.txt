@@ -1,0 +1,21 @@
+User-agent: *
+Allow: /
+
+Disallow: /api/
+Disallow: /setup
+Disallow: /login
+Disallow: /register
+Disallow: /email-verify
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /auth/
+Disallow: /dashboard
+Disallow: /keys
+Disallow: /batch-image
+Disallow: /usage
+Disallow: /redeem
+Disallow: /affiliate
+Disallow: /available-channels
+Disallow: /admin
+
+Sitemap: https://codebot.one/sitemap.xml

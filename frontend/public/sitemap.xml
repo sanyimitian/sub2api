@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://codebot.one/home</loc>
+  </url>
+  <url>
+    <loc>https://codebot.one/hub</loc>
+  </url>
+  <url>
+    <loc>https://codebot.one/guide.html</loc>
+  </url>
+  <url>
+    <loc>https://codebot.one/guide/api-key.html</loc>
+  </url>
+  <url>
+    <loc>https://codebot.one/guide/cc-switch.html</loc>
+  </url>
+  <url>
+    <loc>https://codebot.one/guide/claude-code.html</loc>
+  </url>
+  <url>
+    <loc>https://codebot.one/guide/codex.html</loc>
+  </url>
+</urlset>

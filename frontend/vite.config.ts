@@ -29,7 +29,8 @@ function isSafeImageUrl(value: string): boolean {
 function injectBranding(html: string, config: { site_name?: string; site_logo?: string }): string {
   let brandedHtml = html
   const siteName = config.site_name?.trim()
-  if (siteName) {
+  const hasManagedSeoTitle = /<meta\s+name=["']codebot-seo-title["']\s+content=["']managed["']\s*\/?\s*>/i.test(html)
+  if (siteName && !hasManagedSeoTitle) {
     brandedHtml = brandedHtml.replace(
       /<title>[^<]*<\/title>/i,
       `<title>${escapeHtml(siteName)} - AI API Gateway</title>`,

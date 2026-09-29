@@ -24,6 +24,15 @@ func init() {
 }
 
 func TestInjectSiteTitle(t *testing.T) {
+	t.Run("preserves_managed_seo_title", func(t *testing.T) {
+		html := []byte(`<html><head><title>codebot.one - 稳定高速的 AI API 中转站</title><meta name="codebot-seo-title" content="managed" /></head></html>`)
+		settingsJSON := []byte(`{"site_name":"Codebot"}`)
+
+		result := injectSiteTitle(html, settingsJSON)
+
+		assert.Equal(t, string(html), string(result))
+	})
+
 	t.Run("replaces_title_with_site_name", func(t *testing.T) {
 		html := []byte(`<html><head><title>Sub2API - AI API Gateway</title></head><body></body></html>`)
 		settingsJSON := []byte(`{"site_name":"MyCustomSite"}`)

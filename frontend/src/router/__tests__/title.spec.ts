@@ -35,6 +35,11 @@ describe('resolveDocumentTitle', () => {
 })
 
 describe('resolveRouteDocumentTitle', () => {
+  it('SEO 公共首页使用专用标题，不被站点通用标题覆盖', () => {
+    expect(resolveRouteDocumentTitle({ name: 'Home', params: {}, meta: { title: 'Home' } }, 'Codebot'))
+      .toBe('codebot.one（codebot API）- 稳定高速的 AI API 中转站')
+  })
+
   it('自定义页面菜单加载后，使用菜单名称作为标题', () => {
     const route = {
       name: 'CustomPage',
