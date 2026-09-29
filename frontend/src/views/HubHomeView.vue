@@ -155,6 +155,23 @@
       </section>
     </div>
 
+    <footer class="hub-legend pointer-events-none">
+      <div class="hub-legend-list">
+        <span class="hub-legend-item hub-legend-item--muted">
+          <i class="hub-legend-dot" :style="{ backgroundColor: hubPurple }" />
+          {{ t('home.hub.center') }}
+        </span>
+        <span
+          v-for="node in hubNodes"
+          :key="node.name"
+          class="hub-legend-item"
+          :style="{ color: softenLabelColor(node.color) }"
+        >
+          <i class="hub-legend-dot" :style="{ backgroundColor: node.color }" />
+          {{ node.name }}
+        </span>
+      </div>
+    </footer>
   </div>
 </template>
 
@@ -168,7 +185,11 @@ import Icon from '@/components/icons/Icon.vue'
 import { useAppStore, useAuthStore } from '@/stores'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
+import { HUB_NODES, HUB_PURPLE } from './hub/hubPhysics'
 import { createHubView, type HubNodeLabel, type HubView } from './hub/hubScene'
+
+const hubNodes = HUB_NODES
+const hubPurple = HUB_PURPLE
 
 const { t } = useI18n()
 const route = useRoute()
@@ -315,7 +336,7 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 0;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -555,6 +576,46 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.hub-legend {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  padding: 14px 24px 26px;
+}
+
+.hub-legend-list {
+  display: flex;
+  max-width: min(960px, 100%);
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 18px 26px;
+  font-family: 'Space Grotesk', 'Inter', 'SF Pro Display', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.hub-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.hub-legend-item--muted {
+  color: rgb(255 255 255 / 0.45);
+}
+
+.hub-legend-dot {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 9999px;
 }
 
 @media (max-width: 1023px) {
