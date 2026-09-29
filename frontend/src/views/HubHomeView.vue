@@ -2,7 +2,7 @@
   <div class="hub-page text-white">
     <header class="hub-header pointer-events-none">
       <nav class="hub-nav pointer-events-auto">
-        <router-link to="/home" class="hub-nav-brand">
+        <router-link to="/" class="hub-nav-brand">
           <img
             v-if="siteLogo"
             :src="siteLogo"

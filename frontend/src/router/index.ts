@@ -31,23 +31,19 @@ const routes: RouteRecordRaw[] = [
 
   // ==================== Public Routes ====================
   {
-    path: '/home',
+    path: '/',
     name: 'Home',
-    component: () => import('@/views/HomeView.vue'),
+    alias: '/home',
+    component: () => import('@/views/HubHomeView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Home'
+      title: 'Home',
+      titleKey: 'home.hub.title'
     }
   },
   {
     path: '/hub',
-    name: 'HubHome',
-    component: () => import('@/views/HubHomeView.vue'),
-    meta: {
-      requiresAuth: false,
-      title: 'Relay Hub',
-      titleKey: 'home.hub.title'
-    }
+    redirect: '/'
   },
   {
     path: '/login',
@@ -197,10 +193,6 @@ const routes: RouteRecordRaw[] = [
   },
 
   // ==================== User Routes ====================
-  {
-    path: '/',
-    redirect: '/home'
-  },
   {
     path: '/dashboard',
     name: 'Dashboard',
