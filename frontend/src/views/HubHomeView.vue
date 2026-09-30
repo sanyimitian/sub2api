@@ -65,7 +65,7 @@
     <div class="hub-body">
       <section class="hub-copy font-sans">
         <p class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[12px] leading-none text-white/55">
-          <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-white/70" />
+          <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
           {{ t('home.hub.badge') }}
         </p>
         <h1 class="mt-5 text-[36px] font-bold leading-[1.2] tracking-tight sm:mt-6 sm:text-[44px] xl:text-[50px]">
@@ -85,7 +85,7 @@
             class="group inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-bold text-black no-underline transition hover:bg-zinc-200"
           >
             {{ t('home.hub.recharge') }}
-            <svg class="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <svg class="hub-trial-arrow h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
           </router-link>
@@ -330,6 +330,20 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.hub-trial-arrow {
+  animation: hub-trial-arrow-nudge 0.9s ease-in-out infinite;
+}
+
+@keyframes hub-trial-arrow-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(5px);
+  }
+}
+
 /* fixed 铺满视口，不受外层文档流高度影响 */
 .hub-page {
   position: fixed;
