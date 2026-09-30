@@ -20,20 +20,21 @@ float hash31(vec3 p) {
 
 void main() {
   vec3 rd = normalize(vDirection);
-  // 近乎纯黑，只留极淡星点。
   vec3 color = vec3(0.004, 0.005, 0.01);
   vec3 n = rd;
-  for (int layer = 0; layer < 2; layer++) {
-    float scale = 22.0 + float(layer) * 16.0;
+  for (int layer = 0; layer < 3; layer++) {
+    float scale = 18.0 + float(layer) * 14.0;
     vec3 id = floor(n * scale);
     vec3 cell = fract(n * scale) - 0.5;
     float h = hash31(id + float(layer) * 7.0);
-    float size = mix(0.018, 0.04, fract(h * 13.0));
+    float size = mix(0.05, 0.15, fract(h * 13.0));
     vec3 jitter = vec3(hash31(id + 1.2), hash31(id + 3.4), hash31(id + 5.6)) - 0.5;
-    float star = smoothstep(size, 0.0, length(cell - jitter * 0.4)) * step(0.965, h);
-    float twinkle = 0.75 + 0.25 * sin(uTime * (0.25 + h) + h * 40.0);
-    float brightness = mix(0.05, 0.16, fract(h * 17.0));
-    color += vec3(0.72, 0.8, 1.0) * star * twinkle * brightness;
+    float star = smoothstep(size, 0.0, length(cell - jitter * 0.45)) * step(0.88, h);
+    float pulse = 0.5 + 0.5 * sin(uTime * (0.8 + h * 2.4) + h * 40.0);
+    float twinkle = 0.12 + 0.88 * pulse * pulse;
+    float brightness = mix(0.22, 1.05, fract(h * 17.0));
+    vec3 tint = mix(vec3(0.75, 0.84, 1.0), vec3(1.0, 0.96, 0.88), fract(h * 9.0));
+    color += tint * star * twinkle * brightness;
     n = normalize(n.yzx + n.zxy * 0.17);
   }
   gl_FragColor = vec4(color, 1.0);
@@ -298,10 +299,10 @@ uniform float uTime;
 varying float vBright;
 
 void main() {
-  float twinkle = 0.85 + 0.15 * sin(uTime * 0.35 + position.x * 0.11 + position.z * 0.07);
-  vBright = brightness * twinkle;
+  float twinkle = 0.2 + 0.8 * sin(uTime * (1.1 + brightness * 4.0) + position.x * 0.17 + position.z * 0.13);
+  vBright = brightness * (0.35 + 0.65 * twinkle * twinkle);
   vec4 view = modelViewMatrix * vec4(position, 1.0);
-  gl_PointSize = pointSize * (48.0 / max(-view.z, 1.0));
+  gl_PointSize = pointSize * (104.0 / max(-view.z, 1.0));
   gl_Position = projectionMatrix * view;
 }
 `
@@ -314,7 +315,7 @@ void main() {
   float dist = length(uv);
   if (dist > 0.5) discard;
   float alpha = smoothstep(0.5, 0.0, dist);
-  gl_FragColor = vec4(vec3(0.7, 0.78, 1.0) * vBright * alpha, 1.0);
+  gl_FragColor = vec4(vec3(0.86, 0.92, 1.0) * vBright * alpha, 1.0);
 }
 `
 

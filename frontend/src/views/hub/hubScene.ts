@@ -34,7 +34,7 @@ import {
 const LINE_POINTS = 64
 const STREAMS = 1
 const TRAIL = 5
-const STAR_COUNT = 160
+const STAR_COUNT = 280
 // 再放大一倍，仍小于中心月球（HUB_RADIUS ≈ 0.92）。
 const NODE_RADIUS = 0.3
 
@@ -179,8 +179,8 @@ export function createHubView(canvas: HTMLCanvasElement): HubView | null {
     starPositions[index * 3] = Math.cos(theta) * ring * radius
     starPositions[index * 3 + 1] = y * radius
     starPositions[index * 3 + 2] = Math.sin(theta) * ring * radius
-    starSizes[index] = 0.55 + (index % 4) * 0.18
-    starBrightness[index] = 0.04 + (index % 6) * 0.015
+    starSizes[index] = 1.75 + (index % 5) * 0.58
+    starBrightness[index] = 0.22 + (index % 8) * 0.08
   }
   const starGeometry = track(new THREE.BufferGeometry())
   starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))

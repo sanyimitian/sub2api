@@ -1,5 +1,9 @@
 <template>
   <div class="hub-page text-white">
+    <div class="hub-starfield" aria-hidden="true">
+      <i class="hub-starfield-layer hub-starfield-layer--a" :style="{ boxShadow: starLayerA }" />
+      <i class="hub-starfield-layer hub-starfield-layer--b" :style="{ boxShadow: starLayerB }" />
+    </div>
     <header class="hub-header pointer-events-none">
       <nav class="hub-nav pointer-events-auto">
         <router-link to="/" class="hub-nav-brand">
@@ -232,6 +236,26 @@ function toggleTheme() {
   localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
 }
 
+function makeStarShadows(count: number, seed: number): string {
+  const dots: string[] = []
+  let n = seed
+  const next = () => {
+    n = (n * 16807) % 2147483647
+    return n / 2147483647
+  }
+  for (let index = 0; index < count; index += 1) {
+    const x = (next() * 100).toFixed(2)
+    const y = (next() * 100).toFixed(2)
+    const alpha = (0.4 + next() * 0.6).toFixed(2)
+    const blur = (1.8 + next() * 2.2).toFixed(1)
+    dots.push(`${x}vw ${y}vh ${blur}px rgba(226, 236, 255, ${alpha})`)
+  }
+  return dots.join(', ')
+}
+
+const starLayerA = makeStarShadows(70, 17)
+const starLayerB = makeStarShadows(46, 91)
+
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'Codebot')
 const siteLogo = computed(() =>
   sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', {
@@ -355,6 +379,42 @@ onBeforeUnmount(() => {
   height: 100%;
   overflow: hidden;
   background: #000;
+}
+
+.hub-starfield {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.hub-starfield-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.hub-starfield-layer--a {
+  animation: hub-star-twinkle 2.6s ease-in-out infinite;
+}
+
+.hub-starfield-layer--b {
+  animation: hub-star-twinkle 3.8s ease-in-out infinite reverse;
+}
+
+@keyframes hub-star-twinkle {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .hub-header {
@@ -532,6 +592,8 @@ onBeforeUnmount(() => {
 
 /* 中间 1fr：整块略居中，左文案靠近中缝，右 3D 仍占右侧 */
 .hub-body {
+  position: relative;
+  z-index: 1;
   min-height: 0;
   width: min(1520px, calc(100% - 5vw));
   margin: 0 auto;
