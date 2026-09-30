@@ -10,6 +10,9 @@ void main() {
 
 export const skyFragmentShader = /* glsl */ `
 uniform float uTime;
+uniform vec3 uGalaxyFar;
+uniform vec3 uGalaxyTangent;
+uniform vec3 uGalaxyPole;
 varying vec3 vDirection;
 
 float hash31(vec3 p) {
@@ -21,6 +24,52 @@ float hash31(vec3 p) {
 void main() {
   vec3 rd = normalize(vDirection);
   vec3 color = vec3(0.004, 0.005, 0.01);
+
+  // 左右走向：中间宽，向两边按高斯慢慢收窄。
+  float delta = atan(dot(rd, uGalaxyTangent), dot(rd, uGalaxyFar));
+  float taper = exp(-delta * delta * 3.2);
+  float alongFade = exp(-delta * delta * 2.6);
+  float lane = dot(rd, uGalaxyPole) - 0.012 * sin(delta * 2.4);
+  float sigma = 0.022 + 0.145 * taper;
+  float galaxy = exp(-lane * lane / (sigma * sigma));
+
+  vec3 g = rd;
+  for (int layer = 0; layer < 4; layer++) {
+    float scale = 20.0 + float(layer) * 14.0;
+    vec3 id = floor(g * scale);
+    vec3 cell = fract(g * scale) - 0.5;
+    float h = hash31(id + float(layer) * 19.0);
+    float gate = smoothstep(0.92, 0.22, h) * smoothstep(0.06, 0.36, galaxy) * smoothstep(0.08, 0.62, alongFade);
+    float size = mix(0.1, 0.24, fract(h * 13.0)) * mix(1.0, 0.7, float(layer) / 3.0);
+    vec3 jitter = vec3(hash31(id + 1.7), hash31(id + 4.1), hash31(id + 8.3)) - 0.5;
+    float star = smoothstep(size, 0.0, length(cell - jitter * 0.6));
+    float pulse = 0.5 + 0.5 * sin(uTime * (0.5 + h * 1.5) + h * 28.0);
+    float twinkle = 0.45 + 0.55 * pulse * pulse;
+    float brightness = mix(0.4, 1.0, fract(h * 17.0));
+    vec3 tint = mix(vec3(0.75, 0.84, 1.0), vec3(1.0, 0.95, 0.84), fract(h * 9.0));
+    color += tint * star * gate * twinkle * brightness * alongFade;
+    g = normalize(g.yzx + g.zxy * 0.13);
+  }
+
+  float spineSigma = 0.022 + 0.04 * taper;
+  float spine = exp(-lane * lane / (spineSigma * spineSigma));
+  vec3 s = rd;
+  for (int layer = 0; layer < 3; layer++) {
+    float scale = 46.0 + float(layer) * 20.0;
+    vec3 id = floor(s * scale);
+    vec3 cell = fract(s * scale) - 0.5;
+    float h = hash31(id + float(layer) * 23.0);
+    float gate = smoothstep(0.88, 0.2, h) * smoothstep(0.04, 0.4, spine) * smoothstep(0.06, 0.55, alongFade);
+    float size = mix(0.12, 0.26, fract(h * 13.0));
+    vec3 jitter = vec3(hash31(id + 2.2), hash31(id + 5.4), hash31(id + 7.8)) - 0.5;
+    float star = smoothstep(size, 0.0, length(cell - jitter * 0.45));
+    float pulse = 0.5 + 0.5 * sin(uTime * (0.7 + h * 1.8) + h * 20.0);
+    float twinkle = 0.62 + 0.38 * pulse * pulse;
+    vec3 tint = mix(vec3(0.82, 0.88, 1.0), vec3(1.0, 0.96, 0.9), fract(h * 9.0));
+    color += tint * star * gate * twinkle * (0.28 + 0.55 * spine) * (0.45 + 0.55 * alongFade);
+    s = normalize(s.yzx + s.zxy * 0.11);
+  }
+
   vec3 n = rd;
   for (int layer = 0; layer < 3; layer++) {
     float scale = 18.0 + float(layer) * 14.0;

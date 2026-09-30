@@ -154,8 +154,16 @@ export function createHubView(canvas: HTMLCanvasElement): HubView | null {
     return item
   }
 
+  const galaxyFar = new THREE.Vector3(0, 0, -1)
+  const galaxyTangent = new THREE.Vector3(1, 0, 0)
+  const galaxyPole = new THREE.Vector3(0, 1, 0)
   const skyMaterial = track(new THREE.ShaderMaterial({
-    uniforms: { uTime: time },
+    uniforms: {
+      uTime: time,
+      uGalaxyFar: { value: galaxyFar },
+      uGalaxyTangent: { value: galaxyTangent },
+      uGalaxyPole: { value: galaxyPole },
+    },
     vertexShader: skyVertexShader,
     fragmentShader: skyFragmentShader,
     side: THREE.BackSide,
@@ -186,17 +194,105 @@ export function createHubView(canvas: HTMLCanvasElement): HubView | null {
   starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))
   starGeometry.setAttribute('pointSize', new THREE.BufferAttribute(starSizes, 1))
   starGeometry.setAttribute('brightness', new THREE.BufferAttribute(starBrightness, 1))
-  const stars = new THREE.Points(starGeometry, track(new THREE.ShaderMaterial({
+  const starMaterial = track(new THREE.ShaderMaterial({
     uniforms: { uTime: time },
     vertexShader: starVertexShader,
     fragmentShader: starFragmentShader,
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-  })))
+  }))
+  const stars = new THREE.Points(starGeometry, starMaterial)
   stars.frustumCulled = false
   stars.renderOrder = 0
   scene.add(stars)
+
+  // 月球后方的银河：左右走向，中间宽，向两边平滑变窄。
+  const bandCount = 4800
+  const coreCount = 4200
+  const galaxyCount = bandCount + coreCount
+  const galaxyPositions = new Float32Array(galaxyCount * 3)
+  const galaxySizes = new Float32Array(galaxyCount)
+  const galaxyBrightness = new Float32Array(galaxyCount)
+  const restAzimuth = 0.32
+  const restPolar = 0.95
+  const restDistance = 9.2
+  const restSin = Math.sin(restPolar)
+  const camPos = new THREE.Vector3(
+    restSin * Math.sin(restAzimuth) * restDistance,
+    Math.cos(restPolar) * restDistance,
+    restSin * Math.cos(restAzimuth) * restDistance,
+  )
+  const look = new THREE.Vector3(-0.45, 0.18, 0)
+  const back = new THREE.Vector3().copy(camPos).sub(look).normalize()
+  const right = new THREE.Vector3(0, 1, 0)
+  right.cross(back).normalize()
+  const far = new THREE.Vector3(-camPos.x, -camPos.y, -camPos.z).normalize()
+  const tangent = new THREE.Vector3().copy(right)
+  const ontoFar = tangent.dot(far)
+  tangent.set(
+    tangent.x - far.x * ontoFar,
+    tangent.y - far.y * ontoFar,
+    tangent.z - far.z * ontoFar,
+  ).normalize()
+  const pole = new THREE.Vector3().copy(far)
+  pole.cross(tangent).normalize()
+  galaxyFar.copy(far)
+  galaxyTangent.copy(tangent)
+  galaxyPole.copy(pole)
+  const hashUnit = (n: number) => {
+    const x = Math.sin(n * 127.1) * 43758.5453
+    return x - Math.floor(x)
+  }
+  for (let index = 0; index < galaxyCount; index += 1) {
+    const u = Math.max(hashUnit(index + 1.3), 1e-4)
+    const v = hashUnit(index * 1.7 + 9.2)
+    const roll = Math.max(hashUnit(index + 20.2), 1e-4)
+    const spin = hashUnit(index + 21.7)
+    let alongOffset = Math.sqrt(-2 * Math.log(roll)) * Math.cos(Math.PI * 2 * spin) * 0.34
+    if (alongOffset > 1.05) alongOffset = 1.05
+    if (alongOffset < -1.05) alongOffset = -1.05
+    const taper = Math.exp(-alongOffset * alongOffset * 3.2)
+    const onSpine = index >= bandCount
+    const tight = onSpine && hashUnit(index + 4.4) < 0.34
+    const laneSigma = !onSpine
+      ? 0.03 + 0.13 * taper
+      : tight
+        ? 0.01 + 0.016 * taper
+        : 0.034 + 0.055 * taper
+    const center = 0.012 * Math.sin(alongOffset * 2.4)
+    const lane = Math.sqrt(-2 * Math.log(u)) * Math.cos(Math.PI * 2 * v) * laneSigma + center
+    const cosLane = Math.cos(lane)
+    const sinAlong = Math.sin(alongOffset)
+    const cosAlong = Math.cos(alongOffset)
+    const sinLane = Math.sin(lane)
+    const dirX = far.x * cosAlong * cosLane + tangent.x * sinAlong * cosLane + pole.x * sinLane
+    const dirY = far.y * cosAlong * cosLane + tangent.y * sinAlong * cosLane + pole.y * sinLane
+    const dirZ = far.z * cosAlong * cosLane + tangent.z * sinAlong * cosLane + pole.z * sinLane
+    const radius = 26 + hashUnit(index + 3.3) * 20
+    galaxyPositions[index * 3] = dirX * radius
+    galaxyPositions[index * 3 + 1] = dirY * radius
+    galaxyPositions[index * 3 + 2] = dirZ * radius
+    galaxySizes[index] = onSpine
+      ? 0.7 + hashUnit(index + 6.6) * 0.95
+      : 0.55 + hashUnit(index + 6.6) * 1.45
+    const dist = lane - center
+    const fadeSigma = tight ? 0.022 + 0.02 * taper : 0.05 + 0.045 * taper
+    const fade = Math.exp(-(dist * dist) / (fadeSigma * fadeSigma + 0.0004))
+    const edgeFade = 0.55 + 0.45 * taper
+    const spark = 0.55 + hashUnit(index + 8.8) * 0.45
+    galaxyBrightness[index] = onSpine
+      ? (0.2 + fade * (tight ? 1.15 : 0.7) * spark) * (0.68 + 0.32 * taper)
+      : (0.16 + fade * 0.55 * spark) * edgeFade
+  }
+  const galaxyGeometry = track(new THREE.BufferGeometry())
+  galaxyGeometry.setAttribute('position', new THREE.BufferAttribute(galaxyPositions, 3))
+  galaxyGeometry.setAttribute('pointSize', new THREE.BufferAttribute(galaxySizes, 1))
+  galaxyGeometry.setAttribute('brightness', new THREE.BufferAttribute(galaxyBrightness, 1))
+  const galaxy = new THREE.Points(galaxyGeometry, starMaterial)
+  galaxy.frustumCulled = false
+  galaxy.renderOrder = 0
+  scene.add(galaxy)
 
   // 侧向主光，模拟太阳，给月球和节点明暗交界线。
   const lightDir = new THREE.Vector3(0.72, 0.28, 0.55).normalize()
@@ -409,6 +505,7 @@ export function createHubView(canvas: HTMLCanvasElement): HubView | null {
   function setLineBloomSource(enabled: boolean) {
     sky.visible = !enabled
     stars.visible = !enabled
+    galaxy.visible = !enabled
     particles.visible = !enabled
     for (let index = 0; index < gravityRings.length; index += 1) gravityRings[index].visible = !enabled
     for (let index = 0; index < nodes.length; index += 1) nodes[index].visible = !enabled
