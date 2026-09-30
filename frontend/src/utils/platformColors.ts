@@ -96,7 +96,7 @@ const ACCENT: Record<Platform, string> = {
   opencode_go: '#f59e0b', // amber-500
   composite: '#06b6d4', // cyan-500
 }
-const ACCENT_DEFAULT = '#14b8a6' // primary-500 (teal)
+const ACCENT_DEFAULT = '#56a6f0' // primary-500
 
 // ── Accent bar (gradient) ───────────────────────────────────────────
 const ACCENT_BAR: Record<Platform, string> = {
