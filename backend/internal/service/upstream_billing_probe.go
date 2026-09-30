@@ -236,7 +236,7 @@ func normalizeUpstreamBillingProbeSettings(settings *UpstreamBillingProbeSetting
 	}
 }
 
-// UpstreamBillingProbeService discovers a remote Sub2API billing snapshot.
+// UpstreamBillingProbeService discovers a remote Codebot billing snapshot.
 type UpstreamBillingProbeService struct {
 	accountRepo        AccountRepository
 	accountTestService *AccountTestService

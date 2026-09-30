@@ -49,9 +49,9 @@ assert_exists "${STATE_DIR}/containers/sub2api-apple-postgres"
 assert_exists "${STATE_DIR}/containers/sub2api-apple-redis"
 assert_exists "${STATE_DIR}/running/sub2api-apple"
 grep -q '^while true; do$' "${STATE_DIR}/create-arguments/sub2api-apple" || \
-    fail "app container does not supervise the Sub2API process"
+    fail "app container does not supervise the Codebot process"
 grep -q '^    su-exec sub2api "$runtime_binary" &$' "${STATE_DIR}/create-arguments/sub2api-apple" || \
-    fail "app supervisor does not launch the updatable Sub2API binary"
+    fail "app supervisor does not launch the updatable Codebot binary"
 grep -q '^trap stop TERM INT$' "${STATE_DIR}/create-arguments/sub2api-apple" || \
     fail "app supervisor does not handle container stop signals"
 grep -q '^runtime_binary="$runtime_dir/sub2api"$' "${STATE_DIR}/create-arguments/sub2api-apple" || \

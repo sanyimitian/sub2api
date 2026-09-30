@@ -81,7 +81,7 @@
         </p>
         <div class="mt-6 flex flex-col items-start">
           <router-link
-            to="/monitor"
+            to="/keys"
             class="group inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-bold text-black no-underline transition hover:bg-zinc-200"
           >
             {{ t('home.hub.recharge') }}
@@ -232,7 +232,7 @@ function toggleTheme() {
   localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
 }
 
-const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'Sub2API')
+const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'Codebot')
 const siteLogo = computed(() =>
   sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', {
     allowRelative: true,

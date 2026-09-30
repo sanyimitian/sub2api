@@ -58,7 +58,7 @@ Usage: ./apple-container.sh <command> [options]
 
 Commands:
   init                  Create .env and generate required secrets
-  up [--recreate]       Create and start the complete Sub2API stack
+  up [--recreate]       Create and start the complete Codebot stack
   down                  Stop the stack and preserve all data
   restart               Restart the stack in dependency order
   status                Show container and workload health
@@ -99,7 +99,7 @@ acquire_lock() {
             rm -rf "${LOCK_DIR}"
             mkdir "${LOCK_DIR}" || die "Failed to reclaim stale operation lock."
         else
-            die "Another Sub2API Apple container operation is already running."
+            die "Another Codebot Apple container operation is already running."
         fi
     fi
     printf '%s\n' "$$" >"${LOCK_DIR}/pid"
@@ -522,7 +522,7 @@ create_redis_container() {
 }
 
 create_app_container() {
-    info "Creating Sub2API container..."
+    info "Creating Codebot container..."
     container create \
         --name "${APP_CONTAINER}" \
         --label "${STACK_LABEL_KEY}=${STACK_LABEL_VALUE}" \
@@ -577,7 +577,7 @@ while true; do
     status=$?
     set -e
     child_pid=""
-    echo "Sub2API exited with status ${status}; restarting in 1 second..." >&2
+    echo "Codebot exited with status ${status}; restarting in 1 second..." >&2
     sleep 1
 done
 ' \
@@ -702,11 +702,11 @@ start_dependencies() {
 
 start_app() {
     start_container_if_needed "${APP_CONTAINER}"
-    if ! wait_for_probe "Sub2API" 180 probe_app; then
+    if ! wait_for_probe "Codebot" 180 probe_app; then
         show_failure_logs "${APP_CONTAINER}"
-        die "Sub2API did not become ready."
+        die "Codebot did not become ready."
     fi
-    if ! wait_for_probe "Sub2API host port" 15 probe_host_app; then
+    if ! wait_for_probe "Codebot host port" 15 probe_host_app; then
         die "Host port forwarding failed. In System Settings > Privacy & Security > Local Network, allow container-runtime-linux; restart Apple container services; then run 'apple-container.sh up' again."
     fi
 }
@@ -753,7 +753,7 @@ cmd_up() {
     create_app_container
     start_app
 
-    info "Sub2API is available at http://${ACCESS_HOST}:${HOST_PORT}"
+    info "Codebot is available at http://${ACCESS_HOST}:${HOST_PORT}"
 }
 
 cmd_down() {
@@ -766,7 +766,7 @@ cmd_down() {
     stop_container_if_running "${APP_CONTAINER}"
     stop_container_if_running "${REDIS_CONTAINER}"
     stop_container_if_running "${POSTGRES_CONTAINER}"
-    info "Sub2API stack stopped; persistent volumes were preserved."
+    info "Codebot stack stopped; persistent volumes were preserved."
 }
 
 cmd_restart() {
@@ -881,9 +881,9 @@ confirm_destroy() {
     local answer
 
     if [[ "${include_volumes}" == true ]]; then
-        printf 'Delete the Sub2API stack and all persistent data? [y/N] '
+        printf 'Delete the Codebot stack and all persistent data? [y/N] '
     else
-        printf 'Delete the Sub2API containers and network, preserving volumes? [y/N] '
+        printf 'Delete the Codebot containers and network, preserving volumes? [y/N] '
     fi
     read -r answer
     [[ "${answer}" == "y" || "${answer}" == "Y" ]]
@@ -934,9 +934,9 @@ cmd_destroy() {
         delete_volume_if_present "${APP_VOLUME}"
         delete_volume_if_present "${REDIS_VOLUME}"
         delete_volume_if_present "${POSTGRES_VOLUME}"
-        info "Sub2API stack and persistent data deleted."
+        info "Codebot stack and persistent data deleted."
     else
-        info "Sub2API stack deleted; persistent volumes were preserved."
+        info "Codebot stack deleted; persistent volumes were preserved."
     fi
 }
 

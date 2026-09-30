@@ -1,4 +1,4 @@
-# Sub2API Admin Reference
+# Codebot Admin Reference
 
 ## Environment
 

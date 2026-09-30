@@ -122,7 +122,7 @@ export default {
       titleLine3: '极简接入。',
       lead: '免去海外支付、多平台注册和余额分散的繁琐。一个统一接口，就能把 OpenAI、Claude、Gemini 等模型全部接入你的应用。',
       detail: '一个余额覆盖全部模型，按实际调用量结算。切换模型时，无需重复充值，也不必管理多套账单。',
-      recharge: '立即充值',
+      recharge: '免费试用',
       console: '进入控制台',
       pricing: '查看价格',
       metric1Value: '01',
@@ -220,8 +220,8 @@ export default {
 
   // Setup Wizard
   setup: {
-    title: 'Sub2API 安装向导',
-    description: '配置您的 Sub2API 实例',
+    title: 'Codebot 安装向导',
+    description: '配置您的 Codebot 实例',
     database: {
       title: '数据库配置',
       description: '连接到您的 PostgreSQL 数据库',

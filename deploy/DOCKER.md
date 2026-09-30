@@ -1,6 +1,6 @@
-# Sub2API Docker Image
+# Codebot Docker Image
 
-Sub2API is an AI API Gateway Platform for distributing and managing AI product subscription API quotas.
+Codebot is an AI API Gateway Platform for distributing and managing AI product subscription API quotas.
 
 ## Quick Start
 
@@ -51,7 +51,7 @@ volumes:
 
 ## Startup and Database Recovery
 
-Sub2API runs database migrations while starting. PostgreSQL may still be
+Codebot runs database migrations while starting. PostgreSQL may still be
 recovering briefly after a host or Docker daemon restart. The application
 retries transient PostgreSQL startup and connection errors with bounded
 exponential backoff, then continues startup when the database is ready.

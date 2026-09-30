@@ -1,12 +1,12 @@
 # Apple container Deployment
 
-Sub2API can run as a native three-service stack with Apple's `container` CLI. This workflow runs the published Sub2API, PostgreSQL, and Redis OCI images without Docker Desktop or a Docker-compatible daemon.
+Codebot can run as a native three-service stack with Apple's `container` CLI. This workflow runs the published Codebot, PostgreSQL, and Redis OCI images without Docker Desktop or a Docker-compatible daemon.
 
 ## Support Level
 
 Apple `container` support is intended for local development and operator-managed deployments on a Mac. Docker Compose remains the recommended production deployment path.
 
-Apple `container` 1.1 does not provide restart policies, automatic startup, workload health scheduling, a Docker API socket, or full Compose orchestration. `apple-container.sh` supplies ordered startup and readiness checks when you invoke it. Inside the application container, a small supervisor relaunches the Sub2API process after the Web UI requests a restart; it does not restart stopped containers or the stack itself.
+Apple `container` 1.1 does not provide restart policies, automatic startup, workload health scheduling, a Docker API socket, or full Compose orchestration. `apple-container.sh` supplies ordered startup and readiness checks when you invoke it. Inside the application container, a small supervisor relaunches the Codebot process after the Web UI requests a restart; it does not restart stopped containers or the stack itself.
 
 ## Requirements
 
@@ -34,7 +34,7 @@ cd sub2api/deploy
 # Review optional settings before startup.
 nano .env
 
-# Creates volumes/network/containers, waits for dependencies, and starts Sub2API.
+# Creates volumes/network/containers, waits for dependencies, and starts Codebot.
 ./apple-container.sh up
 
 # Verifies PostgreSQL, Redis, and the application endpoint.
@@ -61,7 +61,7 @@ The env file uses literal `KEY=value` syntax. Do not use Compose expressions suc
 # Stop containers while preserving all resources and data.
 ./apple-container.sh down
 
-# Restart PostgreSQL, Redis, and Sub2API in dependency order.
+# Restart PostgreSQL, Redis, and Codebot in dependency order.
 ./apple-container.sh restart
 
 # Show resource state and run live health probes.
@@ -129,10 +129,10 @@ Apple-specific handling of shared settings:
 
 | Setting | Apple workflow behavior |
 |---|---|
-| Application and gateway variables | Passed to Sub2API from `.env` |
+| Application and gateway variables | Passed to Codebot from `.env` |
 | `BIND_HOST`, `SERVER_PORT` | Used for the macOS published port |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | PostgreSQL first initialization only |
-| `REDIS_PASSWORD` | Applied to Redis and Sub2API |
+| `REDIS_PASSWORD` | Applied to Redis and Codebot |
 | `DATABASE_PORT`, `REDIS_PORT` | Internal ports are fixed to 5432 and 6379 |
 | `POSTGRES_MAX_*`, `REDIS_MAXCLIENTS` | Not currently applied to the database/cache server |
 
@@ -146,11 +146,11 @@ The script creates only resources carrying the `org.sub2api.stack=apple-containe
 | Network | `sub2api-apple` |
 | Volumes | `sub2api-apple-data`, `sub2api-apple-postgres-data`, `sub2api-apple-redis-data` |
 
-The PostgreSQL volume is mounted at `/var/lib/postgresql`, retaining PostgreSQL 18's default child data directory. Sub2API data and its updatable runtime binary use separate child directories in `sub2api-apple-data`; Redis also stores data below its Apple volume mount point. This is required because Apple named volumes do not have Docker's copy-up and mount-point ownership behavior.
+The PostgreSQL volume is mounted at `/var/lib/postgresql`, retaining PostgreSQL 18's default child data directory. Codebot data and its updatable runtime binary use separate child directories in `sub2api-apple-data`; Redis also stores data below its Apple volume mount point. This is required because Apple named volumes do not have Docker's copy-up and mount-point ownership behavior.
 
 ## Networking
 
-Apple `container` 1.1 does not provide Compose-style network-scoped service aliases. After PostgreSQL and Redis start, the script reads their current private-network IPv4 addresses from `container inspect`, injects those addresses into a newly created application container, and then starts Sub2API. The script does not modify `~/.config/container/config.toml` or the macOS host resolver.
+Apple `container` 1.1 does not provide Compose-style network-scoped service aliases. After PostgreSQL and Redis start, the script reads their current private-network IPv4 addresses from `container inspect`, injects those addresses into a newly created application container, and then starts Codebot. The script does not modify `~/.config/container/config.toml` or the macOS host resolver.
 
 All three services attach only to the private `sub2api-apple` network. Only the application publishes a host port; database and Redis ports remain unpublished.
 
@@ -241,5 +241,5 @@ container system start
 - Health probes run during `up`, `restart`, and `status`; Apple `container` does not continuously schedule them.
 - Docker Compose, Testcontainers, Buildx, and tools requiring `/var/run/docker.sock` cannot use this runtime directly.
 - Named volume backup and restore must be tested before using this workflow for important data.
-- The script targets native `linux/arm64` images. The normal Sub2API release publishes an arm64 variant.
+- The script targets native `linux/arm64` images. The normal Codebot release publishes an arm64 variant.
 - Runtime environment values, including credentials, are retained in Apple container configuration and are visible to users who can inspect the local runtime.

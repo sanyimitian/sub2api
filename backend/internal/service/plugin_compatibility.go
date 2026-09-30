@@ -15,9 +15,9 @@ type PluginHostInfo struct {
 
 func EvaluatePluginCompatibility(manifest PluginManifest, host PluginHostInfo) PluginCompatibility {
 	result := PluginCompatibility{
-		CurrentSub2API:     host.Version,
-		RequiredSub2API:    manifest.Requires.Sub2API,
-		RecommendedSub2API: manifest.Requires.RecommendedSub2APIVersion,
+		CurrentCodebot:     host.Version,
+		RequiredCodebot:    manifest.Requires.Codebot,
+		RecommendedCodebot: manifest.Requires.RecommendedCodebotVersion,
 		PluginProtocol:     manifest.Requires.PluginProtocol,
 		TransportAPI:       manifest.Requires.TransportAPI,
 		UIBridge:           manifest.Requires.UIBridge,
@@ -26,16 +26,16 @@ func EvaluatePluginCompatibility(manifest PluginManifest, host PluginHostInfo) P
 		manifest.Requires.TransportAPI != pluginv1.TransportAPIVersion ||
 		manifest.Requires.UIBridge != pluginv1.UIBridgeVersion {
 		result.Status = "incompatible"
-		result.Message = "插件协议版本与当前 Sub2API 不兼容"
+		result.Message = "插件协议版本与当前 Codebot 不兼容"
 		return result
 	}
-	if !matchesSemverRange(host.Version, manifest.Requires.Sub2API) {
+	if !matchesSemverRange(host.Version, manifest.Requires.Codebot) {
 		result.Status = "incompatible"
-		result.Message = fmt.Sprintf("当前 Sub2API %s 不满足插件要求 %s", host.Version, manifest.Requires.Sub2API)
+		result.Message = fmt.Sprintf("当前 Codebot %s 不满足插件要求 %s", host.Version, manifest.Requires.Codebot)
 		return result
 	}
 	result.Compatible = true
-	for _, tested := range manifest.Requires.TestedSub2APIVersions {
+	for _, tested := range manifest.Requires.TestedCodebotVersions {
 		if normalizeSemver(tested) == normalizeSemver(host.Version) {
 			result.Tested = true
 			break
@@ -43,10 +43,10 @@ func EvaluatePluginCompatibility(manifest PluginManifest, host PluginHostInfo) P
 	}
 	if result.Tested {
 		result.Status = "compatible"
-		result.Message = "当前 Sub2API 版本已由插件声明测试"
+		result.Message = "当前 Codebot 版本已由插件声明测试"
 	} else {
 		result.Status = "untested"
-		result.Message = "版本范围兼容，但插件未声明已测试当前 Sub2API 版本"
+		result.Message = "版本范围兼容，但插件未声明已测试当前 Codebot 版本"
 	}
 	return result
 }

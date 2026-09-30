@@ -122,7 +122,7 @@ export default {
       titleLine3: 'simply connected.',
       lead: 'Skip overseas payments, separate signups, and scattered balances. One API brings OpenAI, Claude, Gemini, and the rest into your app.',
       detail: 'One balance covers every model and bills actual usage. Switch models without topping up again or managing separate invoices.',
-      recharge: 'Top up',
+      recharge: 'Free trial',
       console: 'Open console',
       pricing: 'View pricing',
       metric1Value: '01',
@@ -220,8 +220,8 @@ export default {
 
   // Setup Wizard
   setup: {
-    title: 'Sub2API Setup',
-    description: 'Configure your Sub2API instance',
+    title: 'Codebot Setup',
+    description: 'Configure your Codebot instance',
     database: {
       title: 'Database Configuration',
       description: 'Connect to your PostgreSQL database',
