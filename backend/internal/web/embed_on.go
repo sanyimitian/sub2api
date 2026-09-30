@@ -86,6 +86,10 @@ func (s *FrontendServer) InvalidateCache() {
 // Middleware returns the Gin middleware handler
 func (s *FrontendServer) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if redirectLegacyHome(c) {
+			return
+		}
+
 		path := c.Request.URL.Path
 
 		// Skip API routes
@@ -317,6 +321,10 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 	overrideDir := filepath.Join("data", "public")
 
 	return func(c *gin.Context) {
+		if redirectLegacyHome(c) {
+			return
+		}
+
 		path := c.Request.URL.Path
 
 		if shouldBypassEmbeddedFrontend(path) {
@@ -356,6 +364,23 @@ func tryServeOverrideFile(c *gin.Context, overrideDir, cleanPath string) bool {
 		return false
 	}
 	c.File(filePath)
+	c.Abort()
+	return true
+}
+
+func redirectLegacyHome(c *gin.Context) bool {
+	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+		return false
+	}
+	if c.Request.URL.Path != "/hub" && c.Request.URL.Path != "/hub/" {
+		return false
+	}
+
+	target := "/home"
+	if c.Request.URL.RawQuery != "" {
+		target += "?" + c.Request.URL.RawQuery
+	}
+	c.Redirect(http.StatusMovedPermanently, target)
 	c.Abort()
 	return true
 }

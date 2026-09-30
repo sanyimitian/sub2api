@@ -11,36 +11,63 @@
     <meta property="og:site_name" content="codebot.one（codebot API）" />
     <meta property="og:title" content="CC Switch 配置教程：接入 Codebot API 中转站" />
     <meta property="og:description" content="通过 CC Switch 管理 Claude Code、Codex 等开发工具的 Codebot API 接入配置。" />
-    <link rel="icon" href="/logo.svg" />
+    <meta property="og:url" content="https://codebot.one/guide/cc-switch.html" />
+    <link rel="icon" type="image/png" href="/codebot-favicon.png" />
     <link rel="stylesheet" href="/guide-assets/guide.css" />
     <script src="/guide-assets/guide.js" defer></script>
   </head>
-  <body>
+  <body class="guide-topic">
+    <a class="skip-link" href="#guide-content">跳转到正文</a>
     <button class="menu-toggle" type="button" aria-label="打开教程导航" aria-expanded="false" aria-controls="doc-sidebar"><span></span><span></span><span></span></button>
     <div class="nav-overlay" aria-hidden="true"></div>
-    <aside class="sidebar" id="doc-sidebar" aria-label="教程导航">
-      <div class="brand-block"><a class="brand-name" href="/home">Codebot API</a><span>开发接入教程</span></div>
-      <a class="back-link" href="/home">返回 codebot.one</a>
-      <div class="sidebar-label">相关教程</div>
-      <nav class="toc">
+    <aside class="sidebar" id="doc-sidebar" aria-label="文档目录" aria-hidden="false">
+      <div class="brand-block">
+        <a class="brand-name" href="/">Codebot API</a>
+        <span>AI API 网关使用指南</span>
+      </div>
+      <a class="back-link" href="/"><span aria-hidden="true">←</span>返回主站</a>
+      <a class="guide-index-link" href="/guide.html">完整使用指南<span aria-hidden="true">↗</span></a>
+      <div class="sidebar-label">本页目录</div>
+      <nav class="toc" aria-label="本页章节">
+        <a href="#prepare" data-section="prepare">准备 API Key</a>
+        <a href="#configure" data-section="configure">添加服务商</a>
+        <a href="#enable" data-section="enable">导入、启用与验证</a>
+        <a href="#next" data-section="next">按客户端继续阅读</a>
+      </nav>
+      <div class="sidebar-label topic-label">接入教程</div>
+      <nav class="toc topic-nav" aria-label="其他接入教程">
         <a href="/guide/api-key.html">创建 API Key</a>
-        <a href="/guide/cc-switch.html">配置 CC Switch</a>
+        <a href="/guide/cc-switch.html" aria-current="page">配置 CC Switch</a>
         <a href="/guide/claude-code.html">接入 Claude Code</a>
         <a href="/guide/codex.html">接入 Codex</a>
       </nav>
+      <div class="sidebar-footer">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span>文档随版本持续更新</span>
+      </div>
     </aside>
-    <main class="content">
+    <main class="content" id="guide-content" tabindex="-1">
+      <nav class="breadcrumbs" aria-label="当前位置">
+        <a href="/guide.html">使用指南</a>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">配置 CC Switch</span>
+      </nav>
       <header class="page-header">
-        <div class="eyebrow">Codebot API 开发教程</div>
+        <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Codebot API 使用文档</div>
         <h1>使用 CC Switch 配置 Codebot API</h1>
         <p class="lead">CC Switch 可以集中保存和切换多个 AI 开发工具的服务商配置。为 Codebot API 添加接口地址和 API Key 后，即可在支持的客户端中选择使用。</p>
-        <div class="header-actions"><a class="site-badge" href="https://ccswitch.io/zh/download" target="_blank" rel="noopener noreferrer">下载 CC Switch</a></div>
+        <div class="header-actions"><a class="site-badge" href="https://ccswitch.io/zh/download" target="_blank" rel="noopener noreferrer">下载 CC Switch</a>
+          <button class="theme-button" type="button" data-theme-toggle>
+            <span class="theme-icon" aria-hidden="true">☾</span>
+            <span data-theme-label>深色模式</span>
+          </button>
+        </div>
       </header>
-      <section class="doc-section">
+      <section class="doc-section" id="prepare">
         <div class="section-title"><span class="section-number">1</span><h2>准备 API Key</h2></div>
         <p>先在 Codebot API 控制台创建 API Key，并确认密钥所属分组支持计划使用的模型。密钥创建步骤见 <a href="/guide/api-key.html">API Key 创建教程</a>。</p>
       </section>
-      <section class="doc-section">
+      <section class="doc-section" id="configure">
         <div class="section-title"><span class="section-number">2</span><h2>添加 Codebot API 服务商</h2></div>
         <p>打开 CC Switch 的服务商设置，按目标客户端填写接口地址和密钥：</p>
         <div class="table-wrap"><table>
@@ -54,20 +81,40 @@
         </table></div>
         <div class="callout warning"><span class="callout-icon" aria-hidden="true">!</span><p><strong>不同协议的接口地址不要混用。</strong>Claude Code 使用站点根地址；OpenAI 兼容客户端使用带 <code>/v1</code> 的地址。</p></div>
       </section>
-      <section class="doc-section">
+      <section class="doc-section" id="enable">
         <div class="section-title"><span class="section-number">3</span><h2>启用配置并验证</h2></div>
+        <h3>方式一：从网站一键导入</h3>
+        <p>如果控制台显示「导入到 CCS」或「导入到 CC Switch」入口，可以按下面的图示导入。截图沿用完整指南，实际入口以当前界面为准。</p>
+        <ol class="step-list">
+          <li><span>1</span><div>在「API 密钥」页面找到对应密钥，点击右侧的导入入口。</div></li>
+        </ol>
+        <figure class="screenshot">
+          <img src="/guide-assets/llmbridge-keys-import-ccs.png" alt="历史版 API 密钥页面导入到 CC Switch 的示意" loading="lazy" />
+          <figcaption>历史版本示意：从对应密钥右侧导入配置</figcaption>
+        </figure>
+        <ol class="step-list" start="2">
+          <li><span>2</span><div>在 CC Switch 中确认站点地址和服务商名称，再点击「导入」。</div></li>
+        </ol>
+        <figure class="screenshot screenshot-dialog">
+          <img src="/guide-assets/cc-switch-import-confirm.png" alt="CC Switch 确认导入 API 服务商配置的示意" loading="lazy" />
+          <figcaption>历史版本示意：确认地址、客户端类型和服务商名称后导入</figcaption>
+        </figure>
+        <h3>方式二：启用手动添加的配置</h3>
         <ol class="step-list">
           <li><span>1</span><div>保存服务商配置，并在 CC Switch 中切换到对应客户端页签。</div></li>
           <li><span>2</span><div>启用 Codebot API 配置。</div></li>
           <li><span>3</span><div>完全退出并重新打开 AI 客户端，再用控制台支持的模型发送一条测试请求。</div></li>
         </ol>
-        <p>如果站点控制台显示「导入到 CC Switch」入口，也可以按页面提示导入配置；导入后请核对接口地址和服务商名称。</p>
+        <figure class="screenshot screenshot-wide">
+          <img src="/guide-assets/cc-switch-enable-provider.png" alt="在 CC Switch 中启用 API 服务商配置的示意" loading="lazy" />
+          <figcaption>历史版本示意：导入或手动添加后，都需要启用配置并重新打开客户端</figcaption>
+        </figure>
       </section>
-      <section class="doc-section">
+      <section class="doc-section" id="next">
         <div class="section-title"><span class="section-number">4</span><h2>按客户端继续阅读</h2></div>
         <div class="route-links" aria-label="客户端接入教程"><a href="/guide/claude-code.html">Claude Code 配置</a><a href="/guide/codex.html">Codex 配置</a></div>
       </section>
-      <footer class="doc-footer"><a href="/guide.html">查看完整使用指南</a><span>codebot.one · Codebot API</span></footer>
+      <footer class="doc-footer"><a href="/guide.html#switch">查看完整指南中的本章</a><span>codebot.one · Codebot API</span></footer>
     </main>
   </body>
 </html>

@@ -11,36 +11,68 @@
     <meta property="og:site_name" content="codebot.one（codebot API）" />
     <meta property="og:title" content="Codex API 中转配置教程：接入 Codebot API" />
     <meta property="og:description" content="为 Codex 配置 Codebot API 的 OpenAI 兼容接口地址、API Key 和可用模型。" />
-    <link rel="icon" href="/logo.svg" />
+    <meta property="og:url" content="https://codebot.one/guide/codex.html" />
+    <link rel="icon" type="image/png" href="/codebot-favicon.png" />
     <link rel="stylesheet" href="/guide-assets/guide.css" />
     <script src="/guide-assets/guide.js" defer></script>
   </head>
-  <body>
+  <body class="guide-topic">
+    <a class="skip-link" href="#guide-content">跳转到正文</a>
     <button class="menu-toggle" type="button" aria-label="打开教程导航" aria-expanded="false" aria-controls="doc-sidebar"><span></span><span></span><span></span></button>
     <div class="nav-overlay" aria-hidden="true"></div>
-    <aside class="sidebar" id="doc-sidebar" aria-label="教程导航">
-      <div class="brand-block"><a class="brand-name" href="/home">Codebot API</a><span>开发接入教程</span></div>
-      <a class="back-link" href="/home">返回 codebot.one</a>
-      <div class="sidebar-label">相关教程</div>
-      <nav class="toc">
+    <aside class="sidebar" id="doc-sidebar" aria-label="文档目录" aria-hidden="false">
+      <div class="brand-block">
+        <a class="brand-name" href="/">Codebot API</a>
+        <span>AI API 网关使用指南</span>
+      </div>
+      <a class="back-link" href="/"><span aria-hidden="true">←</span>返回主站</a>
+      <a class="guide-index-link" href="/guide.html">完整使用指南<span aria-hidden="true">↗</span></a>
+      <div class="sidebar-label">本页目录</div>
+      <nav class="toc" aria-label="本页章节">
+        <a href="#prepare" data-section="prepare">准备客户端与密钥</a>
+        <a href="#configure" data-section="configure">添加服务商配置</a>
+        <a href="#verify" data-section="verify">启用并验证连接</a>
+        <a href="#next" data-section="next">管理多个客户端</a>
+      </nav>
+      <div class="sidebar-label topic-label">接入教程</div>
+      <nav class="toc topic-nav" aria-label="其他接入教程">
         <a href="/guide/api-key.html">创建 API Key</a>
         <a href="/guide/cc-switch.html">配置 CC Switch</a>
         <a href="/guide/claude-code.html">接入 Claude Code</a>
-        <a href="/guide/codex.html">接入 Codex</a>
+        <a href="/guide/codex.html" aria-current="page">接入 Codex</a>
       </nav>
+      <div class="sidebar-footer">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span>文档随版本持续更新</span>
+      </div>
     </aside>
-    <main class="content">
+    <main class="content" id="guide-content" tabindex="-1">
+      <nav class="breadcrumbs" aria-label="当前位置">
+        <a href="/guide.html">使用指南</a>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">接入 Codex</span>
+      </nav>
       <header class="page-header">
-        <div class="eyebrow">Codebot API 开发教程</div>
+        <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Codebot API 使用文档</div>
         <h1>Codex 接入 Codebot API</h1>
         <p class="lead">使用 OpenAI 兼容接口将 Codex 连接到 Codebot API。准备 API Key、设置 Base URL，再选择控制台中可用的模型。</p>
-        <div class="header-actions"><a class="site-badge" href="https://github.com/openai/codex" target="_blank" rel="noopener noreferrer">查看 Codex 项目</a><a class="site-badge" href="/guide/api-key.html">创建 API Key</a></div>
+        <div class="header-actions"><a class="site-badge" href="https://github.com/openai/codex" target="_blank" rel="noopener noreferrer">查看 Codex 项目</a><a class="site-badge" href="/guide/api-key.html">创建 API Key</a>
+          <button class="theme-button" type="button" data-theme-toggle>
+            <span class="theme-icon" aria-hidden="true">☾</span>
+            <span data-theme-label>深色模式</span>
+          </button>
+        </div>
       </header>
-      <section class="doc-section">
+      <section class="doc-section" id="prepare">
         <div class="section-title"><span class="section-number">1</span><h2>准备 Codex 与 API Key</h2></div>
         <p>从 Codex 官方项目获取适合系统的客户端，并在 Codebot API 控制台创建 API Key。密钥创建方式见 <a href="/guide/api-key.html">API Key 教程</a>。</p>
+        <div class="route-links" aria-label="准备客户端与密钥">
+          <a href="https://github.com/openai/codex" target="_blank" rel="noopener noreferrer">Codex 官方项目</a>
+          <a href="/guide/api-key.html">创建并保存 API Key</a>
+          <a href="/guide/cc-switch.html">CC Switch 下载与配置</a>
+        </div>
       </section>
-      <section class="doc-section">
+      <section class="doc-section" id="configure">
         <div class="section-title"><span class="section-number">2</span><h2>在 CC Switch 中添加 Codebot API</h2></div>
         <p>打开 CC Switch 的 Codex 配置，添加一个 OpenAI 兼容服务商，并填写：</p>
         <div class="table-wrap"><table>
@@ -54,21 +86,25 @@
         </table></div>
         <div class="callout warning"><span class="callout-icon" aria-hidden="true">!</span><p>Codebot API 接口地址用于 Codex 或其他支持自定义 OpenAI 兼容地址的客户端。ChatGPT 官方网页和官方客户端不能直接改用第三方 API 地址。</p></div>
       </section>
-      <section class="doc-section">
+      <section class="doc-section" id="verify">
         <div class="section-title"><span class="section-number">3</span><h2>启用并验证连接</h2></div>
         <ol class="step-list">
           <li><span>1</span><div>保存服务商配置，并在 Codex 页签中启用 Codebot API。</div></li>
           <li><span>2</span><div>完全退出并重新打开 Codex，使新配置生效。</div></li>
           <li><span>3</span><div>使用控制台当前可用的模型发送一条简短请求，确认连接正常。</div></li>
         </ol>
+        <figure class="screenshot screenshot-wide">
+          <img src="/guide-assets/cc-switch-enable-provider.png" alt="在 CC Switch 的 Codex 标签中启用 API 服务商配置的示意" loading="lazy" />
+          <figcaption>历史版本示意：在 Codex 标签中启用配置，再重新打开客户端。服务商信息以当前站点为准。</figcaption>
+        </figure>
         <p>遇到错误时，先核对 Base URL 是否为 <code>https://codebot.one/v1</code>，确认没有重复添加 <code>/v1</code>，并检查 API Key、额度和模型权限。</p>
       </section>
-      <section class="doc-section">
+      <section class="doc-section" id="next">
         <div class="section-title"><span class="section-number">4</span><h2>管理多个客户端配置</h2></div>
         <p>如果还需要在 Claude Code 与 Codex 之间切换，可使用 CC Switch 保存多组服务商配置。</p>
         <div class="route-links" aria-label="相关接入教程"><a href="/guide/cc-switch.html">CC Switch 配置教程</a><a href="/guide/claude-code.html">Claude Code 配置教程</a></div>
       </section>
-      <footer class="doc-footer"><a href="/guide.html">查看完整使用指南</a><span>codebot.one · Codebot API</span></footer>
+      <footer class="doc-footer"><a href="/guide.html#codex">查看完整指南中的本章</a><span>codebot.one · Codebot API</span></footer>
     </main>
   </body>
 </html>

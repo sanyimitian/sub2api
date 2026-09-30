@@ -445,6 +445,58 @@ func TestFrontendServer_ServeIndexHTML(t *testing.T) {
 	})
 }
 
+func TestLegacyHomeRedirect(t *testing.T) {
+	server, err := NewFrontendServer(&mockSettingsProvider{
+		settings: map[string]string{"site_name": "Codebot"},
+	})
+	require.NoError(t, err)
+
+	handlers := []struct {
+		name    string
+		handler gin.HandlerFunc
+	}{
+		{name: "settings_injection", handler: server.Middleware()},
+		{name: "legacy", handler: ServeEmbeddedFrontend()},
+	}
+	cases := []struct {
+		name     string
+		method   string
+		path     string
+		status   int
+		location string
+	}{
+		{name: "old_home", method: http.MethodGet, path: "/hub", status: http.StatusMovedPermanently, location: "/home"},
+		{name: "trailing_slash", method: http.MethodGet, path: "/hub/", status: http.StatusMovedPermanently, location: "/home"},
+		{name: "query", method: http.MethodGet, path: "/hub?source=search&next=%2Fguide.html", status: http.StatusMovedPermanently, location: "/home?source=search&next=%2Fguide.html"},
+		{name: "head", method: http.MethodHead, path: "/hub", status: http.StatusMovedPermanently, location: "/home"},
+		{name: "current_home", method: http.MethodGet, path: "/home", status: http.StatusOK},
+		{name: "root_alias", method: http.MethodGet, path: "/", status: http.StatusOK},
+		{name: "other_path", method: http.MethodGet, path: "/hub/example", status: http.StatusOK},
+		{name: "post", method: http.MethodPost, path: "/hub", status: http.StatusOK},
+	}
+
+	for _, handler := range handlers {
+		t.Run(handler.name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(handler.handler)
+
+			for _, testCase := range cases {
+				t.Run(testCase.name, func(t *testing.T) {
+					response := httptest.NewRecorder()
+					request := httptest.NewRequest(testCase.method, testCase.path, nil)
+					router.ServeHTTP(response, request)
+
+					assert.Equal(t, testCase.status, response.Code)
+					assert.Equal(t, testCase.location, response.Header().Get("Location"))
+					if testCase.method == http.MethodHead {
+						assert.Empty(t, response.Body.String())
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestFrontendServer_InvalidateCache(t *testing.T) {
 	t.Run("invalidates_cache", func(t *testing.T) {
 		provider := &mockSettingsProvider{

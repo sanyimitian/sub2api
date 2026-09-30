@@ -11,12 +11,6 @@ const ROUTE_SEO: Record<string, RouteSEO> = {
       'codebot.one(codebot API) 为开发者及企业提供稳定、高速的 AI API 中转站，支持通过统一接口接入多种主流大模型。',
     canonical: 'https://codebot.one/home',
   },
-  HubHome: {
-    title: 'AI API 中转站：统一接入多种主流大模型 | codebot API',
-    description:
-      'codebot API 面向开发者及企业提供 AI API 中转服务，通过统一接口连接多种主流大模型，并提供 API 接入文档与开发教程。',
-    canonical: 'https://codebot.one/hub',
-  },
 }
 
 export function getRouteSEO(routeName: unknown): RouteSEO | null {

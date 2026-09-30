@@ -44,7 +44,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/hub',
-    redirect: '/'
+    redirect: '/home'
   },
   {
     path: '/login',

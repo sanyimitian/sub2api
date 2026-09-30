@@ -11,36 +11,63 @@
     <meta property="og:site_name" content="codebot.one（codebot API）" />
     <meta property="og:title" content="AI API Key 创建教程：Codebot API 密钥配置" />
     <meta property="og:description" content="创建 Codebot API 密钥，选择可用模型分组，并安全地配置到开发工具中。" />
-    <link rel="icon" href="/logo.svg" />
+    <meta property="og:url" content="https://codebot.one/guide/api-key.html" />
+    <link rel="icon" type="image/png" href="/codebot-favicon.png" />
     <link rel="stylesheet" href="/guide-assets/guide.css" />
     <script src="/guide-assets/guide.js" defer></script>
   </head>
-  <body>
+  <body class="guide-topic">
+    <a class="skip-link" href="#guide-content">跳转到正文</a>
     <button class="menu-toggle" type="button" aria-label="打开教程导航" aria-expanded="false" aria-controls="doc-sidebar"><span></span><span></span><span></span></button>
     <div class="nav-overlay" aria-hidden="true"></div>
-    <aside class="sidebar" id="doc-sidebar" aria-label="教程导航">
-      <div class="brand-block"><a class="brand-name" href="/home">Codebot API</a><span>开发接入教程</span></div>
-      <a class="back-link" href="/home">返回 codebot.one</a>
-      <div class="sidebar-label">相关教程</div>
-      <nav class="toc">
-        <a href="/guide/api-key.html">创建 API Key</a>
+    <aside class="sidebar" id="doc-sidebar" aria-label="文档目录" aria-hidden="false">
+      <div class="brand-block">
+        <a class="brand-name" href="/">Codebot API</a>
+        <span>AI API 网关使用指南</span>
+      </div>
+      <a class="back-link" href="/"><span aria-hidden="true">←</span>返回主站</a>
+      <a class="guide-index-link" href="/guide.html">完整使用指南<span aria-hidden="true">↗</span></a>
+      <div class="sidebar-label">本页目录</div>
+      <nav class="toc" aria-label="本页章节">
+        <a href="#prepare" data-section="prepare">登录并准备密钥</a>
+        <a href="#create" data-section="create">创建与安全保存</a>
+        <a href="#connect" data-section="connect">填写接口信息</a>
+        <a href="#next" data-section="next">配置开发工具</a>
+      </nav>
+      <div class="sidebar-label topic-label">接入教程</div>
+      <nav class="toc topic-nav" aria-label="其他接入教程">
+        <a href="/guide/api-key.html" aria-current="page">创建 API Key</a>
         <a href="/guide/cc-switch.html">配置 CC Switch</a>
         <a href="/guide/claude-code.html">接入 Claude Code</a>
         <a href="/guide/codex.html">接入 Codex</a>
       </nav>
+      <div class="sidebar-footer">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span>文档随版本持续更新</span>
+      </div>
     </aside>
-    <main class="content">
+    <main class="content" id="guide-content" tabindex="-1">
+      <nav class="breadcrumbs" aria-label="当前位置">
+        <a href="/guide.html">使用指南</a>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">创建 API Key</span>
+      </nav>
       <header class="page-header">
-        <div class="eyebrow">Codebot API 开发教程</div>
+        <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Codebot API 使用文档</div>
         <h1>如何创建 AI API Key 并安全使用</h1>
         <p class="lead">创建 API Key 后，开发工具和应用才能通过 Codebot API 调用已开通的模型。请按下面步骤完成密钥准备。</p>
-        <div class="header-actions"><a class="site-badge" href="/keys">打开 API 密钥页面</a></div>
+        <div class="header-actions"><a class="site-badge" href="/keys">打开 API 密钥页面</a>
+          <button class="theme-button" type="button" data-theme-toggle>
+            <span class="theme-icon" aria-hidden="true">☾</span>
+            <span data-theme-label>深色模式</span>
+          </button>
+        </div>
       </header>
-      <section class="doc-section">
+      <section class="doc-section" id="prepare">
         <div class="section-title"><span class="section-number">1</span><h2>登录并打开 API 密钥</h2></div>
         <p>访问 <a href="/login?redirect=%2Fkeys">Codebot API 控制台</a>，登录后进入「API 密钥」页面。没有账户时，请按站点当前开放的注册方式完成注册。</p>
       </section>
-      <section class="doc-section">
+      <section class="doc-section" id="create">
         <div class="section-title"><span class="section-number">2</span><h2>创建密钥并选择可用分组</h2></div>
         <ol class="step-list">
           <li><span>1</span><div>点击「创建密钥」，填写便于识别用途的名称，例如 <code>claude-code</code> 或 <code>dev-project</code>。</div></li>
@@ -48,13 +75,23 @@
           <li><span>3</span><div>创建后复制 API Key，并保存在密码管理器或服务端密钥配置中。</div></li>
         </ol>
         <div class="callout warning"><span class="callout-icon" aria-hidden="true">!</span><p><strong>请勿公开 API Key。</strong>不要把完整密钥提交到代码仓库、前端代码、截图或公开聊天中。怀疑泄露时，请在控制台停用旧密钥并创建新密钥。</p></div>
+        <h3>创建后查看用量</h3>
+        <p>保存密钥后，可以通过站内的用量查询入口查看使用情况。下图沿用完整指南中的历史版本示意，实际界面以当前站点为准。</p>
+        <div class="route-links" aria-label="密钥与用量入口">
+          <a href="/keys">管理 API 密钥</a>
+          <a href="/key-usage">查询密钥用量</a>
+        </div>
+        <figure class="screenshot usage-shot">
+          <img src="/guide-assets/llmbridge-key-usage-zh.png" alt="历史版 API Key 用量查询页面示意" loading="lazy" />
+          <figcaption>历史版本示意：输入 Key 后可查询用量与使用状态</figcaption>
+        </figure>
       </section>
-      <section class="doc-section">
+      <section class="doc-section" id="connect">
         <div class="section-title"><span class="section-number">3</span><h2>在客户端中填写接口信息</h2></div>
         <p>Codebot API 为不同客户端提供统一接入地址。OpenAI 兼容客户端通常使用 <code>https://codebot.one/v1</code>；Claude Code 使用 <code>https://codebot.one</code>。请根据客户端类型和官方配置说明填写接口地址及 API Key。</p>
         <p>模型名称应以 Codebot API 控制台中当前可用的名称为准，不要直接照抄其他服务商的模型列表。</p>
       </section>
-      <section class="doc-section">
+      <section class="doc-section" id="next">
         <div class="section-title"><span class="section-number">4</span><h2>继续配置开发工具</h2></div>
         <div class="route-links" aria-label="开发工具配置教程">
           <a href="/guide/cc-switch.html">CC Switch 配置</a>
@@ -62,7 +99,7 @@
           <a href="/guide/codex.html">Codex 接入</a>
         </div>
       </section>
-      <footer class="doc-footer"><a href="/guide.html">查看完整使用指南</a><span>codebot.one · Codebot API</span></footer>
+      <footer class="doc-footer"><a href="/guide.html#account">查看完整指南中的本章</a><span>codebot.one · Codebot API</span></footer>
     </main>
   </body>
 </html>
