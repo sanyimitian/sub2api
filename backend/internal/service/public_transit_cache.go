@@ -6,14 +6,20 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 )
 
 const (
-	publicCacheRateMinimum  = 80.0
-	publicCacheRateMaximum  = 92.0
-	publicCacheLowMinimum   = 75.0
-	publicCacheLowMaximum   = 80.0
-	publicCacheMinimumTotal = int64(1000)
+	publicTransitPresentationAlgorithmVersion = 2
+	publicCacheRateMinimum                    = 80.0
+	publicCacheRateMaximum                    = 92.0
+	publicCacheLowMinimum                     = 75.0
+	publicCacheLowMaximum                     = 80.0
+	publicCacheBoostedRateThreshold           = 92.0
+	publicCacheBoostedRateMinimum             = 90.0
+	publicCacheBoostedRateMaximum             = 93.0
+	publicCacheMinimumTotal                   = int64(1000)
 )
 
 type PublicTransitCachePolicy struct {
@@ -55,6 +61,7 @@ type PublicTransitPresentationCache interface {
 }
 
 type PublicTransitPresentationState struct {
+	Version       int                      `json:"version"`
 	SourceInput   int64                    `json:"source_input"`
 	SourceCreated int64                    `json:"source_created"`
 	SourceRead    int64                    `json:"source_read"`
@@ -128,7 +135,8 @@ func (s *PublicTransitService) publicCachePresentationWithPolicy(ctx context.Con
 	if err != nil {
 		return 0, 0, 0, 0, fmt.Errorf("read public transit cache pool: %w", err)
 	}
-	if found && state.SourceInput == input && state.SourceCreated == created && state.SourceRead == read && state.Policy == policy {
+	if found && state.Version == publicTransitPresentationAlgorithmVersion &&
+		state.SourceInput == input && state.SourceCreated == created && state.SourceRead == read && state.Policy == policy {
 		if err := s.presentationCache.Set(ctx, key, state); err != nil {
 			return 0, 0, 0, 0, fmt.Errorf("write public transit cache pool: %w", err)
 		}
@@ -136,6 +144,7 @@ func (s *PublicTransitService) publicCachePresentationWithPolicy(ctx context.Con
 	}
 	outInput, outCreated, outRead, rate := adjustPublicCacheCountsWithPolicy(input, created, read, key, policy)
 	state = PublicTransitPresentationState{
+		Version:     publicTransitPresentationAlgorithmVersion,
 		SourceInput: input, SourceCreated: created, SourceRead: read,
 		Input: outInput, Created: outCreated, Read: outRead, Policy: policy,
 	}
@@ -179,9 +188,37 @@ func adjustPublicCacheRateWithPolicy(rate float64, key string, policy PublicTran
 		rate = 0
 	}
 	if rate < policy.LowRateMin {
-		digest := sha256.Sum256([]byte(key))
-		fraction := float64(binary.BigEndian.Uint64(digest[:8])) / float64(math.MaxUint64)
-		return policy.LowRateMin + fraction*(policy.LowRateMax-policy.LowRateMin)
+		return deterministicPublicCacheRate(key, policy.LowRateMin, policy.LowRateMax)
 	}
-	return math.Max(policy.MinimumRate, math.Min(policy.MaximumRate, rate*1.1))
+
+	boostedRate := rate * 1.1
+	if boostedRate >= publicCacheBoostedRateThreshold {
+		randomizedRate := deterministicPublicCacheRate(key, publicCacheBoostedRateMinimum, publicCacheBoostedRateMaximum)
+		return roundPublicCacheRate(randomizedRate, publicCacheRateDecimalPlaces(rate))
+	}
+	return math.Max(policy.MinimumRate, math.Min(policy.MaximumRate, boostedRate))
+}
+
+func deterministicPublicCacheRate(key string, minimum, maximum float64) float64 {
+	digest := sha256.Sum256([]byte(key))
+	fraction := float64(binary.BigEndian.Uint64(digest[:8])) / float64(math.MaxUint64)
+	return minimum + fraction*(maximum-minimum)
+}
+
+func publicCacheRateDecimalPlaces(rate float64) int {
+	formatted := strconv.FormatFloat(rate, 'f', -1, 64)
+	dot := strings.IndexByte(formatted, '.')
+	if dot < 0 {
+		return 0
+	}
+	return min(len(formatted)-dot-1, 15)
+}
+
+func roundPublicCacheRate(rate float64, decimalPlaces int) float64 {
+	formatted := strconv.FormatFloat(rate, 'f', decimalPlaces, 64)
+	rounded, err := strconv.ParseFloat(formatted, 64)
+	if err != nil {
+		return rate
+	}
+	return rounded
 }

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -49,10 +51,44 @@ func TestPublicTransitCachePolicyDisabledReturnsOriginalAndSkipsPool(t *testing.
 	require.Zero(t, pool.writes)
 }
 
+func TestAdjustPublicCacheRateRandomizesBoostedRatesAtOrAbove92(t *testing.T) {
+	policy := DefaultPublicTransitCachePolicy()
+	belowThreshold := adjustPublicCacheRateWithPolicy(83.63, "group/below", policy)
+	require.InDelta(t, 83.63*1.1, belowThreshold, 1e-12)
+
+	first := adjustPublicCacheRateWithPolicy(83.64, "group/stable", policy)
+	require.GreaterOrEqual(t, first, 90.0)
+	require.LessOrEqual(t, first, 93.0)
+	require.InDelta(t, first, math.Round(first*100)/100, 1e-12)
+	require.Equal(t, first, adjustPublicCacheRateWithPolicy(83.64, "group/stable", policy))
+
+	values := make(map[float64]struct{})
+	for i := range 100 {
+		value := adjustPublicCacheRateWithPolicy(83.64, fmt.Sprintf("group/%d", i), policy)
+		require.GreaterOrEqual(t, value, 90.0)
+		require.LessOrEqual(t, value, 93.0)
+		require.InDelta(t, value, math.Round(value*100)/100, 1e-12)
+		values[value] = struct{}{}
+	}
+	require.Greater(t, len(values), 1)
+}
+
+func TestAdjustPublicCacheCountsMatchRandomizedRate(t *testing.T) {
+	input, created, read, rate := adjustPublicCacheCountsWithPolicy(1636, 0, 8364, "group/high-cache", DefaultPublicTransitCachePolicy())
+	total := input + created + read
+
+	require.Equal(t, int64(10000), total)
+	require.GreaterOrEqual(t, rate, 90.0)
+	require.LessOrEqual(t, rate, 93.0)
+	require.InDelta(t, rate, math.Round(rate*100)/100, 1e-12)
+	require.InDelta(t, rate, float64(read)/float64(total)*100, 1e-12)
+}
+
 func TestPublicTransitPresentationCacheReusesStoredPublicValues(t *testing.T) {
 	pool := &publicTransitPresentationCacheStub{
 		found: true,
 		state: PublicTransitPresentationState{
+			Version:     publicTransitPresentationAlgorithmVersion,
 			SourceInput: 100, SourceRead: 400,
 			Input: 60, Created: 60, Read: 880,
 			Policy: DefaultPublicTransitCachePolicy(),
@@ -87,4 +123,26 @@ func TestPublicTransitPresentationCacheReusesStoredPublicValues(t *testing.T) {
 	_, _, _, _, err = svc.publicCachePresentation(ctx, "group/1/last_24h", 101, 0, 400)
 	require.NoError(t, err)
 	require.Equal(t, int64(101), pool.state.SourceInput)
+}
+
+func TestPublicTransitPresentationCacheRefreshesLegacyAlgorithmValues(t *testing.T) {
+	pool := &publicTransitPresentationCacheStub{
+		found: true,
+		state: PublicTransitPresentationState{
+			SourceInput: 1636, SourceRead: 8364,
+			Input: 80, Read: 920,
+			Policy: DefaultPublicTransitCachePolicy(),
+		},
+	}
+	svc := &PublicTransitService{presentationCache: pool}
+
+	input, created, read, rate, err := svc.publicCachePresentation(context.Background(), "group/high-cache", 1636, 0, 8364)
+	require.NoError(t, err)
+	require.Equal(t, publicTransitPresentationAlgorithmVersion, pool.state.Version)
+	require.Equal(t, input, pool.state.Input)
+	require.Equal(t, created, pool.state.Created)
+	require.Equal(t, read, pool.state.Read)
+	require.GreaterOrEqual(t, rate, 90.0)
+	require.LessOrEqual(t, rate, 93.0)
+	require.Equal(t, 1, pool.writes)
 }
