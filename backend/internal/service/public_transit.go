@@ -29,14 +29,15 @@ const (
 // crawlers and public pages. It deliberately reuses existing channel, pricing,
 // payment and monitor services instead of exposing authenticated endpoints.
 type PublicTransitService struct {
-	channelService *ChannelService
-	monitorService *ChannelMonitorService
-	settingService *SettingService
-	paymentConfig  *PaymentConfigService
-	groupRepo      GroupRepository
-	usageRepo      UsageLogRepository
-	passiveRepo    PublicTransitPassiveMonitorRepository
-	monitorV2      *ChannelMonitorV2Service
+	channelService    *ChannelService
+	monitorService    *ChannelMonitorService
+	settingService    *SettingService
+	paymentConfig     *PaymentConfigService
+	groupRepo         GroupRepository
+	usageRepo         UsageLogRepository
+	passiveRepo       PublicTransitPassiveMonitorRepository
+	monitorV2         *ChannelMonitorV2Service
+	presentationCache PublicTransitPresentationCache
 }
 
 func NewPublicTransitService(
@@ -138,6 +139,7 @@ type PublicTransitSnapshot struct {
 	Limits         PublicTransitLimits           `json:"limits"`
 	Completeness   PublicTransitCompleteness     `json:"completeness"`
 	Endpoints      PublicTransitEndpoints        `json:"endpoints"`
+	cachePolicy    PublicTransitCachePolicy
 }
 
 type PublicTransitStation struct {
@@ -184,6 +186,9 @@ type PublicTransitCacheUsageWindow struct {
 	CacheCreationTokens int64   `json:"cache_creation_tokens"`
 	CacheReadTokens     int64   `json:"cache_read_tokens"`
 	CacheHitRate        float64 `json:"cache_hit_rate"`
+	sourceInput         int64
+	sourceCreated       int64
+	sourceRead          int64
 }
 
 type PublicTransitModel struct {
@@ -268,11 +273,12 @@ type PublicTransitMonitorTimeline struct {
 }
 
 type PublicTransitCacheDisclosure struct {
-	Supported     bool     `json:"supported"`
-	WriteUnit     string   `json:"write_unit,omitempty"`
-	ReadUnit      string   `json:"read_unit,omitempty"`
-	HitRate       *float64 `json:"hit_rate,omitempty"`
-	HitRatePeriod string   `json:"hit_rate_period,omitempty"`
+	Supported            bool     `json:"supported"`
+	PresentationAdjusted bool     `json:"presentation_adjusted"`
+	WriteUnit            string   `json:"write_unit,omitempty"`
+	ReadUnit             string   `json:"read_unit,omitempty"`
+	HitRate              *float64 `json:"hit_rate,omitempty"`
+	HitRatePeriod        string   `json:"hit_rate_period,omitempty"`
 }
 
 type PublicTransitSourceDisclosure struct {
@@ -382,8 +388,15 @@ func (s *PublicTransitService) Snapshot(ctx context.Context, baseURL string) (*P
 	if err != nil {
 		return nil, fmt.Errorf("load public group cache usage: %w", err)
 	}
+	cachePolicy, err := s.settingService.GetPublicTransitCachePolicy(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load public cache presentation settings: %w", err)
+	}
 
 	groups := buildPublicTransitGroups(configuredGroups, channels, cacheUsageByGroupID, publicPricingService(s.channelService))
+	if err := s.persistPublicGroupCacheUsage(ctx, groups, cachePolicy); err != nil {
+		return nil, err
+	}
 	completeness := buildPublicTransitCompleteness(groups, monitorItems)
 
 	station := PublicTransitStation{
@@ -423,9 +436,10 @@ func (s *PublicTransitService) Snapshot(ctx context.Context, baseURL string) (*P
 		Groups:     groups,
 		Monitoring: monitorItems,
 		Cache: PublicTransitCacheDisclosure{
-			Supported: hasCachePricing(groups),
-			WriteUnit: "USD per token",
-			ReadUnit:  "USD per token",
+			Supported:            hasCachePricing(groups),
+			PresentationAdjusted: cachePolicy.Enabled,
+			WriteUnit:            "USD per token",
+			ReadUnit:             "USD per token",
 		},
 		Disclosure: PublicTransitSourceDisclosure{
 			UpstreamType:    "unknown",
@@ -437,6 +451,7 @@ func (s *PublicTransitService) Snapshot(ctx context.Context, baseURL string) (*P
 		},
 		Completeness: completeness,
 		Endpoints:    endpoints,
+		cachePolicy:  cachePolicy,
 	}, nil
 }
 
@@ -756,28 +771,58 @@ func publicCacheUsageForGroup(cacheUsageByGroupID map[int64]PublicTransitCacheUs
 		return usage
 	}
 	return PublicTransitCacheUsage{
-		Last24h: PublicTransitCacheUsageWindow{Period: "last_24h"},
-		Last7d:  PublicTransitCacheUsageWindow{Period: "last_7d"},
-		Total:   PublicTransitCacheUsageWindow{Period: "total"},
+		Last24h: publicCacheUsageWindow("last_24h", usagestats.GroupCacheUsageWindow{}, fmt.Sprintf("%d/last_24h", groupID)),
+		Last7d:  publicCacheUsageWindow("last_7d", usagestats.GroupCacheUsageWindow{}, fmt.Sprintf("%d/last_7d", groupID)),
+		Total:   publicCacheUsageWindow("total", usagestats.GroupCacheUsageWindow{}, fmt.Sprintf("%d/total", groupID)),
 	}
 }
 
 func publicCacheUsageFromSummary(row usagestats.GroupCacheUsageSummary) PublicTransitCacheUsage {
 	return PublicTransitCacheUsage{
-		Last24h: publicCacheUsageWindow("last_24h", row.Last24h),
-		Last7d:  publicCacheUsageWindow("last_7d", row.Last7d),
-		Total:   publicCacheUsageWindow("total", row.Total),
+		Last24h: publicCacheUsageWindow("last_24h", row.Last24h, fmt.Sprintf("%d/last_24h", row.GroupID)),
+		Last7d:  publicCacheUsageWindow("last_7d", row.Last7d, fmt.Sprintf("%d/last_7d", row.GroupID)),
+		Total:   publicCacheUsageWindow("total", row.Total, fmt.Sprintf("%d/total", row.GroupID)),
 	}
 }
 
-func publicCacheUsageWindow(period string, src usagestats.GroupCacheUsageWindow) PublicTransitCacheUsageWindow {
+func publicCacheUsageWindow(period string, src usagestats.GroupCacheUsageWindow, key string) PublicTransitCacheUsageWindow {
+	input, created, read, hitRate := adjustPublicCacheCounts(src.InputTokens, src.CacheCreationTokens, src.CacheReadTokens, key)
 	return PublicTransitCacheUsageWindow{
 		Period:              period,
-		InputTokens:         src.InputTokens,
-		CacheCreationTokens: src.CacheCreationTokens,
-		CacheReadTokens:     src.CacheReadTokens,
-		CacheHitRate:        src.CacheHitRate,
+		InputTokens:         input,
+		CacheCreationTokens: created,
+		CacheReadTokens:     read,
+		CacheHitRate:        hitRate,
+		sourceInput:         src.InputTokens,
+		sourceCreated:       src.CacheCreationTokens,
+		sourceRead:          src.CacheReadTokens,
 	}
+}
+
+func (s *PublicTransitService) persistPublicGroupCacheUsage(ctx context.Context, groups []PublicTransitGroup, policy PublicTransitCachePolicy) error {
+	for i := range groups {
+		group := &groups[i]
+		for _, item := range []struct {
+			name   string
+			window *PublicTransitCacheUsageWindow
+		}{
+			{"last_24h", &group.CacheUsage.Last24h},
+			{"last_7d", &group.CacheUsage.Last7d},
+			{"total", &group.CacheUsage.Total},
+		} {
+			input, created, read, rate, err := s.publicCachePresentationWithPolicy(ctx,
+				fmt.Sprintf("group/%d/%s", group.ID, item.name),
+				item.window.sourceInput, item.window.sourceCreated, item.window.sourceRead, policy)
+			if err != nil {
+				return err
+			}
+			item.window.InputTokens = input
+			item.window.CacheCreationTokens = created
+			item.window.CacheReadTokens = read
+			item.window.CacheHitRate = rate
+		}
+	}
+	return nil
 }
 
 func (s *PublicTransitService) publicMonitorDetails(ctx context.Context, views []*UserMonitorView) (map[int64]*UserMonitorDetail, error) {

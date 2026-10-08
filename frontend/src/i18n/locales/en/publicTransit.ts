@@ -1,5 +1,15 @@
 export default {
   publicTransit: {
+    cacheConfig: {
+      title: 'Public Cache Display Settings', description: 'Set the cache hit rate and token counts shown by public endpoints. When disabled, original aggregate data is returned.',
+      enabled: 'Enable public cache adjustment', enabledHint: 'When enabled, public endpoints adjust cache hit rates within these ranges and persist consistent input, creation, and read counts. When disabled, original aggregate values are returned.',
+      normalRange: 'Standard adjustment range', normalHint: 'Rates at or above the low threshold are increased by 10% of their original value, then clamped to this range.',
+      minimumRate: 'Standard minimum', maximumRate: 'Public maximum',
+      lowRange: 'Low-rate display range', lowHint: 'When the original rate is below the low threshold, the public value stays within this range.',
+      lowMinimum: 'Low-rate minimum', lowMaximum: 'Low-rate maximum',
+      validation: 'Check the ranges: low minimum < low maximum ≤ standard minimum ≤ standard maximum, and every value must be between 0 and 100.',
+      loadFailed: 'Failed to load public cache settings', save: 'Save cache display settings', saved: 'Cache display settings saved', saveFailed: 'Failed to save public cache settings'
+    },
     nav: 'Public Data', title: 'Public Transit Data', subtitle: 'Standard public model pricing, recharge ratio, group multipliers and availability monitoring.',
     backHome: 'Back home', backToSettings: 'Back to public data settings', adminPreview: 'Admin preview: this view mirrors the public data page', copyDiscovery: 'Copy discovery URL', copyEndpoint: 'Copy public endpoint', copySnapshot: 'Copy V1 snapshot', copySnapshotV2: 'Copy V2 snapshot', disabledTitle: 'Public transit export is disabled', disabledDesc: 'An administrator needs to enable the public transit export in settings.',
     rechargeRatio: 'Recharge ratio', groups: 'Public groups', models: 'Models', generatedAt: 'Generated at', modelPricing: 'Model pricing', modelPricingHint: 'Prices are shown as $/MTok and $/request. Private account details are never exposed.',

@@ -1096,6 +1096,31 @@ export async function updateSettings(
   return data;
 }
 
+export interface PublicTransitCachePolicy {
+  enabled: boolean;
+  minimum_rate: number;
+  maximum_rate: number;
+  low_rate_min: number;
+  low_rate_max: number;
+}
+
+export async function getPublicTransitCachePolicy(): Promise<PublicTransitCachePolicy> {
+  const { data } = await apiClient.get<PublicTransitCachePolicy>(
+    "/admin/settings/public-transit-cache",
+  );
+  return data;
+}
+
+export async function updatePublicTransitCachePolicy(
+  policy: PublicTransitCachePolicy,
+): Promise<PublicTransitCachePolicy> {
+  const { data } = await apiClient.put<PublicTransitCachePolicy>(
+    "/admin/settings/public-transit-cache",
+    policy,
+  );
+  return data;
+}
+
 /**
  * Test SMTP connection request
  */

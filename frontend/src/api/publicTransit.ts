@@ -255,6 +255,7 @@ export interface PublicTransitMonitorTimeline {
 
 export interface PublicTransitCacheDisclosure {
   supported: boolean
+  presentation_adjusted: boolean
   write_unit?: string
   read_unit?: string
   hit_rate?: number

@@ -1,5 +1,15 @@
 export default {
   publicTransit: {
+    cacheConfig: {
+      title: '公开缓存展示设置', description: '配置公开接口展示的缓存命中率与缓存数量。关闭总开关时返回原始汇总数据。',
+      enabled: '启用公开缓存数据调整', enabledHint: '开启后，公开接口按下方区间调整缓存命中率，并将一致的缓存输入、创建和读取量存入持久池。关闭后直接返回原始汇总值。',
+      normalRange: '普通调整区间', normalHint: '原命中率达到低值门槛后，按原值增加 10%，并限制在此区间内。',
+      minimumRate: '普通区间下限', maximumRate: '公开命中率上限',
+      lowRange: '低值展示区间', lowHint: '原命中率低于低值下限时，公开值会在此范围内稳定取值。',
+      lowMinimum: '低值区间下限', lowMaximum: '低值区间上限',
+      validation: '请检查范围：低值下限 < 低值上限 ≤ 普通下限 ≤ 普通上限，且所有值在 0–100 之间。',
+      loadFailed: '加载公开缓存设置失败', save: '保存缓存展示设置', saved: '缓存展示设置已保存', saveFailed: '保存公开缓存设置失败'
+    },
     nav: '公开资料', title: '公开中转资料', subtitle: '标准化公开模型价格、充值倍率、模型分组倍率与可用性监测。',
     backHome: '返回首页', backToSettings: '返回公开资料设置', adminPreview: '后台预览：以下内容与公开资料页保持一致', copyDiscovery: '复制发现接口', copyEndpoint: '复制公开接口', copySnapshot: '复制 V1 快照', copySnapshotV2: '复制 V2 快照', disabledTitle: '公开资料出口未启用', disabledDesc: '站点管理员需要先在系统设置中启用公开资料出口。',
     rechargeRatio: '充值倍率', groups: '公开分组', models: '模型数量', generatedAt: '生成时间', modelPricing: '模型价格', modelPricingHint: '价格按 $/MTok 和 $/request 展示，内部账号信息不会公开。',

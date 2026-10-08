@@ -993,8 +993,10 @@ func ProvidePublicTransitService(
 	usageRepo UsageLogRepository,
 	opsRepo OpsRepository,
 	monitorV2 *ChannelMonitorV2Service,
+	presentationCache PublicTransitPresentationCache,
 ) *PublicTransitService {
 	svc := NewPublicTransitService(channelService, monitorService, settingService, paymentConfig, groupRepo, usageRepo)
+	svc.presentationCache = presentationCache
 	svc.SetChannelMonitorV2Service(monitorV2)
 	if passiveRepo, ok := any(opsRepo).(PublicTransitPassiveMonitorRepository); ok {
 		svc.SetPassiveMonitorRepository(passiveRepo)

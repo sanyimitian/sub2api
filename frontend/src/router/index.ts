@@ -436,6 +436,17 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/settings/public-transit-cache',
+    name: 'AdminPublicTransitCacheSettings',
+    component: () => import('@/views/admin/settings/PublicTransitCacheSettingsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: '公开缓存展示设置',
+      titleKey: 'publicTransit.cacheConfig.title'
+    }
+  },
+  {
     path: '/admin/ops',
     name: 'AdminOps',
     component: () => import('@/views/admin/ops/OpsDashboard.vue'),

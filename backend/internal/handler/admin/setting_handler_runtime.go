@@ -10,6 +10,30 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// GetPublicTransitCachePolicy reads the public cache presentation thresholds.
+func (h *SettingHandler) GetPublicTransitCachePolicy(c *gin.Context) {
+	policy, err := h.settingService.GetPublicTransitCachePolicy(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
+}
+
+// UpdatePublicTransitCachePolicy stores the public cache presentation thresholds.
+func (h *SettingHandler) UpdatePublicTransitCachePolicy(c *gin.Context) {
+	var policy service.PublicTransitCachePolicy
+	if err := c.ShouldBindJSON(&policy); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if err := h.settingService.SetPublicTransitCachePolicy(c.Request.Context(), policy); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, policy)
+}
+
 // GetAdminAPIKey 获取管理员 API Key 状态
 // GET /api/v1/admin/settings/admin-api-key
 func (h *SettingHandler) GetAdminAPIKey(c *gin.Context) {

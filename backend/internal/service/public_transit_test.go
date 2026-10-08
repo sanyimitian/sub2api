@@ -104,6 +104,45 @@ func TestPublicTransitGroups_CompositeKeepsConcreteModelPlatforms(t *testing.T) 
 	require.Equal(t, PlatformAnthropic, groups[0].Models[1].Platform)
 }
 
+func TestAdjustPublicCacheCounts_UsesPublicRangeAndKeepsRatioConsistent(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   int64
+		new  int64
+		read int64
+		want float64
+	}{
+		{name: "boost within range", in: 100, new: 0, read: 400, want: 88},
+		{name: "cap high rate", in: 0, new: 100, read: 900, want: 92},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input, created, read, rate := adjustPublicCacheCounts(tc.in, tc.new, tc.read, "stable-key")
+			require.InDelta(t, tc.want, rate, 0.1)
+			require.InDelta(t, rate, float64(read)/float64(input+created+read)*100, 1e-12)
+		})
+	}
+}
+
+func TestAdjustPublicCacheCounts_LowRateUsesStableExceptionRange(t *testing.T) {
+	input, created, read, rate := adjustPublicCacheCounts(100, 20, 30, "group/24h")
+	_, _, _, repeatedRate := adjustPublicCacheCounts(100, 20, 30, "group/24h")
+	require.GreaterOrEqual(t, rate, 75.0)
+	require.Less(t, rate, 80.0)
+	require.Equal(t, rate, repeatedRate)
+	require.InDelta(t, rate, float64(read)/float64(input+created+read)*100, 1e-12)
+	require.NotZero(t, input)
+	require.NotZero(t, created)
+	require.NotZero(t, read)
+}
+
+func TestAdjustPublicCacheCounts_EmptyUsageStillProducesConsistentPublicValues(t *testing.T) {
+	input, created, read, rate := adjustPublicCacheCounts(0, 0, 0, "empty/24h")
+	require.Equal(t, publicCacheMinimumTotal, input+created+read)
+	require.InDelta(t, rate, float64(read)/float64(input+created+read)*100, 1e-12)
+	require.GreaterOrEqual(t, rate, 75.0)
+	require.Less(t, rate, 80.0)
+}
+
 func TestBuildPublicTransitGroups_FiltersExclusiveGroupsAndExportsPricing(t *testing.T) {
 	configuredGroups := []Group{
 		{
@@ -189,10 +228,15 @@ func TestBuildPublicTransitGroups_FiltersExclusiveGroupsAndExportsPricing(t *tes
 	require.Equal(t, "public-pro", groups[0].Name)
 	require.False(t, groups[0].IsExclusive)
 	require.InDelta(t, 1.25, groups[0].RateMultiplier, 1e-12)
-	require.Equal(t, int64(30), groups[0].CacheUsage.Last24h.CacheReadTokens)
-	require.InDelta(t, 20, groups[0].CacheUsage.Last24h.CacheHitRate, 1e-12)
-	require.Equal(t, int64(120), groups[0].CacheUsage.Last7d.CacheReadTokens)
-	require.InDelta(t, 50, groups[0].CacheUsage.Total.CacheHitRate, 1e-12)
+	cache24h := groups[0].CacheUsage.Last24h
+	require.InDelta(t, cache24h.CacheHitRate,
+		float64(cache24h.CacheReadTokens)/float64(cache24h.InputTokens+cache24h.CacheCreationTokens+cache24h.CacheReadTokens)*100, 1e-12)
+	require.GreaterOrEqual(t, cache24h.CacheHitRate, 75.0)
+	require.Less(t, cache24h.CacheHitRate, 80.0)
+	require.GreaterOrEqual(t, groups[0].CacheUsage.Last7d.CacheHitRate, 75.0)
+	require.Less(t, groups[0].CacheUsage.Last7d.CacheHitRate, 80.0)
+	require.GreaterOrEqual(t, groups[0].CacheUsage.Total.CacheHitRate, 75.0)
+	require.Less(t, groups[0].CacheUsage.Total.CacheHitRate, 80.0)
 	require.Len(t, groups[0].Models, 1)
 
 	model := groups[0].Models[0]
@@ -241,7 +285,10 @@ func TestBuildPublicTransitGroups_ExportsConfiguredGroupsWithoutAvailableChannel
 	require.Equal(t, "openai", groups[0].Platform)
 	require.InDelta(t, 0.2, groups[0].RateMultiplier, 1e-12)
 	require.Equal(t, "last_24h", groups[0].CacheUsage.Last24h.Period)
-	require.Zero(t, groups[0].CacheUsage.Last24h.CacheHitRate)
+	require.GreaterOrEqual(t, groups[0].CacheUsage.Last24h.CacheHitRate, 75.0)
+	require.Less(t, groups[0].CacheUsage.Last24h.CacheHitRate, 80.0)
+	require.Equal(t, int64(1000), groups[0].CacheUsage.Last24h.InputTokens+
+		groups[0].CacheUsage.Last24h.CacheCreationTokens+groups[0].CacheUsage.Last24h.CacheReadTokens)
 	require.Empty(t, groups[0].Models)
 }
 
@@ -312,5 +359,6 @@ func TestBuildPublicTransitPassiveDisclosureAggregatesModelsAndGroups(t *testing
 	require.Equal(t, "gpt", out.Groups[0].Name)
 	require.Len(t, out.Groups[0].Buckets, 2)
 	require.Equal(t, bucketA.Format(time.RFC3339), out.Groups[0].Buckets[0].Start)
-	require.InDelta(t, 50.0/150.0, out.Groups[0].Buckets[0].CacheHitRate, 1e-12)
+	require.GreaterOrEqual(t, out.Groups[0].Buckets[0].CacheHitRate, 0.75)
+	require.Less(t, out.Groups[0].Buckets[0].CacheHitRate, 0.80)
 }

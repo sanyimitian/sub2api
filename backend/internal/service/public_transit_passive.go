@@ -234,6 +234,7 @@ func (s *PublicTransitService) SnapshotV2Range(ctx context.Context, baseURL, raw
 	if err != nil {
 		return nil, err
 	}
+	cachePolicy := v1.cachePolicy
 
 	now := time.Now().UTC()
 	monitorRuntime := s.settingService.GetChannelMonitorRuntime(ctx)
@@ -264,6 +265,9 @@ func (s *PublicTransitService) SnapshotV2Range(ctx context.Context, baseURL, raw
 			rows, rawErr = s.passiveRepo.GetPublicTransitPassiveAggregates(ctx, windowStart, now, passive.Window.BucketSeconds)
 		}
 		if rawErr == nil {
+			if err := s.persistPassiveAggregateCacheUsage(ctx, rows, passive.Window.Period, cachePolicy); err != nil {
+				return nil, err
+			}
 			passive = buildPublicTransitPassiveDisclosure(rows, passive.Window)
 		}
 
@@ -285,6 +289,9 @@ func (s *PublicTransitService) SnapshotV2Range(ctx context.Context, baseURL, raw
 				modelMatrix, _ := s.monitorV2.Matrix(ctx, filter, ChannelMonitorV2GroupByPlatformGroupModel, true)
 				if snapshotErr == nil && matrixErr == nil && snapshot != nil && matrix != nil {
 					augmentPublicTransitPassiveDisclosure(&passive, snapshot, matrix, modelMatrix)
+					if err := s.persistPassiveMetricCacheRates(ctx, &passive, cachePolicy); err != nil {
+						return nil, err
+					}
 				} else if rawErr != nil {
 					if snapshotErr != nil {
 						return nil, fmt.Errorf("load passive monitor snapshot: %w", snapshotErr)
@@ -354,7 +361,8 @@ func augmentPublicTransitPassiveDisclosure(dst *PublicTransitPassiveDisclosure, 
 		}
 		dst.Matrix.Items = append(dst.Matrix.Items, item)
 	}
-	dst.Window.Metrics = publicTransitPtr(publicTransitMetric(snapshot.Metrics))
+	windowMetrics := snapshot.Metrics
+	dst.Window.Metrics = publicTransitPtr(publicTransitMetric(windowMetrics))
 	dst.Window.Health = publicTransitPtr(snapshot.Health)
 	dst.Window.Start = snapshot.Coverage.RequestedStart.Format(time.RFC3339)
 	dst.Window.End = snapshot.Coverage.RequestedEnd.Format(time.RFC3339)
@@ -400,13 +408,95 @@ func augmentPublicTransitPassiveDisclosure(dst *PublicTransitPassiveDisclosure, 
 				if item.Platform != dst.Models[i].Platform || item.Model != dst.Models[i].Model || strings.TrimSpace(item.GroupName) != strings.TrimSpace(dst.Models[i].GroupName) {
 					continue
 				}
-				metrics := publicTransitMetric(item.Metrics)
+				metrics := item.Metrics
+				metrics = publicTransitMetric(metrics)
 				health := item.Health
 				dst.Models[i].Metrics = &metrics
 				dst.Models[i].Health = &health
 			}
 		}
 	}
+}
+
+func (s *PublicTransitService) persistPassiveAggregateCacheUsage(ctx context.Context, rows []PublicTransitPassiveAggregate, period string, policy PublicTransitCachePolicy) error {
+	for i := range rows {
+		row := &rows[i]
+		bucket := ""
+		if row.BucketStart != nil {
+			bucket = row.BucketStart.UTC().Format(time.RFC3339)
+		}
+		key := strings.Join([]string{period, row.Platform, row.GroupName, row.Model, bucket}, "/")
+		input, created, read, _, err := s.publicCachePresentationWithPolicy(ctx, key, row.InputTokens, row.CacheCreate, row.CacheRead, policy)
+		if err != nil {
+			return err
+		}
+		row.InputTokens, row.CacheCreate, row.CacheRead = input, created, read
+	}
+	return nil
+}
+
+func (s *PublicTransitService) persistPassiveMetricCacheRates(ctx context.Context, disclosure *PublicTransitPassiveDisclosure, policy PublicTransitCachePolicy) error {
+	if disclosure == nil {
+		return nil
+	}
+	if disclosure.Window.Metrics != nil {
+		rate, err := s.publicCacheRatePresentationWithPolicy(ctx, "v2/window/"+disclosure.Window.Period, disclosure.Window.Metrics.CacheRate*100, policy)
+		if err != nil {
+			return err
+		}
+		disclosure.Window.Metrics.CacheRate = rate
+	}
+	if disclosure.Matrix != nil {
+		for i := range disclosure.Matrix.Items {
+			item := &disclosure.Matrix.Items[i]
+			baseKey := "v2/" + item.Platform + "/" + item.GroupName + "/" + item.Model
+			rate, err := s.publicCacheRatePresentationWithPolicy(ctx, baseKey, item.Metrics.CacheRate*100, policy)
+			if err != nil {
+				return err
+			}
+			item.Metrics.CacheRate = rate
+			for j := range item.Buckets {
+				bucket := &item.Buckets[j]
+				bucketKey := baseKey + "/" + bucket.BucketStart.UTC().Format(time.RFC3339)
+				rate, err := s.publicCacheRatePresentationWithPolicy(ctx, bucketKey, bucket.Metrics.CacheRate*100, policy)
+				if err != nil {
+					return err
+				}
+				bucket.Metrics.CacheRate = rate
+			}
+		}
+		for i := range disclosure.Groups {
+			for _, item := range disclosure.Matrix.Items {
+				if item.Platform != disclosure.Groups[i].Platform || strings.TrimSpace(item.GroupName) != strings.TrimSpace(disclosure.Groups[i].Name) {
+					continue
+				}
+				metrics := item.Metrics
+				disclosure.Groups[i].Metrics = &metrics
+				disclosure.Groups[i].Buckets = make([]PublicTransitPassiveBucket, 0, len(item.Buckets))
+				for _, bucket := range item.Buckets {
+					disclosure.Groups[i].Buckets = append(disclosure.Groups[i].Buckets, PublicTransitPassiveBucket{
+						Start: bucket.BucketStart.Format(time.RFC3339), CacheHitRate: bucket.Metrics.CacheRate,
+						Metrics: publicTransitPtr(publicTransitMetric(bucket.Metrics)), Health: publicTransitPtr(bucket.Health),
+					})
+				}
+				break
+			}
+		}
+	}
+	for i := range disclosure.Models {
+		model := &disclosure.Models[i]
+		if model.Metrics == nil {
+			continue
+		}
+		rate, err := s.publicCacheRatePresentationWithPolicy(ctx,
+			"v2/"+model.Platform+"/"+model.GroupName+"/"+model.Model,
+			model.Metrics.CacheRate*100, policy)
+		if err != nil {
+			return err
+		}
+		model.Metrics.CacheRate = rate
+	}
+	return nil
 }
 
 func publicTransitMetric(value ChannelMonitorV2Metric) ChannelMonitorV2Metric {

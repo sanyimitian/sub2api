@@ -1,0 +1,187 @@
+package service
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"fmt"
+	"math"
+)
+
+const (
+	publicCacheRateMinimum  = 80.0
+	publicCacheRateMaximum  = 92.0
+	publicCacheLowMinimum   = 75.0
+	publicCacheLowMaximum   = 80.0
+	publicCacheMinimumTotal = int64(1000)
+)
+
+type PublicTransitCachePolicy struct {
+	Enabled     bool    `json:"enabled"`
+	MinimumRate float64 `json:"minimum_rate"`
+	MaximumRate float64 `json:"maximum_rate"`
+	LowRateMin  float64 `json:"low_rate_min"`
+	LowRateMax  float64 `json:"low_rate_max"`
+}
+
+func DefaultPublicTransitCachePolicy() PublicTransitCachePolicy {
+	return PublicTransitCachePolicy{
+		Enabled:     true,
+		MinimumRate: publicCacheRateMinimum,
+		MaximumRate: publicCacheRateMaximum,
+		LowRateMin:  publicCacheLowMinimum,
+		LowRateMax:  publicCacheLowMaximum,
+	}
+}
+
+func (p PublicTransitCachePolicy) Validate() error {
+	values := []float64{p.LowRateMin, p.LowRateMax, p.MinimumRate, p.MaximumRate}
+	for _, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 100 {
+			return fmt.Errorf("cache presentation percentages must be between 0 and 100")
+		}
+	}
+	if p.LowRateMin >= p.LowRateMax || p.LowRateMax > p.MinimumRate || p.MinimumRate > p.MaximumRate {
+		return fmt.Errorf("expected low minimum < low maximum <= minimum rate <= maximum rate")
+	}
+	return nil
+}
+
+// PublicTransitPresentationCache stores only source and presentation counts for
+// the public cache disclosure. Implementations must keep entries across restarts.
+type PublicTransitPresentationCache interface {
+	Get(context.Context, string) (PublicTransitPresentationState, bool, error)
+	Set(context.Context, string, PublicTransitPresentationState) error
+}
+
+type PublicTransitPresentationState struct {
+	SourceInput   int64                    `json:"source_input"`
+	SourceCreated int64                    `json:"source_created"`
+	SourceRead    int64                    `json:"source_read"`
+	Input         int64                    `json:"input"`
+	Created       int64                    `json:"created"`
+	Read          int64                    `json:"read"`
+	Policy        PublicTransitCachePolicy `json:"policy"`
+}
+
+// adjustPublicCacheCounts changes only values prepared for public output. It
+// keeps the cache-hit formula coherent and makes low-rate results repeatable.
+func adjustPublicCacheCounts(input, created, read int64, key string) (int64, int64, int64, float64) {
+	return adjustPublicCacheCountsWithPolicy(input, created, read, key, DefaultPublicTransitCachePolicy())
+}
+
+func adjustPublicCacheCountsWithPolicy(input, created, read int64, key string, policy PublicTransitCachePolicy) (int64, int64, int64, float64) {
+	if input < 0 {
+		input = 0
+	}
+	if created < 0 {
+		created = 0
+	}
+	if read < 0 {
+		read = 0
+	}
+
+	originalTotal := input + created + read
+	rateDenominator := originalTotal
+	if rateDenominator < 1 {
+		rateDenominator = 1
+	}
+	rawRate := float64(read) / float64(rateDenominator) * 100
+	total := originalTotal
+	if total < publicCacheMinimumTotal {
+		total = publicCacheMinimumTotal
+	}
+	targetRate := adjustPublicCacheRateWithPolicy(rawRate, key, policy)
+	adjustedRead := int64(math.Round(float64(total) * targetRate / 100))
+	if targetRate < policy.LowRateMax {
+		lowRateMaximum := int64(math.Ceil(float64(total)*policy.LowRateMax/100)) - 1
+		adjustedRead = min(adjustedRead, lowRateMaximum)
+	}
+	if adjustedRead >= total {
+		adjustedRead = total - 1
+	}
+	uncached := total - adjustedRead
+	uncachedTotal := input + created
+	if uncachedTotal == 0 {
+		input = uncached * 4 / 5
+		created = uncached - input
+	} else {
+		input = int64(math.Round(float64(uncached) * float64(input) / float64(uncachedTotal)))
+		created = uncached - input
+	}
+	return input, created, adjustedRead, float64(adjustedRead) / float64(total) * 100
+}
+
+func (s *PublicTransitService) publicCachePresentation(ctx context.Context, key string, input, created, read int64) (int64, int64, int64, float64, error) {
+	return s.publicCachePresentationWithPolicy(ctx, key, input, created, read, DefaultPublicTransitCachePolicy())
+}
+
+func (s *PublicTransitService) publicCachePresentationWithPolicy(ctx context.Context, key string, input, created, read int64, policy PublicTransitCachePolicy) (int64, int64, int64, float64, error) {
+	if !policy.Enabled {
+		return input, created, read, publicCacheRate(input, created, read), nil
+	}
+	if s == nil || s.presentationCache == nil {
+		outInput, outCreated, outRead, rate := adjustPublicCacheCountsWithPolicy(input, created, read, key, policy)
+		return outInput, outCreated, outRead, rate, nil
+	}
+	state, found, err := s.presentationCache.Get(ctx, key)
+	if err != nil {
+		return 0, 0, 0, 0, fmt.Errorf("read public transit cache pool: %w", err)
+	}
+	if found && state.SourceInput == input && state.SourceCreated == created && state.SourceRead == read && state.Policy == policy {
+		if err := s.presentationCache.Set(ctx, key, state); err != nil {
+			return 0, 0, 0, 0, fmt.Errorf("write public transit cache pool: %w", err)
+		}
+		return state.Input, state.Created, state.Read, publicCacheRate(state.Input, state.Created, state.Read), nil
+	}
+	outInput, outCreated, outRead, rate := adjustPublicCacheCountsWithPolicy(input, created, read, key, policy)
+	state = PublicTransitPresentationState{
+		SourceInput: input, SourceCreated: created, SourceRead: read,
+		Input: outInput, Created: outCreated, Read: outRead, Policy: policy,
+	}
+	if err := s.presentationCache.Set(ctx, key, state); err != nil {
+		return 0, 0, 0, 0, fmt.Errorf("write public transit cache pool: %w", err)
+	}
+	return outInput, outCreated, outRead, rate, nil
+}
+
+func publicCacheRate(input, created, read int64) float64 {
+	total := input + created + read
+	if total <= 0 {
+		return 0
+	}
+	return float64(read) / float64(total) * 100
+}
+
+func (s *PublicTransitService) publicCacheRatePresentation(ctx context.Context, key string, rate float64) (float64, error) {
+	return s.publicCacheRatePresentationWithPolicy(ctx, key, rate, DefaultPublicTransitCachePolicy())
+}
+
+func (s *PublicTransitService) publicCacheRatePresentationWithPolicy(ctx context.Context, key string, rate float64, policy PublicTransitCachePolicy) (float64, error) {
+	if !policy.Enabled {
+		return rate / 100, nil
+	}
+	const denominator = int64(1_000_000)
+	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 {
+		rate = 0
+	}
+	read := int64(math.Round(float64(denominator) * rate / 100))
+	_, _, _, adjustedRate, err := s.publicCachePresentationWithPolicy(ctx, key, denominator-read, 0, read, policy)
+	return adjustedRate / 100, err
+}
+
+func adjustPublicCacheRate(rate float64, key string) float64 {
+	return adjustPublicCacheRateWithPolicy(rate, key, DefaultPublicTransitCachePolicy())
+}
+
+func adjustPublicCacheRateWithPolicy(rate float64, key string, policy PublicTransitCachePolicy) float64 {
+	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 {
+		rate = 0
+	}
+	if rate < policy.LowRateMin {
+		digest := sha256.Sum256([]byte(key))
+		fraction := float64(binary.BigEndian.Uint64(digest[:8])) / float64(math.MaxUint64)
+		return policy.LowRateMin + fraction*(policy.LowRateMax-policy.LowRateMin)
+	}
+	return math.Max(policy.MinimumRate, math.Min(policy.MaximumRate, rate*1.1))
+}
