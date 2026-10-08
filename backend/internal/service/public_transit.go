@@ -506,7 +506,11 @@ func buildPublicTransitGroups(configuredGroups []Group, channels []AvailableChan
 				out = byKey[key]
 			}
 			for _, m := range ch.SupportedModels {
-				if m.Platform != g.Platform {
+				if g.Platform == PlatformComposite {
+					if !isConcreteRequestPlatform(m.Platform) {
+						continue
+					}
+				} else if m.Platform != g.Platform {
 					continue
 				}
 				modelKey := strings.ToLower(m.Platform + "\x00" + m.Name)
@@ -524,7 +528,8 @@ func buildPublicTransitGroups(configuredGroups []Group, channels []AvailableChan
 		if g.Status != "" && g.Status != StatusActive {
 			continue
 		}
-		if g.IsExclusive || !g.ModelAllowlistEnabled() {
+		// 组合分组的具体平台只能来自已配置渠道，不能由模型白名单推断。
+		if g.IsExclusive || !g.ModelAllowlistEnabled() || g.Platform == PlatformComposite {
 			continue
 		}
 		key := groupKey{id: g.ID, name: g.Name, platform: g.Platform}

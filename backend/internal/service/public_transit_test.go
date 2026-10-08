@@ -88,6 +88,22 @@ func TestPublicTransitPassiveMatrix_DoesNotSerializePrivateGroupsOrIDs(t *testin
 	require.NotContains(t, string(encoded), "private")
 }
 
+func TestPublicTransitGroups_CompositeKeepsConcreteModelPlatforms(t *testing.T) {
+	group := Group{ID: 42, Name: "composite", Platform: PlatformComposite, Status: StatusActive,
+		ModelAllowlist: GroupModelAllowlist{Enabled: true, Models: []string{"shared"}}}
+	channels := []AvailableChannel{{Status: StatusActive,
+		Groups: []AvailableGroupRef{{ID: group.ID, Name: group.Name, Platform: group.Platform}},
+		SupportedModels: []SupportedModel{
+			{Name: "shared", Platform: PlatformOpenAI}, {Name: "shared", Platform: PlatformAnthropic},
+			{Name: "shared", Platform: PlatformComposite}, {Name: "private-model", Platform: PlatformOpenAI},
+		}}}
+	groups := buildPublicTransitGroups([]Group{group}, channels, nil, nil)
+	require.Len(t, groups, 1)
+	require.Len(t, groups[0].Models, 2)
+	require.Equal(t, PlatformOpenAI, groups[0].Models[0].Platform)
+	require.Equal(t, PlatformAnthropic, groups[0].Models[1].Platform)
+}
+
 func TestBuildPublicTransitGroups_FiltersExclusiveGroupsAndExportsPricing(t *testing.T) {
 	configuredGroups := []Group{
 		{
