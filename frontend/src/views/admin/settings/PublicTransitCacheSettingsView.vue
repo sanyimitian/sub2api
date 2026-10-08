@@ -56,6 +56,13 @@
           </div>
           <div class="grid gap-5 sm:grid-cols-2">
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-200">
+              {{ t('publicTransit.cacheConfig.increasePercent') }}
+              <span class="mt-2 flex items-center gap-2">
+                <input v-model.number="policy.increase_percent" type="number" min="0" max="100" step="0.1" class="cache-number" />
+                <span class="text-gray-500">%</span>
+              </span>
+            </label>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-200">
               {{ t('publicTransit.cacheConfig.minimumRate') }}
               <span class="mt-2 flex items-center gap-2">
                 <input v-model.number="policy.minimum_rate" type="number" min="0" max="100" step="0.1" class="cache-number" />
@@ -99,6 +106,66 @@
           </div>
         </section>
 
+        <section class="space-y-5 border-t border-gray-200 pt-5 dark:border-gray-700">
+          <div>
+            <h2 class="text-base font-semibold text-gray-900 dark:text-white">
+              {{ t('publicTransit.cacheConfig.groupRange') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">
+              {{ t('publicTransit.cacheConfig.groupHint') }}
+            </p>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
+              <thead>
+                <tr class="text-left text-gray-500 dark:text-gray-400">
+                  <th class="py-2 pr-4 font-medium">{{ t('publicTransit.cacheConfig.groupName') }}</th>
+                  <th class="py-2 pr-4 font-medium">{{ t('publicTransit.cacheConfig.groupOverride') }}</th>
+                  <th class="py-2 font-medium">{{ t('publicTransit.cacheConfig.increasePercent') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                <tr v-for="group in publicGroups" :key="group.id">
+                  <td class="py-3 pr-4 text-gray-900 dark:text-white">
+                    <span class="block">{{ group.name }}</span>
+                    <span class="text-xs text-gray-500">{{ group.platform }}</span>
+                  </td>
+                  <td class="py-3 pr-4">
+                    <input
+                      type="checkbox"
+                      class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      :checked="hasGroupOverride(group.id)"
+                      :aria-label="`${t('publicTransit.cacheConfig.groupOverride')}: ${group.name}`"
+                      @change="toggleGroupOverride(group.id, $event)"
+                    />
+                  </td>
+                  <td class="py-3">
+                    <span v-if="!hasGroupOverride(group.id)" class="text-gray-500">
+                      {{ policy.increase_percent }}% ({{ t('publicTransit.cacheConfig.inheritGlobal') }})
+                    </span>
+                    <span v-else class="flex max-w-48 items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        class="cache-number"
+                        :value="policy.group_increase_percent[String(group.id)]"
+                        :aria-label="`${t('publicTransit.cacheConfig.increasePercent')}: ${group.name}`"
+                        @input="setGroupOverride(group.id, $event)"
+                      />
+                      <span class="text-gray-500">%</span>
+                    </span>
+                  </td>
+                </tr>
+                <tr v-if="publicGroups.length === 0">
+                  <td colspan="3" class="py-4 text-gray-500">{{ t('publicTransit.cacheConfig.noPublicGroups') }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <p v-if="!valid" class="text-sm text-red-600 dark:text-red-400" role="alert">
           {{ t('publicTransit.cacheConfig.validation') }}
         </p>
@@ -113,14 +180,19 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { getPublicTransitCachePolicy, updatePublicTransitCachePolicy } from '@/api/admin/settings'
 import type { PublicTransitCachePolicy } from '@/api/admin/settings'
+import { getAll as getAllGroups } from '@/api/admin/groups'
+import type { AdminGroup } from '@/types'
 import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const loading = ref(true)
 const saving = ref(false)
+const publicGroups = ref<AdminGroup[]>([])
 const policy = ref<PublicTransitCachePolicy>({
   enabled: true,
+  increase_percent: 10,
+  group_increase_percent: {},
   minimum_rate: 80,
   maximum_rate: 92,
   low_rate_min: 75,
@@ -128,8 +200,9 @@ const policy = ref<PublicTransitCachePolicy>({
 })
 
 const valid = computed(() => {
-  const values = [policy.value.low_rate_min, policy.value.low_rate_max, policy.value.minimum_rate, policy.value.maximum_rate]
+  const values = [policy.value.increase_percent, policy.value.low_rate_min, policy.value.low_rate_max, policy.value.minimum_rate, policy.value.maximum_rate]
   return values.every(value => Number.isFinite(value) && value >= 0 && value <= 100)
+    && Object.values(policy.value.group_increase_percent).every(value => Number.isFinite(value) && value >= 0 && value <= 100)
     && policy.value.low_rate_min < policy.value.low_rate_max
     && policy.value.low_rate_max <= policy.value.minimum_rate
     && policy.value.minimum_rate <= policy.value.maximum_rate
@@ -137,13 +210,39 @@ const valid = computed(() => {
 
 onMounted(async () => {
   try {
-    policy.value = await getPublicTransitCachePolicy()
+    const [loadedPolicy, groups] = await Promise.all([getPublicTransitCachePolicy(), getAllGroups()])
+    policy.value = loadedPolicy
+    policy.value.group_increase_percent ||= {}
+    publicGroups.value = groups.filter(group => group.status === 'active' && !group.is_exclusive)
   } catch (error: any) {
     appStore.showError(error?.response?.data?.detail || t('publicTransit.cacheConfig.loadFailed'))
   } finally {
     loading.value = false
   }
 })
+
+function hasGroupOverride(groupId: number): boolean {
+  return Object.prototype.hasOwnProperty.call(policy.value.group_increase_percent, String(groupId))
+}
+
+function toggleGroupOverride(groupId: number, event: Event) {
+  const groupOverrides = { ...policy.value.group_increase_percent }
+  if ((event.target as HTMLInputElement).checked) {
+    groupOverrides[String(groupId)] = policy.value.increase_percent
+  } else {
+    delete groupOverrides[String(groupId)]
+  }
+  policy.value.group_increase_percent = groupOverrides
+}
+
+function setGroupOverride(groupId: number, event: Event) {
+  const input = event.target as HTMLInputElement
+  const value = input.value === '' ? Number.NaN : Number(input.value)
+  policy.value.group_increase_percent = {
+    ...policy.value.group_increase_percent,
+    [String(groupId)]: value
+  }
+}
 
 async function save() {
   if (!valid.value || saving.value) return

@@ -99,17 +99,18 @@ curl -X POST "${BASE}/api/v1/admin/users/123/balance" \
   }'
 ```
 
-### 4) 购买页 / 自定义页面 URL Query 透传（iframe / 新窗口一致）
-当 Codebot 打开 `purchase_subscription_url` 或用户侧自定义页面 iframe URL 时，会统一追加：
+### 4) 购买页 / 自定义页面 URL 参数（iframe / 新窗口一致）
+当 Codebot 打开购买页或用户侧自定义页面时，会传递以下展示上下文：
 - `user_id`
-- `token`
 - `theme`（`light` / `dark`）
 - `lang`（例如 `zh` / `en`，用于向嵌入页传递当前界面语言）
 - `ui_mode`（固定 `embedded`）
 
+出于安全考虑，不会把登录 Token、API Key 或其他认证凭证放入 URL。`user_id` 仅用于展示上下文，不能作为身份验证或授权依据。嵌入页如需访问 Codebot API，应使用自己的登录流程；服务端集成凭证必须保存在嵌入页后端，不可发送给浏览器。
+
 示例：
 ```text
-https://pay.example.com/pay?user_id=123&token=<jwt>&theme=light&lang=zh&ui_mode=embedded
+https://pay.example.com/pay?user_id=123&theme=light&lang=zh&ui_mode=embedded
 ```
 
 ### 5) 失败处理建议
@@ -219,17 +220,18 @@ curl -X POST "${BASE}/api/v1/admin/users/123/balance" \
   }'
 ```
 
-### 4) Purchase / Custom Page URL query forwarding (iframe and new tab)
-When Codebot opens `purchase_subscription_url` or a user-facing custom page iframe URL, it appends:
+### 4) Purchase / Custom Page URL parameters (iframe and new tab)
+When Codebot opens a purchase page or a user-facing custom page, it passes display context:
 - `user_id`
-- `token`
 - `theme` (`light` / `dark`)
 - `lang` (for example `zh` / `en`, used to pass the current UI language to the embedded page)
 - `ui_mode` (fixed: `embedded`)
 
+For security, login tokens, API keys, and other credentials are never placed in URLs. `user_id` is display context only and must not be used for authentication or authorization. Embedded pages that need Codebot API access must use their own login flow; server integration credentials must remain on the embedded page's backend and never be sent to browsers.
+
 Example:
 ```text
-https://pay.example.com/pay?user_id=123&token=<jwt>&theme=light&lang=zh&ui_mode=embedded
+https://pay.example.com/pay?user_id=123&theme=light&lang=zh&ui_mode=embedded
 ```
 
 ### 5) Failure handling recommendations

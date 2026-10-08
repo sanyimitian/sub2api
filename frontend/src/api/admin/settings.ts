@@ -1098,6 +1098,8 @@ export async function updateSettings(
 
 export interface PublicTransitCachePolicy {
   enabled: boolean;
+  increase_percent: number;
+  group_increase_percent: Record<string, number>;
   minimum_rate: number;
   maximum_rate: number;
   low_rate_min: number;

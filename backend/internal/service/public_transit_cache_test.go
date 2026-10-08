@@ -30,9 +30,47 @@ func (c *publicTransitPresentationCacheStub) Set(_ context.Context, _ string, st
 
 func TestPublicTransitCachePolicyValidation(t *testing.T) {
 	require.NoError(t, DefaultPublicTransitCachePolicy().Validate())
+	require.Equal(t, 10.0, DefaultPublicTransitCachePolicy().IncreasePercent)
 	invalid := DefaultPublicTransitCachePolicy()
 	invalid.LowRateMax = 81
 	require.Error(t, invalid.Validate())
+	invalid = DefaultPublicTransitCachePolicy()
+	invalid.IncreasePercent = 101
+	require.Error(t, invalid.Validate())
+}
+
+func TestAdjustPublicCacheRateUsesConfiguredIncreasePercent(t *testing.T) {
+	policy := DefaultPublicTransitCachePolicy()
+	require.InDelta(t, 88, adjustPublicCacheRateWithPolicy(80, "default", policy), 1e-12)
+
+	policy.IncreasePercent = 25
+	policy.LowRateMin = 1
+	policy.LowRateMax = 2
+	policy.MinimumRate = 3
+	policy.MaximumRate = 100
+	require.NoError(t, policy.Validate())
+	require.InDelta(t, 50, adjustPublicCacheRateWithPolicy(40, "custom", policy), 1e-12)
+
+	policy.GroupIncreasePercent = map[int64]float64{42: 35}
+	require.InDelta(t, 54, adjustPublicCacheRateWithPolicy(40, "group", policy.forGroup(42)), 1e-12)
+	require.InDelta(t, 50, adjustPublicCacheRateWithPolicy(40, "default-group", policy.forGroup(43)), 1e-12)
+	require.NoError(t, policy.Validate())
+	policy.GroupIncreasePercent[0] = 10
+	require.Error(t, policy.Validate())
+}
+
+func TestPublicTransitPassiveGroupPolicyUsesPublicGroupLookup(t *testing.T) {
+	policy := DefaultPublicTransitCachePolicy()
+	policy.IncreasePercent = 5
+	policy.GroupIncreasePercent = map[int64]float64{42: 35}
+	groupIDs := publicTransitGroupIDsByName([]PublicTransitGroup{{ID: 42, Platform: "openai", Name: "Pro"}})
+
+	groupPolicy := publicTransitPassiveGroupPolicy(policy, "OPENAI", " pro ", nil, groupIDs)
+	require.Equal(t, 35.0, groupPolicy.IncreasePercent)
+	require.Nil(t, groupPolicy.GroupIncreasePercent)
+
+	globalPolicy := publicTransitPassiveGroupPolicy(policy, "openai", "missing", nil, groupIDs)
+	require.Equal(t, 5.0, globalPolicy.IncreasePercent)
 }
 
 func TestPublicTransitCachePolicyDisabledReturnsOriginalAndSkipsPool(t *testing.T) {

@@ -812,7 +812,7 @@ func (s *PublicTransitService) persistPublicGroupCacheUsage(ctx context.Context,
 		} {
 			input, created, read, rate, err := s.publicCachePresentationWithPolicy(ctx,
 				fmt.Sprintf("group/%d/%s", group.ID, item.name),
-				item.window.sourceInput, item.window.sourceCreated, item.window.sourceRead, policy)
+				item.window.sourceInput, item.window.sourceCreated, item.window.sourceRead, policy.forGroup(group.ID))
 			if err != nil {
 				return err
 			}

@@ -3,7 +3,10 @@ export default {
     cacheConfig: {
       title: '公开缓存展示设置', description: '配置公开接口展示的缓存命中率与缓存数量。关闭总开关时返回原始汇总数据。',
       enabled: '启用公开缓存数据调整', enabledHint: '开启后，公开接口按下方区间调整缓存命中率，并将一致的缓存输入、创建和读取量存入持久池。关闭后直接返回原始汇总值。',
-      normalRange: '普通调整区间', normalHint: '原命中率达到低值门槛后，按原值增加 10%，并限制在此区间内。',
+      normalRange: '普通调整区间', normalHint: '原命中率达到低值门槛后，按原值增加设置的比例，并限制在此区间内。',
+      increasePercent: '原命中率增加比例',
+      groupRange: '分组加成比例', groupHint: '未单独设置的公开分组使用全局比例；启用单独设置后可为该分组指定比例。',
+      groupName: '公开分组', groupOverride: '单独设置', inheritGlobal: '使用全局值', noPublicGroups: '当前没有启用的公开分组。',
       minimumRate: '普通区间下限', maximumRate: '公开命中率上限',
       lowRange: '低值展示区间', lowHint: '原命中率低于低值下限时，公开值会在此范围内稳定取值。',
       lowMinimum: '低值区间下限', lowMaximum: '低值区间上限',

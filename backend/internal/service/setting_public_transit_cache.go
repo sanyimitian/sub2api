@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 )
@@ -12,6 +13,8 @@ func (s *SettingService) GetPublicTransitCachePolicy(ctx context.Context) (Publi
 		SettingKeyPublicTransitCacheEnabled,
 		SettingKeyPublicTransitCacheMinimumRate,
 		SettingKeyPublicTransitCacheMaximumRate,
+		SettingKeyPublicTransitCacheIncreasePercent,
+		SettingKeyPublicTransitCacheGroupIncreasePercent,
 		SettingKeyPublicTransitCacheLowRateMin,
 		SettingKeyPublicTransitCacheLowRateMax,
 	})
@@ -32,6 +35,7 @@ func (s *SettingService) GetPublicTransitCachePolicy(ctx context.Context) (Publi
 	}{
 		{SettingKeyPublicTransitCacheMinimumRate, &policy.MinimumRate},
 		{SettingKeyPublicTransitCacheMaximumRate, &policy.MaximumRate},
+		{SettingKeyPublicTransitCacheIncreasePercent, &policy.IncreasePercent},
 		{SettingKeyPublicTransitCacheLowRateMin, &policy.LowRateMin},
 		{SettingKeyPublicTransitCacheLowRateMax, &policy.LowRateMax},
 	} {
@@ -45,6 +49,14 @@ func (s *SettingService) GetPublicTransitCachePolicy(ctx context.Context) (Publi
 		}
 		*item.value = parsed
 	}
+	if raw := values[SettingKeyPublicTransitCacheGroupIncreasePercent]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &policy.GroupIncreasePercent); err != nil {
+			return PublicTransitCachePolicy{}, fmt.Errorf("invalid public transit group cache increase percentages: %w", err)
+		}
+		if policy.GroupIncreasePercent == nil {
+			policy.GroupIncreasePercent = map[int64]float64{}
+		}
+	}
 	if err := policy.Validate(); err != nil {
 		return PublicTransitCachePolicy{}, err
 	}
@@ -55,11 +67,17 @@ func (s *SettingService) SetPublicTransitCachePolicy(ctx context.Context, policy
 	if err := policy.Validate(); err != nil {
 		return err
 	}
+	groupIncreasePercent, err := json.Marshal(policy.GroupIncreasePercent)
+	if err != nil {
+		return fmt.Errorf("encode group cache increase percentages: %w", err)
+	}
 	return s.settingRepo.SetMultiple(ctx, map[string]string{
-		SettingKeyPublicTransitCacheEnabled:     strconv.FormatBool(policy.Enabled),
-		SettingKeyPublicTransitCacheMinimumRate: strconv.FormatFloat(policy.MinimumRate, 'f', -1, 64),
-		SettingKeyPublicTransitCacheMaximumRate: strconv.FormatFloat(policy.MaximumRate, 'f', -1, 64),
-		SettingKeyPublicTransitCacheLowRateMin:  strconv.FormatFloat(policy.LowRateMin, 'f', -1, 64),
-		SettingKeyPublicTransitCacheLowRateMax:  strconv.FormatFloat(policy.LowRateMax, 'f', -1, 64),
+		SettingKeyPublicTransitCacheEnabled:              strconv.FormatBool(policy.Enabled),
+		SettingKeyPublicTransitCacheMinimumRate:          strconv.FormatFloat(policy.MinimumRate, 'f', -1, 64),
+		SettingKeyPublicTransitCacheMaximumRate:          strconv.FormatFloat(policy.MaximumRate, 'f', -1, 64),
+		SettingKeyPublicTransitCacheIncreasePercent:      strconv.FormatFloat(policy.IncreasePercent, 'f', -1, 64),
+		SettingKeyPublicTransitCacheGroupIncreasePercent: string(groupIncreasePercent),
+		SettingKeyPublicTransitCacheLowRateMin:           strconv.FormatFloat(policy.LowRateMin, 'f', -1, 64),
+		SettingKeyPublicTransitCacheLowRateMax:           strconv.FormatFloat(policy.LowRateMax, 'f', -1, 64),
 	})
 }

@@ -3,7 +3,10 @@ export default {
     cacheConfig: {
       title: 'Public Cache Display Settings', description: 'Set the cache hit rate and token counts shown by public endpoints. When disabled, original aggregate data is returned.',
       enabled: 'Enable public cache adjustment', enabledHint: 'When enabled, public endpoints adjust cache hit rates within these ranges and persist consistent input, creation, and read counts. When disabled, original aggregate values are returned.',
-      normalRange: 'Standard adjustment range', normalHint: 'Rates at or above the low threshold are increased by 10% of their original value, then clamped to this range.',
+      normalRange: 'Standard adjustment range', normalHint: 'Rates at or above the low threshold are increased by the configured share of their original value, then clamped to this range.',
+      increasePercent: 'Increase over original rate',
+      groupRange: 'Per-group increase', groupHint: 'Public groups use the global rate unless a per-group value is enabled.',
+      groupName: 'Public group', groupOverride: 'Set separately', inheritGlobal: 'Using global value', noPublicGroups: 'There are no active public groups.',
       minimumRate: 'Standard minimum', maximumRate: 'Public maximum',
       lowRange: 'Low-rate display range', lowHint: 'When the original rate is below the low threshold, the public value stays within this range.',
       lowMinimum: 'Low-rate minimum', lowMaximum: 'Low-rate maximum',

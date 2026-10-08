@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"maps"
 	"math"
 	"strconv"
 	"strings"
@@ -23,34 +24,51 @@ const (
 )
 
 type PublicTransitCachePolicy struct {
-	Enabled     bool    `json:"enabled"`
-	MinimumRate float64 `json:"minimum_rate"`
-	MaximumRate float64 `json:"maximum_rate"`
-	LowRateMin  float64 `json:"low_rate_min"`
-	LowRateMax  float64 `json:"low_rate_max"`
+	Enabled              bool              `json:"enabled"`
+	IncreasePercent      float64           `json:"increase_percent"`
+	GroupIncreasePercent map[int64]float64 `json:"group_increase_percent"`
+	MinimumRate          float64           `json:"minimum_rate"`
+	MaximumRate          float64           `json:"maximum_rate"`
+	LowRateMin           float64           `json:"low_rate_min"`
+	LowRateMax           float64           `json:"low_rate_max"`
 }
 
 func DefaultPublicTransitCachePolicy() PublicTransitCachePolicy {
 	return PublicTransitCachePolicy{
-		Enabled:     true,
-		MinimumRate: publicCacheRateMinimum,
-		MaximumRate: publicCacheRateMaximum,
-		LowRateMin:  publicCacheLowMinimum,
-		LowRateMax:  publicCacheLowMaximum,
+		Enabled:              true,
+		IncreasePercent:      10,
+		GroupIncreasePercent: map[int64]float64{},
+		MinimumRate:          publicCacheRateMinimum,
+		MaximumRate:          publicCacheRateMaximum,
+		LowRateMin:           publicCacheLowMinimum,
+		LowRateMax:           publicCacheLowMaximum,
 	}
 }
 
 func (p PublicTransitCachePolicy) Validate() error {
-	values := []float64{p.LowRateMin, p.LowRateMax, p.MinimumRate, p.MaximumRate}
+	values := []float64{p.IncreasePercent, p.LowRateMin, p.LowRateMax, p.MinimumRate, p.MaximumRate}
 	for _, value := range values {
 		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 100 {
 			return fmt.Errorf("cache presentation percentages must be between 0 and 100")
+		}
+	}
+	for groupID, increasePercent := range p.GroupIncreasePercent {
+		if groupID <= 0 || math.IsNaN(increasePercent) || math.IsInf(increasePercent, 0) || increasePercent < 0 || increasePercent > 100 {
+			return fmt.Errorf("group cache increase percentages require a positive group ID and a value between 0 and 100")
 		}
 	}
 	if p.LowRateMin >= p.LowRateMax || p.LowRateMax > p.MinimumRate || p.MinimumRate > p.MaximumRate {
 		return fmt.Errorf("expected low minimum < low maximum <= minimum rate <= maximum rate")
 	}
 	return nil
+}
+
+func (p PublicTransitCachePolicy) forGroup(groupID int64) PublicTransitCachePolicy {
+	if increasePercent, ok := p.GroupIncreasePercent[groupID]; ok {
+		p.IncreasePercent = increasePercent
+	}
+	p.GroupIncreasePercent = nil
+	return p
 }
 
 // PublicTransitPresentationCache stores only source and presentation counts for
@@ -136,7 +154,7 @@ func (s *PublicTransitService) publicCachePresentationWithPolicy(ctx context.Con
 		return 0, 0, 0, 0, fmt.Errorf("read public transit cache pool: %w", err)
 	}
 	if found && state.Version == publicTransitPresentationAlgorithmVersion &&
-		state.SourceInput == input && state.SourceCreated == created && state.SourceRead == read && state.Policy == policy {
+		state.SourceInput == input && state.SourceCreated == created && state.SourceRead == read && publicTransitCachePoliciesEqual(state.Policy, policy) {
 		if err := s.presentationCache.Set(ctx, key, state); err != nil {
 			return 0, 0, 0, 0, fmt.Errorf("write public transit cache pool: %w", err)
 		}
@@ -152,6 +170,16 @@ func (s *PublicTransitService) publicCachePresentationWithPolicy(ctx context.Con
 		return 0, 0, 0, 0, fmt.Errorf("write public transit cache pool: %w", err)
 	}
 	return outInput, outCreated, outRead, rate, nil
+}
+
+func publicTransitCachePoliciesEqual(left, right PublicTransitCachePolicy) bool {
+	return left.Enabled == right.Enabled &&
+		left.IncreasePercent == right.IncreasePercent &&
+		maps.Equal(left.GroupIncreasePercent, right.GroupIncreasePercent) &&
+		left.MinimumRate == right.MinimumRate &&
+		left.MaximumRate == right.MaximumRate &&
+		left.LowRateMin == right.LowRateMin &&
+		left.LowRateMax == right.LowRateMax
 }
 
 func publicCacheRate(input, created, read int64) float64 {
@@ -191,7 +219,7 @@ func adjustPublicCacheRateWithPolicy(rate float64, key string, policy PublicTran
 		return deterministicPublicCacheRate(key, policy.LowRateMin, policy.LowRateMax)
 	}
 
-	boostedRate := rate * 1.1
+	boostedRate := rate * (1 + policy.IncreasePercent/100)
 	if boostedRate >= publicCacheBoostedRateThreshold {
 		randomizedRate := deterministicPublicCacheRate(key, publicCacheBoostedRateMinimum, publicCacheBoostedRateMaximum)
 		return roundPublicCacheRate(randomizedRate, publicCacheRateDecimalPlaces(rate))

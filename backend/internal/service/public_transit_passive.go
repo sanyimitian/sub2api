@@ -289,7 +289,7 @@ func (s *PublicTransitService) SnapshotV2Range(ctx context.Context, baseURL, raw
 				modelMatrix, _ := s.monitorV2.Matrix(ctx, filter, ChannelMonitorV2GroupByPlatformGroupModel, true)
 				if snapshotErr == nil && matrixErr == nil && snapshot != nil && matrix != nil {
 					augmentPublicTransitPassiveDisclosure(&passive, snapshot, matrix, modelMatrix)
-					if err := s.persistPassiveMetricCacheRates(ctx, &passive, cachePolicy); err != nil {
+					if err := s.persistPassiveMetricCacheRates(ctx, &passive, cachePolicy, publicTransitGroupIDsByName(v1.Groups)); err != nil {
 						return nil, err
 					}
 				} else if rawErr != nil {
@@ -426,7 +426,11 @@ func (s *PublicTransitService) persistPassiveAggregateCacheUsage(ctx context.Con
 			bucket = row.BucketStart.UTC().Format(time.RFC3339)
 		}
 		key := strings.Join([]string{period, row.Platform, row.GroupName, row.Model, bucket}, "/")
-		input, created, read, _, err := s.publicCachePresentationWithPolicy(ctx, key, row.InputTokens, row.CacheCreate, row.CacheRead, policy)
+		groupPolicy := policy.forGroup(0)
+		if row.GroupID != nil {
+			groupPolicy = policy.forGroup(*row.GroupID)
+		}
+		input, created, read, _, err := s.publicCachePresentationWithPolicy(ctx, key, row.InputTokens, row.CacheCreate, row.CacheRead, groupPolicy)
 		if err != nil {
 			return err
 		}
@@ -435,12 +439,12 @@ func (s *PublicTransitService) persistPassiveAggregateCacheUsage(ctx context.Con
 	return nil
 }
 
-func (s *PublicTransitService) persistPassiveMetricCacheRates(ctx context.Context, disclosure *PublicTransitPassiveDisclosure, policy PublicTransitCachePolicy) error {
+func (s *PublicTransitService) persistPassiveMetricCacheRates(ctx context.Context, disclosure *PublicTransitPassiveDisclosure, policy PublicTransitCachePolicy, groupIDs map[string]int64) error {
 	if disclosure == nil {
 		return nil
 	}
 	if disclosure.Window.Metrics != nil {
-		rate, err := s.publicCacheRatePresentationWithPolicy(ctx, "v2/window/"+disclosure.Window.Period, disclosure.Window.Metrics.CacheRate*100, policy)
+		rate, err := s.publicCacheRatePresentationWithPolicy(ctx, "v2/window/"+disclosure.Window.Period, disclosure.Window.Metrics.CacheRate*100, policy.forGroup(0))
 		if err != nil {
 			return err
 		}
@@ -450,7 +454,8 @@ func (s *PublicTransitService) persistPassiveMetricCacheRates(ctx context.Contex
 		for i := range disclosure.Matrix.Items {
 			item := &disclosure.Matrix.Items[i]
 			baseKey := "v2/" + item.Platform + "/" + item.GroupName + "/" + item.Model
-			rate, err := s.publicCacheRatePresentationWithPolicy(ctx, baseKey, item.Metrics.CacheRate*100, policy)
+			groupPolicy := publicTransitPassiveGroupPolicy(policy, item.Platform, item.GroupName, item.GroupID, groupIDs)
+			rate, err := s.publicCacheRatePresentationWithPolicy(ctx, baseKey, item.Metrics.CacheRate*100, groupPolicy)
 			if err != nil {
 				return err
 			}
@@ -458,7 +463,7 @@ func (s *PublicTransitService) persistPassiveMetricCacheRates(ctx context.Contex
 			for j := range item.Buckets {
 				bucket := &item.Buckets[j]
 				bucketKey := baseKey + "/" + bucket.BucketStart.UTC().Format(time.RFC3339)
-				rate, err := s.publicCacheRatePresentationWithPolicy(ctx, bucketKey, bucket.Metrics.CacheRate*100, policy)
+				rate, err := s.publicCacheRatePresentationWithPolicy(ctx, bucketKey, bucket.Metrics.CacheRate*100, groupPolicy)
 				if err != nil {
 					return err
 				}
@@ -490,13 +495,36 @@ func (s *PublicTransitService) persistPassiveMetricCacheRates(ctx context.Contex
 		}
 		rate, err := s.publicCacheRatePresentationWithPolicy(ctx,
 			"v2/"+model.Platform+"/"+model.GroupName+"/"+model.Model,
-			model.Metrics.CacheRate*100, policy)
+			model.Metrics.CacheRate*100,
+			publicTransitPassiveGroupPolicy(policy, model.Platform, model.GroupName, nil, groupIDs))
 		if err != nil {
 			return err
 		}
 		model.Metrics.CacheRate = rate
 	}
 	return nil
+}
+
+func publicTransitGroupIDsByName(groups []PublicTransitGroup) map[string]int64 {
+	ids := make(map[string]int64, len(groups))
+	for _, group := range groups {
+		ids[publicTransitGroupLookupKey(group.Platform, group.Name)] = group.ID
+	}
+	return ids
+}
+
+func publicTransitGroupLookupKey(platform, name string) string {
+	return strings.ToLower(strings.TrimSpace(platform)) + "\x00" + strings.ToLower(strings.TrimSpace(name))
+}
+
+func publicTransitPassiveGroupPolicy(policy PublicTransitCachePolicy, platform, name string, groupID *int64, groupIDs map[string]int64) PublicTransitCachePolicy {
+	if groupID != nil {
+		return policy.forGroup(*groupID)
+	}
+	if id, ok := groupIDs[publicTransitGroupLookupKey(platform, name)]; ok {
+		return policy.forGroup(id)
+	}
+	return policy.forGroup(0)
 }
 
 func publicTransitMetric(value ChannelMonitorV2Metric) ChannelMonitorV2Metric {
