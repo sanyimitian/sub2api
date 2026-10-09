@@ -234,7 +234,38 @@ func (r *channelMonitorRepository) InsertHistoryBatch(ctx context.Context, rows 
 	if len(rows) == 0 {
 		return nil
 	}
-	client := clientFromContext(ctx, r.client)
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		return insertMonitorHistoryAndPrune(ctx, tx.Client(), rows)
+	}
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin monitor history transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := insertMonitorHistoryAndPrune(ctx, tx.Client(), rows); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit monitor history transaction: %w", err)
+	}
+	return nil
+}
+
+// insertMonitorHistoryAndPrune 在同一事务中写入结果并物理清理旧异常。
+// 按 ID 顺序锁定监控，避免并发检测留下多条异常或多监控批次发生死锁。
+func insertMonitorHistoryAndPrune(ctx context.Context, client *dbent.Client, rows []*service.ChannelMonitorHistoryRow) error {
+	monitorIDs := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		monitorIDs = append(monitorIDs, row.MonitorID)
+	}
+	lockedIDs, err := client.ChannelMonitor.Query().
+		Where(channelmonitor.IDIn(monitorIDs...)).
+		Order(dbent.Asc(channelmonitor.FieldID)).
+		ForUpdate().IDs(ctx)
+	if err != nil {
+		return fmt.Errorf("lock monitors for history update: %w", err)
+	}
+
 	bulk := make([]*dbent.ChannelMonitorHistoryCreate, 0, len(rows))
 	for _, row := range rows {
 		c := client.ChannelMonitorHistory.Create().
@@ -256,6 +287,42 @@ func (r *channelMonitorRepository) InsertHistoryBatch(ctx context.Context, rows 
 	}
 	if _, err := client.ChannelMonitorHistory.CreateBulk(bulk...).Save(ctx); err != nil {
 		return fmt.Errorf("insert history bulk: %w", err)
+	}
+	for _, monitorID := range lockedIDs {
+		if err := pruneMonitorAbnormalHistory(ctx, client, monitorID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// pruneMonitorAbnormalHistory 整个监控（包括附加模型）仅保留最新一条异常。
+// 正常记录不删除；正常更新也会清理既有旧异常。超时等 error 同样属于异常。
+// checked_at 相同时以 ID 较大的记录为最新，确保结果唯一。
+func pruneMonitorAbnormalHistory(ctx context.Context, client *dbent.Client, monitorID int64) error {
+	statuses := []channelmonitorhistory.Status{
+		channelmonitorhistory.StatusDegraded,
+		channelmonitorhistory.StatusFailed,
+		channelmonitorhistory.StatusError,
+	}
+	latestID, err := client.ChannelMonitorHistory.Query().
+		Where(channelmonitorhistory.MonitorIDEQ(monitorID), channelmonitorhistory.StatusIn(statuses...)).
+		Order(dbent.Desc(channelmonitorhistory.FieldCheckedAt), dbent.Desc(channelmonitorhistory.FieldID)).
+		FirstID(ctx)
+	if dbent.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("find latest monitor abnormal history: %w", err)
+	}
+	_, err = client.ChannelMonitorHistory.Delete().
+		Where(
+			channelmonitorhistory.MonitorIDEQ(monitorID),
+			channelmonitorhistory.StatusIn(statuses...),
+			channelmonitorhistory.IDNEQ(latestID),
+		).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("prune monitor abnormal history: %w", err)
 	}
 	return nil
 }

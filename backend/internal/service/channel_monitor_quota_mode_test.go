@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -16,10 +17,11 @@ import (
 // quotaModeRepoStub 记录 RunCheck 落库行为（历史行 + MarkChecked）。
 type quotaModeRepoStub struct {
 	ChannelMonitorRepository
-	monitor   *ChannelMonitor
-	history   []*ChannelMonitorHistoryRow
-	markedIDs []int64
-	updated   []*ChannelMonitor
+	monitor    *ChannelMonitor
+	history    []*ChannelMonitorHistoryRow
+	markedIDs  []int64
+	updated    []*ChannelMonitor
+	historyErr error
 }
 
 func (r *quotaModeRepoStub) GetByID(_ context.Context, id int64) (*ChannelMonitor, error) {
@@ -31,6 +33,9 @@ func (r *quotaModeRepoStub) GetByID(_ context.Context, id int64) (*ChannelMonito
 }
 
 func (r *quotaModeRepoStub) InsertHistoryBatch(_ context.Context, rows []*ChannelMonitorHistoryRow) error {
+	if r.historyErr != nil {
+		return r.historyErr
+	}
 	r.history = append(r.history, rows...)
 	return nil
 }
@@ -71,6 +76,20 @@ func newQuotaModeFetcher(accounts map[int64]*Account, usage *stubMonitorUsageSou
 }
 
 // --- RunCheck 分派 ---
+
+func TestRunCheck_HistoryFailureDoesNotReportSuccessfulUpdate(t *testing.T) {
+	writeErr := errors.New("history cleanup failed")
+	repo := &quotaModeRepoStub{
+		monitor: &ChannelMonitor{ID: 1, Name: "quota", Provider: MonitorProviderKimi,
+			PrimaryModel: MonitorDefaultQuotaModel, CheckMode: MonitorCheckModeQuota},
+		historyErr: writeErr,
+	}
+	results, err := newQuotaModeService(repo).RunCheck(context.Background(), 1)
+	require.ErrorIs(t, err, writeErr)
+	require.Nil(t, results)
+	require.Empty(t, repo.history)
+	require.Empty(t, repo.markedIDs, "历史更新失败时不能标记已检查")
+}
 
 func TestRunCheck_QuotaModeProducesSingleQuotaResult(t *testing.T) {
 	repo := &quotaModeRepoStub{monitor: &ChannelMonitor{

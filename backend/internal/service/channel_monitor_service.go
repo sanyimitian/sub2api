@@ -30,6 +30,7 @@ type ChannelMonitorRepository interface {
 	// 调度器辅助
 	ListEnabled(ctx context.Context) ([]*ChannelMonitor, error)
 	MarkChecked(ctx context.Context, id int64, checkedAt time.Time) error
+	// InsertHistoryBatch 原子写入历史并清理旧异常，每个监控（跨模型）最多保留一条最新异常。
 	InsertHistoryBatch(ctx context.Context, rows []*ChannelMonitorHistoryRow) error
 	DeleteHistoryBefore(ctx context.Context, before time.Time) (int64, error)
 
@@ -629,7 +630,9 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 	default:
 		results = s.runChecksConcurrent(ctx, m)
 	}
-	s.persistCheckResults(ctx, m, results)
+	if err := s.persistCheckResults(ctx, m, results); err != nil {
+		return nil, err
+	}
 	return results, nil
 }
 
@@ -668,8 +671,8 @@ func attachQuotaSnapshot(results []*CheckResult, snapshot *domain.MonitorQuotaSn
 }
 
 // persistCheckResults 写入本次检测的历史记录并更新 last_checked_at。
-// 任一写库失败都只记日志，不影响调用方拿到 results（与 MVP 期望一致：宁可漏记历史也要先返回结果）。
-func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *ChannelMonitor, results []*CheckResult) {
+// 历史写入或旧异常清理失败时返回错误，避免把未落库的更新报告为成功。
+func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *ChannelMonitor, results []*CheckResult) error {
 	rows := make([]*ChannelMonitorHistoryRow, 0, len(results))
 	for _, r := range results {
 		rows = append(rows, &ChannelMonitorHistoryRow{
@@ -684,13 +687,13 @@ func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *Chan
 		})
 	}
 	if err := s.repo.InsertHistoryBatch(ctx, rows); err != nil {
-		slog.Error("channel_monitor: insert history failed",
-			"monitor_id", m.ID, "name", m.Name, "error", err)
+		return fmt.Errorf("persist channel monitor history: %w", err)
 	}
 	if err := s.repo.MarkChecked(ctx, m.ID, time.Now()); err != nil {
 		slog.Error("channel_monitor: mark checked failed",
 			"monitor_id", m.ID, "error", err)
 	}
+	return nil
 }
 
 // runChecksConcurrent 对 primary + extra 模型并发执行检测。
