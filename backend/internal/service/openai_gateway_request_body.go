@@ -54,7 +54,8 @@ func buildOpenAIResponsesURL(base string) string {
 
 // buildOpenAIResponsesURLForPlatform 组装 Responses 端点（平台感知）。
 // 供应商 profile 声明了 ResponsesPath 时按其拼接（如 DeepSeek 为无 /v1 前缀的
-// /responses）；其余平台维持 /v1/responses。
+// /responses）；其余平台维持 /v1/responses。第三方兼容端点路径不同的账号，
+// 可在 base_url 或 credentials.api_base_urls.responses 中显式配置完整版本路径。
 func buildOpenAIResponsesURLForPlatform(platform string, base string) string {
 	if profile := LookupProviderProfile(platform); profile != nil && profile.ResponsesPath != "" {
 		return buildOpenAIEndpointURL(base, profile.ResponsesPath)
@@ -656,6 +657,13 @@ func openAIRequestBodyHasTools(body []byte) bool {
 	if tools := gjson.GetBytes(body, "tools"); tools.IsArray() && len(tools.Array()) > 0 {
 		return true
 	}
+	return openAIRequestBodyHasAdditionalTools(body)
+}
+
+// openAIRequestBodyHasAdditionalTools 报告请求是否把工具声明放在
+// input[].additional_tools 条目上。这是 Codex Responses Lite 的形状：顶层没有
+// tools，工具声明挂在 input 的 additional_tools 条目里。
+func openAIRequestBodyHasAdditionalTools(body []byte) bool {
 	for _, item := range gjson.GetBytes(body, "input").Array() {
 		if strings.TrimSpace(item.Get("type").String()) != "additional_tools" {
 			continue

@@ -85,27 +85,17 @@ func geminiThinkingLevelFromBody(body []byte) string {
 	}
 }
 
-// geminiThinkingLevelFromClaudeThinking 用 Claude Messages 协议的 thinking 配置推导档位，
-// 阈值与 geminiThinkingLevelFromBody 保持一致，使同一请求无论走 Gemini 原生还是
-// Chat Completions / Messages 兼容层都落到同一个上游变体。
 func geminiThinkingLevelFromClaudeThinking(thinking *antigravity.ThinkingConfig) string {
-	if thinking == nil {
+	if thinking == nil || thinking.Type == "adaptive" {
 		return "high"
 	}
-	if strings.EqualFold(strings.TrimSpace(thinking.Type), "disabled") {
+	if thinking.Type == "disabled" || thinking.BudgetTokens <= geminiThinkingBudgetLowMax {
 		return "low"
 	}
-	budget := thinking.BudgetTokens
-	switch {
-	case budget <= 0:
-		return "high" // 动态思考 / 未指定预算
-	case budget <= geminiThinkingBudgetLowMax:
-		return "low"
-	case budget <= geminiThinkingBudgetMediumMax:
+	if thinking.BudgetTokens <= geminiThinkingBudgetMediumMax {
 		return "medium"
-	default:
-		return "high"
 	}
+	return "high"
 }
 
 // accountRawModelMappingHasKey 判断 key 是否由用户写在账号 credentials.model_mapping 里
@@ -125,10 +115,7 @@ func resolveGeminiThinkingVariant(account *Account, requestedModel string, body 
 	return resolveGeminiThinkingVariantForLevel(account, requestedModel, geminiThinkingLevelFromBody(body))
 }
 
-// resolveGeminiThinkingVariantForLevel 是 resolveGeminiThinkingVariant 的协议无关内核：
-// 调用方负责按自身协议推导 preferred 档位（Gemini 原生读 generationConfig.thinkingConfig，
-// Claude/OpenAI 兼容层读 thinking.budget_tokens），此处只做映射查找与降级。
-func resolveGeminiThinkingVariantForLevel(account *Account, requestedModel string, preferred string) (string, bool) {
+func resolveGeminiThinkingVariantForLevel(account *Account, requestedModel, preferred string) (string, bool) {
 	if account == nil {
 		return "", false
 	}
@@ -152,7 +139,10 @@ func resolveGeminiThinkingVariantForLevel(account *Account, requestedModel strin
 		}
 	}
 
-	if preferred == "" {
+	preferred = strings.ToLower(strings.TrimSpace(preferred))
+	switch preferred {
+	case "low", "medium", "high":
+	default:
 		preferred = "high"
 	}
 	order := []string{preferred}

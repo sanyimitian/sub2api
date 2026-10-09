@@ -7,6 +7,7 @@ import enSettings from "@/i18n/locales/en/admin/settings";
 import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
 import SettingsView from "../SettingsView.vue";
+import { apiClient } from "@/api/client";
 
 const {
   getSettings,
@@ -723,6 +724,7 @@ describe("admin SettingsView payment visible method controls", () => {
     fetchPublicSettings.mockResolvedValue(undefined);
     adminSettingsFetch.mockResolvedValue(undefined);
   });
+
 
   it("loads and saves the open button visibility for each custom menu", async () => {
     const menuItems = [

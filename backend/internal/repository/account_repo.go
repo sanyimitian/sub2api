@@ -52,6 +52,7 @@ type accountRepository struct {
 }
 
 var schedulerNeutralExtraKeyPrefixes = []string{
+	"codex_turn_ticket:",
 	"codex_primary_",
 	"codex_secondary_",
 	"codex_5h_",
@@ -626,6 +627,10 @@ func lockAndMergeAccountProbeExtra(
 	if account.ProxyID != nil {
 		proxyID = *account.ProxyID
 	}
+	currentExtraColumn := ""
+	if account.IsOpenAIOAuth() {
+		currentExtraColumn = ", extra"
+	}
 	rows, err := client.QueryContext(ctx, `
 		SELECT
 			platform = $2
@@ -670,7 +675,7 @@ func lockAndMergeAccountProbeExtra(
 				false
 			),
 			extra -> 'opencode_go_usage_auto_refresh',
-			extra -> 'opencode_go_usage_snapshot'
+			extra -> 'opencode_go_usage_snapshot'`+currentExtraColumn+`
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -699,8 +704,9 @@ func lockAndMergeAccountProbeExtra(
 		currentOllamaSnapshot          []byte
 		currentOpenCodeAutoRefresh     []byte
 		currentOpenCodeSnapshot        []byte
+		currentExtra                   []byte
 	)
-	if err := rows.Scan(
+	scanTargets := []any{
 		&identityUnchanged,
 		&ollamaGroupIdentityUnchanged,
 		&ollamaProxyIdentityUnchanged,
@@ -713,7 +719,11 @@ func lockAndMergeAccountProbeExtra(
 		&opencodeGroupIdentityUnchanged,
 		&currentOpenCodeAutoRefresh,
 		&currentOpenCodeSnapshot,
-	); err != nil {
+	}
+	if account.IsOpenAIOAuth() {
+		scanTargets = append(scanTargets, &currentExtra)
+	}
+	if err := rows.Scan(scanTargets...); err != nil {
 		return nil, err
 	}
 	if err := rows.Err(); err != nil {
@@ -721,6 +731,13 @@ func lockAndMergeAccountProbeExtra(
 	}
 
 	extra := copyJSONMap(normalizeJSONMap(account.Extra))
+	currentCodexExtra := map[string]any{}
+	if value, ok, decodeErr := decodeAccountExtraJSON(currentExtra); decodeErr == nil && ok {
+		if current, isMap := value.(map[string]any); isMap {
+			currentCodexExtra = current
+		}
+	}
+	extra = service.MergeOpenAICodexTicketExtra(extra, currentCodexExtra)
 	for _, key := range []string{
 		service.UpstreamBillingProbeEnabledExtraKey,
 		service.UpstreamBillingRateSyncEnabledExtraKey,

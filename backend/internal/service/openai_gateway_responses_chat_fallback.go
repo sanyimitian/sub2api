@@ -32,6 +32,23 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
 
+	// DeepSeek 原生 /responses 不认识 compaction_trigger：remote compaction v2 会得到
+	// reasoning+message 而非 compaction item，Codex 判 fatal。这里改写成普通总结回合
+	// （剥 trigger + 注入总结指令 + 强制非流式），回程再合成 compaction item。
+	compact := isOpenAINativeCompactionV2(c) && HasCompactionTriggerInInput(body)
+	if compact {
+		rewritten, err := buildDeepSeekCompactChatBody(body)
+		if err != nil {
+			writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return nil, fmt.Errorf("build deepseek compact chat body: %w", err)
+		}
+		body = rewritten
+		logger.L().Info("openai responses chat fallback: deepseek compact request rewritten",
+			zap.Int64("account_id", account.ID),
+			zap.Int("rewritten_body_bytes", len(body)),
+		)
+	}
+
 	var responsesReq apicompat.ResponsesRequest
 	if err := json.Unmarshal(body, &responsesReq); err != nil {
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
@@ -44,6 +61,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 
 	clientStream := responsesReq.Stream
+	// Codex omits reasoning.summary when configured with summary=none.
+	// Only an explicit summary request enables plaintext summaries.
+	suppressSummary := responsesReq.Reasoning == nil || strings.TrimSpace(responsesReq.Reasoning.Summary) == "" || strings.EqualFold(strings.TrimSpace(responsesReq.Reasoning.Summary), "none")
 	// custom 工具（如 codex 的 exec）降级为 function 工具转发，回程需按名字还原为
 	// custom_tool_call 项，先记下名字集合；tool_search 工具同理，回程还原为
 	// tool_search_call 项；namespace 子工具（如 MCP 工具）摊平转发，回程按映射还原
@@ -104,6 +124,11 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	// /v1/responses 降级到 raw CC 的出站与 forwardAsRawChatCompletions 共用同一个
 	// 独立 Ollama Cloud token 钩子；chatReq.Model 已是模型映射后的 upstreamModel。
 	chatBody = clampOllamaCloudUpstreamMaxTokens(account, chatBody)
+	// DeepSeek 的 /chat/completions 不接受 response_format=json_schema（400
+	// "This response_format type is unavailable now"）。Responses 的 text.format
+	// json_schema 经 chat 桥原样转成该字段，必须剔除；text / json_object 均可用，
+	// 保持原样。剔除后模型退回纯文本输出，Codex 不依赖结构化输出即可继续。
+	chatBody = stripDeepSeekUnsupportedChatResponseFormat(account, chatBody)
 	// Keep the final outbound tier for usage-time reconciliation. A policy
 	// filter that removes the field therefore leaves this nil.
 	serviceTier := extractOpenAIServiceTierFromBody(chatBody)
@@ -122,6 +147,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.admitOpenAITurn(ctx, c, account, upstreamModel); err != nil {
+		return nil, err
+	}
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, chatBody, clientStream, apiKey, account.GetOpenAIUserAgent(), "")
 	if err != nil {
 		return nil, err
@@ -130,6 +158,13 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		if compact {
+			logger.L().Warn("openai responses chat fallback: deepseek compact upstream error",
+				zap.Int64("account_id", account.ID),
+				zap.Int("status", resp.StatusCode),
+				zap.String("message", upstreamMsg),
+			)
+		}
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
@@ -137,9 +172,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 
 	if clientStream {
-		return s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		return s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, suppressSummary, startTime)
 	}
-	return s.bufferChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+	return s.bufferChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, suppressSummary, startTime, compact)
 }
 
 func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
@@ -154,7 +189,9 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	upstreamModel string,
 	reasoningEffort *string,
 	serviceTier *string,
+	suppressSummary bool,
 	startTime time.Time,
+	compact bool,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 	ccResp, usage, err := s.readCCUpstreamJSONResponse(c, resp, writeOpenAIResponsesFallbackError)
@@ -162,12 +199,49 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 		return nil, err
 	}
 	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, originalModel, customTools, functionTools, toolSearch, namespaceTools)
+	recordChatReasoningOnlyFailure(c, requestID, upstreamModel, responsesResp)
 	s.cacheReasoningItemsFromOutput(responsesResp.Output)
+	if suppressSummary {
+		responsesResp.Output = withoutReasoningSummaries(responsesResp.Output)
+	}
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
-	c.JSON(http.StatusOK, responsesResp)
+	if compact && responsesResp.Status == "failed" {
+		// A failed summary must not become a successful empty compaction item.
+		sse, err := apicompat.ResponsesEventToSSE(apicompat.ResponsesStreamEvent{Type: "response.failed", SequenceNumber: 1, Response: responsesResp})
+		if err != nil {
+			return nil, fmt.Errorf("marshal compact failure: %w", err)
+		}
+		c.Data(http.StatusOK, "text/event-stream", []byte(sse+"data: [DONE]\n\n"))
+	} else if compact {
+		summary := compactSummaryTextFromResponses(responsesResp.Output)
+		logger.L().Info("openai responses chat fallback: deepseek compact synthesizing",
+			zap.Int("upstream_output_items", len(responsesResp.Output)),
+			zap.Int("summary_len", len(summary)),
+		)
+		compactResp := buildDeepSeekCompactResponse(responsesResp, summary)
+		encoded, err := json.Marshal(compactResp)
+		if err != nil {
+			return nil, fmt.Errorf("marshal deepseek compact response: %w", err)
+		}
+		payload, ok := buildDeepSeekCompactSSEPayload(encoded)
+		if !ok {
+			return nil, fmt.Errorf("build deepseek compact SSE payload")
+		}
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+		c.Writer.WriteHeader(http.StatusOK)
+		if _, err := c.Writer.Write(payload); err != nil {
+			return nil, err
+		}
+		c.Writer.Flush()
+	} else {
+		c.JSON(http.StatusOK, responsesResp)
+	}
 
 	return &OpenAIForwardResult{
 		RequestID:                   requestID,
@@ -196,6 +270,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	upstreamModel string,
 	reasoningEffort *string,
 	serviceTier *string,
+	suppressSummary bool,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
@@ -209,6 +284,11 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	clientDisconnected := false
 
 	writeEvents := func(events []apicompat.ResponsesStreamEvent) {
+		// Cache the original completed reasoning items before this write boundary;
+		// clients can return the opaque item ID for DeepSeek tool-history replay.
+		if suppressSummary {
+			events = withoutReasoningSummaryEvents(events)
+		}
 		if clientDisconnected || len(events) == 0 {
 			return
 		}
@@ -274,6 +354,11 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	}
 
 	finalEvents := apicompat.FinalizeChatCompletionsResponsesStream(state)
+	for _, event := range finalEvents {
+		if event.Type == "response.failed" {
+			recordChatReasoningOnlyFailure(c, requestID, upstreamModel, event.Response)
+		}
+	}
 	s.cacheReasoningItemsFromEvents(finalEvents)
 	writeEvents(finalEvents)
 	if !clientDisconnected {
@@ -315,6 +400,16 @@ func chatChunkStartsResponsesOutput(chunk *apicompat.ChatCompletionsChunk) bool 
 		}
 	}
 	return false
+}
+
+func recordChatReasoningOnlyFailure(c *gin.Context, requestID, model string, response *apicompat.ResponsesResponse) {
+	if response == nil || response.Error == nil || response.Error.Code != "upstream_reasoning_only" {
+		return
+	}
+	setOpsUpstreamError(c, http.StatusOK, response.Error.Code, response.Error.Message)
+	logger.L().Warn("openai.responses_reasoning_only",
+		zap.String("request_id", requestID), zap.String("upstream_model", model),
+		zap.String("error_code", response.Error.Code))
 }
 
 // responsesReasoningCacheTTL 是 reasoning 缓存（按 reasoning item id）的过期时间。
@@ -414,15 +509,9 @@ func (s *OpenAIGatewayService) setReasoningContent(itemID, content string) {
 	}
 }
 
-// deepSeekChatReasoningPlaceholderText 是 Chat Completions 侧 thinking-mode
-// 占位明文。必须是单个空格：DeepSeek 拒绝空串，非空即可通过；LiteLLM 同样注入
-// 单个空格。
 const deepSeekChatReasoningPlaceholderText = " "
 
-// targetsDeepSeekAPIHost 报告该账号实际上游是否是 DeepSeek 官方 API。
-// platform=deepseek 直接命中；platform=openai 但 base_url 指向
-// api.deepseek.com 的映射账号同样命中（Codex 把 GPT 模型名映射到 DeepSeek
-// 时的典型接入方式）。
+// targetsDeepSeekAPIHost reports whether the account targets the official DeepSeek API.
 func targetsDeepSeekAPIHost(account *Account) bool {
 	if account == nil {
 		return false
@@ -439,6 +528,27 @@ func targetsDeepSeekAPIHost(account *Account) bool {
 		return false
 	}
 	return strings.EqualFold(u.Hostname(), ds.Hostname())
+}
+
+// isDeepSeekSemanticsChatUpstream covers DeepSeek endpoints selected by platform, host or model.
+func isDeepSeekSemanticsChatUpstream(account *Account, upstreamModel string) bool {
+	if targetsDeepSeekAPIHost(account) || isDeepSeekModelName(upstreamModel) {
+		return true
+	}
+	return targetsOpenCodeZenUpstream(account) && isDeepSeekCatalogModel(upstreamModel)
+}
+
+// stripDeepSeekUnsupportedChatResponseFormat removes the JSON Schema format DeepSeek rejects.
+func stripDeepSeekUnsupportedChatResponseFormat(account *Account, chatBody []byte) []byte {
+	if !isDeepSeekSemanticsChatUpstream(account, gjson.GetBytes(chatBody, "model").String()) ||
+		strings.TrimSpace(gjson.GetBytes(chatBody, "response_format.type").String()) != "json_schema" {
+		return chatBody
+	}
+	updated, err := sjson.DeleteBytes(chatBody, "response_format")
+	if err != nil {
+		return chatBody
+	}
+	return updated
 }
 
 // targetsOpenCodeZenUpstream 报告该账号上游是否是官方 OpenCode Zen / Go 网关。
@@ -467,16 +577,39 @@ func isDeepSeekCatalogModel(model string) bool {
 // 模型由 DeepSeek 实际承载，同一条 400 原文会被一字不差地回吐，所以按
 // 「官方 OpenCode 上游 + deepseek-* 模型」补一条判定。
 //
-// 不放宽成「任意上游的 deepseek-* 模型名」：占位符是写进请求体的额外字段，
-// 对没有这条约束的上游属于无谓改写，且可能触发未知字段校验。
+// HTTPS 账号上的 deepseek-* 出站模型，以及显式映射到该模型的账号也命中，
+// 覆盖经第三方聚合站转发的 DeepSeek 路由；不对明文 HTTP 的未知上游做此改写。
 func requiresDeepSeekChatReasoning(account *Account, body []byte) bool {
+	if account == nil {
+		return false
+	}
 	if targetsDeepSeekAPIHost(account) {
+		return true
+	}
+	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if isDeepSeekModelName(model) && (accountExplicitlyMapsToModel(account, model) || strings.HasPrefix(strings.ToLower(strings.TrimSpace(account.GetOpenAIBaseURL())), "https://")) {
 		return true
 	}
 	if !targetsOpenCodeZenUpstream(account) {
 		return false
 	}
-	return isDeepSeekCatalogModel(gjson.GetBytes(body, "model").String())
+	return isDeepSeekCatalogModel(model)
+}
+
+func accountExplicitlyMapsToModel(account *Account, model string) bool {
+	if account == nil || account.Credentials == nil {
+		return false
+	}
+	raw, ok := account.Credentials["model_mapping"].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, value := range raw {
+		if mapped, ok := value.(string); ok && strings.EqualFold(strings.TrimSpace(mapped), model) {
+			return true
+		}
+	}
+	return false
 }
 
 // ensureDeepSeekChatReasoningPlaceholders 给缺 reasoning_content 的 assistant

@@ -900,6 +900,33 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	} else {
 		result.OpenAICodexVersionAutoSyncEnabled = true
 	}
+	if v, ok := settings[SettingKeyOpenAICodexTicketEnabled]; ok && v != "" {
+		result.OpenAICodexTicketEnabled = v == "true"
+	} else if s != nil && s.cfg != nil {
+		result.OpenAICodexTicketEnabled = s.cfg.Gateway.OpenAICodexTicket.Enabled
+	}
+	result.OpenAICodexTicketFailClosed = settings[SettingKeyOpenAICodexTicketFailClosed] == "true"
+	result.OpenAICodexTicketHarvestProxyURL = strings.TrimSpace(settings[SettingKeyOpenAICodexTicketHarvestProxyURL])
+	harvestScope, harvestScopeErr := parseCodexTicketHarvestScope(settings[SettingKeyOpenAICodexTicketHarvestScope])
+	result.OpenAICodexTicketHarvestScope = harvestScope
+	if harvestScopeErr != nil {
+		result.OpenAICodexTicketHarvestScope = CodexTicketHarvestScope{Mode: "selected", GroupIDs: []int64{}}
+	}
+	result.OpenAICodexTicketStrategy = NormalizeCodexTicketStrategy(settings[SettingKeyOpenAICodexTicketStrategy])
+	result.OpenAICodexTicketStrictResponse = settings[SettingKeyOpenAICodexTicketStrict] == "true"
+	result.OpenAICodexTicketStaticProxyURL = strings.TrimSpace(settings[SettingKeyOpenAICodexTicketStaticProxyURL])
+	if raw, ok := settings[SettingKeyOpenAICodexTicketModels]; ok && strings.TrimSpace(raw) != "" {
+		var models []string
+		if err := json.Unmarshal([]byte(raw), &models); err == nil {
+			result.OpenAICodexTicketModels = NormalizeOpenAICodexTicketModels(models)
+		}
+	}
+	if result.OpenAICodexTicketModels == nil && s != nil && s.cfg != nil && len(s.cfg.Gateway.OpenAICodexTicket.Models) > 0 {
+		result.OpenAICodexTicketModels = NormalizeOpenAICodexTicketModels(s.cfg.Gateway.OpenAICodexTicket.Models)
+	}
+	if result.OpenAICodexTicketModels == nil {
+		result.OpenAICodexTicketModels = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}
+	}
 	result.ClaudeCodeClientVersion = NormalizeClaudeCodeClientVersion(settings[SettingKeyClaudeCodeClientVersion])
 	result.ClaudeCodeClientVersionSynced = NormalizeClaudeCodeClientVersion(settings[SettingKeyClaudeCodeClientVersionSynced])
 	// 自动同步默认开启：缺失/空值一律视为开启，与 openai_codex_version_auto_sync_enabled 同一惯例。
@@ -908,6 +935,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	} else {
 		result.ClaudeCodeVersionAutoSyncEnabled = true
 	}
+
 	// codex_cli_only 加固
 	result.MinCodexVersion = settings[SettingKeyMinCodexVersion]
 	result.MaxCodexVersion = settings[SettingKeyMaxCodexVersion]

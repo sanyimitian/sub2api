@@ -814,7 +814,12 @@ export default {
         codexFingerprintDevice: '仅设备',
         codexFingerprintSession: '设备+会话',
         codexFingerprintFull: '完全收敛',
+
         codexImageTool: 'Codex 图片桥接策略',
+        codexTurnTicketMissing: '暂无有效门票，仍允许请求',
+        codexTurnTicketPaused: '未打到 292，该模型已暂停',
+        ticketProbeNext: '下次允许探测：',
+        ticketStandbyExpires: '备用到期：',
         codexImageToolDesc:
           '统一控制 Codex /responses 文本请求的 hosted image_generation 桥接和客户端图片工具声明。hosted 工具自动注入仅适用于非 Responses Lite 请求；账号级策略优先于渠道和全局配置，不影响独立图片生成接口。',
         codexImageToolInherit: '跟随渠道',

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -185,10 +186,15 @@ func TestLockAndMergeAccountProbeExtraPreservesOpenCodeGoManagedState(t *testing
 			client, mock := newOllamaCloudUsageRepositoryTestClient(t)
 			credentials, err := json.Marshal(normalizeJSONMap(tt.account.Credentials))
 			require.NoError(t, err)
+			columns := openCodeGoMergeMockColumns()
+			values := []driver.Value{false, false, tt.proxyUnchanged, nil, nil, nil, nil, nil, nil, tt.groupUnchanged, tt.databaseAuto, tt.databaseSnapshot}
+			if tt.account.IsOpenAIOAuth() {
+				columns = append(columns, "current_extra")
+				values = append(values, nil)
+			}
 			mock.ExpectQuery(`(?s)`+regexp.QuoteMeta("SELECT")+`.*`+regexp.QuoteMeta("FOR NO KEY UPDATE")).
 				WithArgs(tt.account.ID, tt.account.Platform, tt.account.Type, string(credentials), nil).
-				WillReturnRows(sqlmock.NewRows(openCodeGoMergeMockColumns()).
-					AddRow(false, false, tt.proxyUnchanged, nil, nil, nil, nil, nil, nil, tt.groupUnchanged, tt.databaseAuto, tt.databaseSnapshot))
+				WillReturnRows(sqlmock.NewRows(columns).AddRow(values...))
 
 			got, err := lockAndMergeAccountProbeExtra(context.Background(), client, tt.account, nil, nil)
 			require.NoError(t, err)

@@ -287,6 +287,7 @@ func (s *SettingService) GetAntigravityUserAgentVersion(ctx context.Context) str
 	return fallback
 }
 
+
 // GetOpenAICodexUserAgent 返回 OpenAI Codex 上游请求使用的 User-Agent。
 // 后台设置优先；为空时回退到内置默认值。
 func (s *SettingService) GetOpenAICodexUserAgent(ctx context.Context) string {

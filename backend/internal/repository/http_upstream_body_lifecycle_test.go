@@ -176,8 +176,18 @@ func TestHTTPUpstreamCompletedBodyPreservesKeepAlive(t *testing.T) {
 				req.Header.Set("Accept-Encoding", encoding)
 				resp, err := do(req)
 				require.NoError(t, err)
-				body, err := io.ReadAll(resp.Body)
+				var bodyReader io.Reader = resp.Body
+				var gzipReader *gzip.Reader
+				if encoding == "gzip" {
+					gzipReader, err = gzip.NewReader(resp.Body)
+					require.NoError(t, err)
+					bodyReader = gzipReader
+				}
+				body, err := io.ReadAll(bodyReader)
 				require.NoError(t, err)
+				if gzipReader != nil {
+					require.NoError(t, gzipReader.Close())
+				}
 				require.Equal(t, "complete response", string(body))
 				var wg sync.WaitGroup
 				for j := 0; j < 4; j++ {
