@@ -1556,7 +1556,7 @@ async function handleSubmit() {
     for (const entry of entries) {
       const error = validateReasoningEffortMultipliers(entry.reasoning_effort_multipliers, t)
       if (!error) continue
-      const platformLabel = t('admin.groups.platforms.' + section.platform, catalogPlatformLabel(section.platform))
+      const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
       const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')
       appStore.showError(`${platformLabel} - ${modelLabel}: ${error}`)
       activeTab.value = section.platform
@@ -1569,7 +1569,7 @@ async function handleSubmit() {
     for (const entry of section.model_pricing) {
       if (!isValidPositiveMultiplier(entry.fast_multiplier) ||
           !isValidPositiveMultiplier(entry.flex_multiplier)) {
-        const platformLabel = t('admin.groups.platforms.' + section.platform, catalogPlatformLabel(section.platform))
+        const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
         const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')
         appStore.showError(`${platformLabel} - ${modelLabel}: ${t('admin.channels.form.multiplierPositive')}`)
         activeTab.value = section.platform

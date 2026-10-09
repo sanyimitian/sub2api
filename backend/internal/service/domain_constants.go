@@ -230,28 +230,28 @@ const (
 	SettingKeyPublicTransitCacheLowRateThreshold     = "public_transit_cache_low_rate_threshold"
 	SettingKeyPublicTransitCacheLowRateDisplayMin    = "public_transit_cache_low_rate_display_min"
 	SettingKeyPublicTransitCacheLowRateDisplayMax    = "public_transit_cache_low_rate_display_max"
-	// Legacy cache presentation keys are read for settings created before low-rate rules were split.
-	SettingKeyPublicTransitCacheLowRateMin  = "public_transit_cache_low_rate_min"
-	SettingKeyPublicTransitCacheLowRateMax  = "public_transit_cache_low_rate_max"
-	SettingKeyPromoCodeEnabled              = "promo_code_enabled"               // 是否启用优惠码功能
-	SettingKeyPasswordResetEnabled          = "password_reset_enabled"           // 是否启用忘记密码功能（需要先开启邮件验证）
-	SettingKeyFrontendURL                   = "frontend_url"                     // 前端基础URL，用于生成邮件中的重置密码链接
-	SettingKeyInvitationCodeEnabled         = "invitation_code_enabled"          // 是否启用邀请码注册
-	SettingKeyAffiliateEnabled              = "affiliate_enabled"                // 邀请返利功能总开关
-	SettingKeyAffiliateRebateRate           = "affiliate_rebate_rate"            // 邀请返利比例（百分比，0-100）
-	SettingKeyAffiliateRebateFreezeHours    = "affiliate_rebate_freeze_hours"    // 返利冻结期（小时，0=不冻结）
-	SettingKeyAffiliateRebateDurationDays   = "affiliate_rebate_duration_days"   // 返利有效期（天，0=永久）
-	SettingKeyAffiliateRebatePerInviteeCap  = "affiliate_rebate_per_invitee_cap" // 单人返利上限（0=无上限）
-	SettingKeyAffiliateAdminRechargeEnabled = "affiliate_admin_recharge_enabled" // 管理员充值是否产生返利
-	SettingKeyRiskControlEnabled            = "risk_control_enabled"             // 是否启用风控中心入口与审计链路
-	SettingKeyContentModerationConfig       = "content_moderation_config"        // 内容审计配置（JSON）
-	SettingKeyCyberSessionBlockEnabled      = "cyber_session_block_enabled"      // cyber 命中后会话级自动屏蔽总开关(默认关)
-	SettingKeyCyberPolicyUserAllowlist      = "cyber_policy_user_allowlist"      // Platform user IDs with log-only cyber handling
-	SettingKeyCyberSessionBlockTTLSeconds   = "cyber_session_block_ttl_seconds"  // 会话屏蔽 TTL 秒数(默认 3600)
-	SettingKeyLoginAgreementEnabled         = "login_agreement_enabled"          // 登录前是否要求同意条款
-	SettingKeyLoginAgreementMode            = "login_agreement_mode"             // 条款确认展示模式：modal / checkbox
-	SettingKeyLoginAgreementUpdatedAt       = "login_agreement_updated_at"       // 条款更新日期（展示用）
-	SettingKeyLoginAgreementDocuments       = "login_agreement_documents"        // 条款文档列表（JSON，Markdown 内容）
+	SettingKeyPublicTransitCacheLowRateMin           = "public_transit_cache_low_rate_min"
+	SettingKeyPublicTransitCacheLowRateMax           = "public_transit_cache_low_rate_max"
+	SettingKeyPromoCodeEnabled                       = "promo_code_enabled"               // 是否启用优惠码功能
+	SettingKeyPasswordResetEnabled                   = "password_reset_enabled"           // 是否启用忘记密码功能（需要先开启邮件验证）
+	SettingKeyFrontendURL                            = "frontend_url"                     // 前端基础URL，用于生成邮件中的重置密码链接
+	SettingKeyInvitationCodeEnabled                  = "invitation_code_enabled"          // 是否启用邀请码注册
+	SettingKeyAffiliateEnabled                       = "affiliate_enabled"                // 邀请返利功能总开关
+	SettingKeyAffiliateRebateRate                    = "affiliate_rebate_rate"            // 邀请返利比例（百分比，0-100）
+	SettingKeyAffiliateRebateFreezeHours             = "affiliate_rebate_freeze_hours"    // 返利冻结期（小时，0=不冻结）
+	SettingKeyAffiliateRebateDurationDays            = "affiliate_rebate_duration_days"   // 返利有效期（天，0=永久）
+	SettingKeyAffiliateRebatePerInviteeCap           = "affiliate_rebate_per_invitee_cap" // 单人返利上限（0=无上限）
+	SettingKeyAffiliateAdminRechargeEnabled          = "affiliate_admin_recharge_enabled" // 管理员充值是否产生返利
+	SettingKeyRiskControlEnabled                     = "risk_control_enabled"             // 是否启用风控中心入口与审计链路
+	SettingKeyContentModerationConfig                = "content_moderation_config"        // 内容审计配置（JSON）
+	SettingKeyCyberSessionBlockEnabled               = "cyber_session_block_enabled"      // cyber 命中后会话级自动屏蔽总开关(默认关)
+	SettingKeyCyberPolicyUserAllowlist               = "cyber_policy_user_allowlist"
+	SettingKeyCyberSessionBlockTTLSeconds            = "cyber_session_block_ttl_seconds"       // 会话屏蔽 TTL 秒数(默认 3600)
+	SettingKeyCyberSessionIdentityStrictEnabled      = "cyber_session_identity_strict_enabled" // 要求可信显式会话身份(默认关，仅会话屏蔽开启时生效)
+	SettingKeyLoginAgreementEnabled                  = "login_agreement_enabled"               // 登录前是否要求同意条款
+	SettingKeyLoginAgreementMode                     = "login_agreement_mode"                  // 条款确认展示模式：modal / checkbox
+	SettingKeyLoginAgreementUpdatedAt                = "login_agreement_updated_at"            // 条款更新日期（展示用）
+	SettingKeyLoginAgreementDocuments                = "login_agreement_documents"             // 条款文档列表（JSON，Markdown 内容）
 
 	// 邮件服务设置
 	SettingKeySMTPHost     = "smtp_host"      // SMTP服务器地址
@@ -543,6 +543,12 @@ const (
 	// sidebar entry is hidden. Defaults to false (opt-in feature).
 	SettingKeyAvailableChannelsEnabled = "available_channels_enabled"
 
+	// SettingKeyPelicanShowcaseEnabled is a DB-backed soft switch for the user-facing
+	// Pelican gallery (scheduled Pelican HTML results of selected groups). When false the
+	// user endpoints return an empty gallery, the sidebar entry is hidden and no new
+	// snapshots are copied; cleanup keeps running. Defaults to false (opt-in feature).
+	SettingKeyPelicanShowcaseEnabled = "pelican_showcase_enabled"
+
 	// SettingKeySubscriptionEnabled is a DB-backed soft switch for the user-facing
 	// subscription surface: sidebar entries, purchase-page subscription tab, header
 	// progress badge, usage billing-type filter and the /subscriptions route. When
@@ -728,6 +734,19 @@ const (
 	SettingKeyClaudeCodeClientVersionSynced = "claude_code_client_version_synced"
 	// SettingKeyClaudeCodeVersionAutoSyncEnabled 是否启用 Claude Code 客户端版本号自动同步（默认 true）。
 	SettingKeyClaudeCodeVersionAutoSyncEnabled = "claude_code_version_auto_sync_enabled"
+	// SettingKeyOpenAICodexTicketEnabled Codex 292 打票总开关（后台可改、热更新）。
+	// 关闭：不打票、不注入 x-codex-turn-state，按原链路转发。
+	// 开启：后台打票并在业务请求中覆盖该头。
+	SettingKeyOpenAICodexTicketEnabled = "openai_codex_ticket_enabled"
+	// SettingKeyOpenAICodexTicketFailClosed controls whether a missing/expired
+	// ticket makes an otherwise schedulable account ineligible. Missing defaults
+	// to false so ticket harvesting remains an optional enhancement.
+	SettingKeyOpenAICodexTicketFailClosed = "openai_codex_ticket_fail_closed"
+	// SettingKeyOpenAICodexTicketHarvestProxyURL Codex 292 打票出口（socks5h/http），后台可改、热更新。
+	SettingKeyOpenAICodexTicketHarvestProxyURL = "openai_codex_ticket_harvest_proxy_url"
+	SettingKeyOpenAICodexTicketStaticProxyURL  = "openai_codex_ticket_static_proxy_url"
+	// SettingKeyOpenAICodexTicketModels Codex 292 打票模型列表，JSON 数组格式；缺失时回退配置文件。
+	SettingKeyOpenAICodexTicketModels = "openai_codex_ticket_models"
 	// SettingKeyOpenAIAllowClaudeCodeCodexPlugin 已废弃：历史全局开关只作为升级迁移输入读取。
 	// 迁移后等价规则写入 SettingKeyCodexCLIOnlyWhitelist，不再参与运行时判定。
 	SettingKeyOpenAIAllowClaudeCodeCodexPlugin = "openai_allow_claude_code_codex_plugin"

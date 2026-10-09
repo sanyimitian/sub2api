@@ -108,6 +108,9 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	}
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()
+	if s != nil {
+		stateCtx = s.rateLimitService.observeAccountOps(stateCtx, account, statusCode, headers, responseBody)
+	}
 	if account != nil && account.Platform == PlatformOpenAI && isOpenAIHTTPUpstreamAccessStateError(statusCode, "", responseBody) {
 		message := "OpenAI upstream account or workspace is unavailable"
 		if upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody)); upstreamMsg != "" {
@@ -553,9 +556,13 @@ func (s *OpenAIGatewayService) clearOpenAIAccountRuntimeBlockIfUnchanged(account
 // block is dropped with generation+deadline CAS. Model-scoped transient blocks
 // are left alone. This is fail-open if a DB write failed or the snapshot has
 // not caught up yet: empty cooldown fields drop the local account-level block.
-func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string) bool {
+func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string, requireCompact ...bool) bool {
 	if s == nil {
 		return false
+	}
+	compact := len(requireCompact) > 0 && requireCompact[0]
+	if outboundModel := s.openAICodexTicketOutboundModel(account, requestedModel, compact); s.openAICodexTicketBlocksAccount(account, outboundModel) {
+		return true
 	}
 	snapshot := s.peekOpenAIAccountRuntimeBlock(account)
 	if snapshot.blocked {

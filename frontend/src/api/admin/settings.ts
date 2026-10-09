@@ -148,6 +148,16 @@ export interface WeChatConnectModeOption {
   labelEn: string;
 }
 
+/** Limits of the user-facing Pelican gallery; kept per group, independent of test history. */
+export interface PelicanShowcaseConfig {
+  group_ids: number[];
+  /** Newest snapshots kept per group (1–100). */
+  max_items: number;
+  /** When on, snapshots older than retention_days (1–90) are removed. */
+  auto_cleanup: boolean;
+  retention_days: number;
+}
+
 const AUTH_SOURCE_TYPES: AuthSourceType[] = [
   "email",
   "linuxdo",
@@ -647,6 +657,15 @@ export interface SystemSettings {
   claude_code_client_version: string;
   claude_code_client_version_synced: string;
   claude_code_version_auto_sync_enabled: boolean;
+  openai_codex_ticket_enabled: boolean;
+  openai_codex_ticket_fail_closed: boolean;
+  openai_codex_ticket_strategy?: 'fixed' | 'standby';
+  openai_codex_ticket_harvest_scope?: { mode: 'all' | 'selected'; group_ids: number[]; account_policy: 'schedulable_only' | 'prioritize_schedulable' };
+  openai_codex_ticket_strict_response?: boolean;
+  openai_codex_ticket_harvest_proxy_url: string;
+  openai_codex_ticket_static_proxy_url?: string;
+  openai_codex_ticket_harvest_proxy_configured: boolean;
+  openai_codex_ticket_models: string[];
   // codex_cli_only 加固
   min_codex_version: string;
   max_codex_version: string;
@@ -664,6 +683,7 @@ export interface SystemSettings {
   cyber_policy_user_allowlist: string;
   cyber_session_block_enabled: boolean;
   cyber_session_block_ttl_seconds: number;
+  cyber_session_identity_strict_enabled: boolean;
 
   payment_min_amount: number;
   payment_max_amount: number;
@@ -741,6 +761,10 @@ export interface SystemSettings {
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
+
+  // Pelican showcase: user gallery of scheduled Pelican HTML results
+  pelican_showcase_enabled?: boolean;
+  pelican_showcase_config?: PelicanShowcaseConfig;
 
   // Subscription feature switch (user sidebar "My Subscriptions" entry)
   subscription_enabled: boolean;
@@ -975,6 +999,14 @@ export interface UpdateSettingsRequest {
   openai_codex_version_auto_sync_enabled?: boolean;
   claude_code_client_version?: string;
   claude_code_version_auto_sync_enabled?: boolean;
+  openai_codex_ticket_enabled?: boolean;
+  openai_codex_ticket_fail_closed?: boolean;
+  openai_codex_ticket_strategy?: 'fixed' | 'standby';
+  openai_codex_ticket_harvest_scope?: { mode: 'all' | 'selected'; group_ids: number[]; account_policy: 'schedulable_only' | 'prioritize_schedulable' };
+  openai_codex_ticket_harvest_proxy_url?: string;
+  openai_codex_ticket_use_saved_static_proxy?: boolean;
+  openai_codex_ticket_strict_response?: boolean;
+  openai_codex_ticket_models?: string[];
   // codex_cli_only 加固
   min_codex_version?: string;
   max_codex_version?: string;
@@ -990,6 +1022,7 @@ export interface UpdateSettingsRequest {
   cyber_policy_user_allowlist?: string;
   cyber_session_block_enabled?: boolean;
   cyber_session_block_ttl_seconds?: number;
+  cyber_session_identity_strict_enabled?: boolean;
 
   payment_min_amount?: number;
   payment_max_amount?: number;
@@ -1055,6 +1088,10 @@ export interface UpdateSettingsRequest {
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;
+
+  // Pelican showcase switch + gallery limits
+  pelican_showcase_enabled?: boolean;
+  pelican_showcase_config?: PelicanShowcaseConfig;
 
   // Subscription feature switch
   subscription_enabled?: boolean;
