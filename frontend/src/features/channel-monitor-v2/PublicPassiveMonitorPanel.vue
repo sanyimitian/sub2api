@@ -394,7 +394,6 @@ import RelayPulseMatrix from '@/features/channel-monitor-v2/RelayPulseMatrix.vue
 import type { HealthState, MonitorMatrixRow } from '@/api/channelMonitorV2'
 import type {
   PublicTransitPassiveBucket,
-  PublicTransitGroup,
   PublicTransitPassiveDisclosure,
   PublicTransitPassiveGroup,
   PublicTransitPassiveModel,
@@ -415,7 +414,6 @@ type PassiveTab = 'groups' | 'models'
 const props = withDefaults(
   defineProps<{
     monitoring: PublicTransitPassiveDisclosure | null
-    groups: PublicTransitGroup[]
     range: PassiveRange
     loading?: boolean
     error?: string
@@ -498,18 +496,8 @@ const errorRate = computed(() => {
   return typeof rate === 'number' && Number.isFinite(rate) ? Math.max(0, 1 - rate) : 0
 })
 const cacheRate = computed(() => {
-  let input = 0
-  let created = 0
-  let read = 0
-  for (const group of props.groups) {
-    if (!matchesPlatform(group.platform) || !matchesGroup(group.platform, group.name)) continue
-    const usage = cacheWindow(group, props.range)
-    input += usage.input_tokens
-    created += usage.cache_creation_tokens
-    read += usage.cache_read_tokens
-  }
-  const total = input + created + read
-  return total > 0 ? (read / total) * 100 : 0
+  const rate = props.monitoring?.window.metrics?.cache_rate
+  return typeof rate === 'number' && Number.isFinite(rate) ? rate * 100 : 0
 })
 const rpm = computed(() => {
   const requests = props.monitoring?.window.request_count || 0
@@ -572,22 +560,14 @@ function modelKey(platform: string, model: string) {
 function metricValue(item: PublicTransitPassiveGroup | PublicTransitPassiveModel) {
   if (metric.value === 'error') return 1 - item.success_rate
   if (metric.value === 'ttft') return item.avg_ttft_ms || 0
-  if (metric.value === 'cache') return item.success_rate
+  if (metric.value === 'cache') return item.metrics?.cache_rate || 0
   return item.request_count
 }
 
-function cacheWindow(group: PublicTransitGroup, range: PassiveRange) {
-  if (range === '7d') return group.cache_usage.last_7d
-  if (range === '30d') return group.cache_usage.total || group.cache_usage.last_7d
-  return group.cache_usage.last_24h
-}
-
 function cacheRateForGroup(name: string, platform: string) {
-  const group = props.groups.find((item) => item.name === name && item.platform === platform)
-  if (!group) return 0
-  const usage = cacheWindow(group, props.range)
-  const total = usage.input_tokens + usage.cache_creation_tokens + usage.cache_read_tokens
-  return total > 0 ? (usage.cache_read_tokens / total) * 100 : 0
+  const group = sourceGroups.value.find((item) => item.name === name && item.platform === platform)
+  const rate = group?.metrics?.cache_rate
+  return typeof rate === 'number' && Number.isFinite(rate) ? rate * 100 : 0
 }
 
 function fallbackBucketSeconds(value: PassiveRange) {

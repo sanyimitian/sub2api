@@ -630,10 +630,19 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 	default:
 		results = s.runChecksConcurrent(ctx, m)
 	}
+	normalizeFailedMonitorResults(results)
 	if err := s.persistCheckResults(ctx, m, results); err != nil {
 		return nil, err
 	}
 	return results, nil
+}
+
+func normalizeFailedMonitorResults(results []*CheckResult) {
+	for _, result := range results {
+		if result != nil && result.Status == MonitorStatusFailed {
+			result.Status = MonitorStatusDegraded
+		}
+	}
 }
 
 // runQuotaOnlyCheck quota 模式：一次配额抓取 → 单条 CheckResult

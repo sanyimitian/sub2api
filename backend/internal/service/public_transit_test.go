@@ -359,6 +359,7 @@ func TestBuildPublicTransitPassiveDisclosureAggregatesModelsAndGroups(t *testing
 	require.Equal(t, "gpt", out.Groups[0].Name)
 	require.Len(t, out.Groups[0].Buckets, 2)
 	require.Equal(t, bucketA.Format(time.RFC3339), out.Groups[0].Buckets[0].Start)
-	require.GreaterOrEqual(t, out.Groups[0].Buckets[0].CacheHitRate, 0.75)
-	require.Less(t, out.Groups[0].Buckets[0].CacheHitRate, 0.80)
+	require.InDelta(t, 50.0/150.0, out.Groups[0].Buckets[0].CacheHitRate, 1e-12)
+	require.InDelta(t, out.Groups[0].Buckets[0].CacheHitRate,
+		out.Groups[0].Buckets[0].Metrics.CacheRate, 1e-12)
 }

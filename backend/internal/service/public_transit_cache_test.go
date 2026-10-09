@@ -73,6 +73,55 @@ func TestPublicTransitPassiveGroupPolicyUsesPublicGroupLookup(t *testing.T) {
 	require.Equal(t, 5.0, globalPolicy.IncreasePercent)
 }
 
+func TestPersistPublicGroupCacheUsageAdjustsEveryFixedWindow(t *testing.T) {
+	window := func(period string) PublicTransitCacheUsageWindow {
+		return PublicTransitCacheUsageWindow{
+			Period: period, InputTokens: 1000, CacheReadTokens: 4000, CacheHitRate: 80,
+			sourceInput: 1000, sourceRead: 4000,
+		}
+	}
+	groups := []PublicTransitGroup{{
+		ID: 42,
+		CacheUsage: PublicTransitCacheUsage{
+			Last24h: window("last_24h"),
+			Last7d:  window("last_7d"),
+			Total:   window("total"),
+		},
+	}}
+	policy := DefaultPublicTransitCachePolicy()
+	policy.GroupIncreasePercent[42] = 5
+
+	err := (&PublicTransitService{}).persistPublicGroupCacheUsage(context.Background(), groups, policy)
+	require.NoError(t, err)
+	for _, usage := range []PublicTransitCacheUsageWindow{
+		groups[0].CacheUsage.Last24h,
+		groups[0].CacheUsage.Last7d,
+		groups[0].CacheUsage.Total,
+	} {
+		require.InDelta(t, 84, usage.CacheHitRate, 0.01)
+		require.InDelta(t, usage.CacheHitRate,
+			float64(usage.CacheReadTokens)/float64(usage.InputTokens+usage.CacheCreationTokens+usage.CacheReadTokens)*100, 1e-12)
+	}
+}
+
+func TestPersistPassiveCacheUsageAdjustsSelectedThirtyDayWindow(t *testing.T) {
+	groupID := int64(42)
+	rows := []PublicTransitPassiveAggregate{{
+		Platform: "openai", GroupID: &groupID, GroupName: "Pro", Model: "gpt-test",
+		RequestCount: 10, InputTokens: 1000, CacheRead: 4000,
+	}}
+	policy := DefaultPublicTransitCachePolicy()
+	policy.GroupIncreasePercent[groupID] = 5
+	service := &PublicTransitService{}
+
+	err := service.persistPassiveAggregateCacheUsage(context.Background(), rows, "last_30d", policy)
+	require.NoError(t, err)
+	disclosure := buildPublicTransitPassiveDisclosure(rows, PublicTransitPassiveWindow{Period: "last_30d"})
+	require.InDelta(t, 0.84, disclosure.Window.Metrics.CacheRate, 0.0001)
+	require.InDelta(t, 0.84, disclosure.Groups[0].Metrics.CacheRate, 0.0001)
+	require.InDelta(t, 0.84, disclosure.Models[0].Metrics.CacheRate, 0.0001)
+}
+
 func TestPublicTransitCachePolicyDisabledReturnsOriginalAndSkipsPool(t *testing.T) {
 	pool := &publicTransitPresentationCacheStub{}
 	svc := &PublicTransitService{presentationCache: pool}

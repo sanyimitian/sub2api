@@ -269,7 +269,6 @@
         <PublicPassiveMonitorPanel
           v-else-if="monitoringMode === 'v2'"
           :monitoring="passiveMonitoring"
-          :groups="snapshot.groups"
           :range="passiveRange"
           :loading="loading || passiveLoading"
           :error="passiveError"

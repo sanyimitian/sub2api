@@ -77,6 +77,19 @@ func newQuotaModeFetcher(accounts map[int64]*Account, usage *stubMonitorUsageSou
 
 // --- RunCheck 分派 ---
 
+func TestNormalizeFailedMonitorResultsUsesDegradedStatus(t *testing.T) {
+	results := []*CheckResult{
+		{Status: MonitorStatusOperational},
+		{Status: MonitorStatusFailed},
+		{Status: MonitorStatusError},
+		nil,
+	}
+	normalizeFailedMonitorResults(results)
+	require.Equal(t, MonitorStatusOperational, results[0].Status)
+	require.Equal(t, MonitorStatusDegraded, results[1].Status)
+	require.Equal(t, MonitorStatusError, results[2].Status)
+}
+
 func TestRunCheck_HistoryFailureDoesNotReportSuccessfulUpdate(t *testing.T) {
 	writeErr := errors.New("history cleanup failed")
 	repo := &quotaModeRepoStub{

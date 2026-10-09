@@ -11,6 +11,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
+	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
@@ -296,31 +297,35 @@ func insertMonitorHistoryAndPrune(ctx context.Context, client *dbent.Client, row
 	return nil
 }
 
-// pruneMonitorAbnormalHistory 整个监控（包括附加模型）仅保留最新一条异常。
+// pruneMonitorAbnormalHistory 整个监控（包括附加模型）仅保留最新两条异常。
 // 正常记录不删除；正常更新也会清理既有旧异常。超时等 error 同样属于异常。
-// checked_at 相同时以 ID 较大的记录为最新，确保结果唯一。
+// checked_at 相同时以 ID 较大的记录为最新，确保保留顺序稳定。
 func pruneMonitorAbnormalHistory(ctx context.Context, client *dbent.Client, monitorID int64) error {
 	statuses := []channelmonitorhistory.Status{
 		channelmonitorhistory.StatusDegraded,
 		channelmonitorhistory.StatusFailed,
 		channelmonitorhistory.StatusError,
 	}
-	latestID, err := client.ChannelMonitorHistory.Query().
+	latestIDs, err := client.ChannelMonitorHistory.Query().
 		Where(channelmonitorhistory.MonitorIDEQ(monitorID), channelmonitorhistory.StatusIn(statuses...)).
 		Order(dbent.Desc(channelmonitorhistory.FieldCheckedAt), dbent.Desc(channelmonitorhistory.FieldID)).
-		FirstID(ctx)
-	if dbent.IsNotFound(err) {
+		Limit(2).IDs(ctx)
+	if err != nil {
+		return fmt.Errorf("find latest monitor abnormal histories: %w", err)
+	}
+	if len(latestIDs) == 0 {
 		return nil
 	}
-	if err != nil {
-		return fmt.Errorf("find latest monitor abnormal history: %w", err)
+	where := []predicate.ChannelMonitorHistory{
+		channelmonitorhistory.MonitorIDEQ(monitorID),
+		channelmonitorhistory.StatusIn(statuses...),
 	}
-	_, err = client.ChannelMonitorHistory.Delete().
-		Where(
-			channelmonitorhistory.MonitorIDEQ(monitorID),
-			channelmonitorhistory.StatusIn(statuses...),
-			channelmonitorhistory.IDNEQ(latestID),
-		).Exec(ctx)
+	if len(latestIDs) == 1 {
+		where = append(where, channelmonitorhistory.IDNEQ(latestIDs[0]))
+	} else {
+		where = append(where, channelmonitorhistory.IDNotIn(latestIDs...))
+	}
+	_, err = client.ChannelMonitorHistory.Delete().Where(where...).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("prune monitor abnormal history: %w", err)
 	}

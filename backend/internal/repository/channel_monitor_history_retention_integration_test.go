@@ -39,7 +39,7 @@ func seedMonitorHistory(t *testing.T, monitorID int64, model, status, message st
 	require.NoError(t, err)
 }
 
-func requireMonitorHistoryRetention(t *testing.T, repo service.ChannelMonitorRepository, monitorID int64, wantMessage string, normalCount int) {
+func requireMonitorHistoryRetention(t *testing.T, repo service.ChannelMonitorRepository, monitorID int64, wantMessages []string, normalCount int) {
 	t.Helper()
 	history, err := repo.ListHistory(context.Background(), monitorID, "", 100)
 	require.NoError(t, err)
@@ -53,8 +53,10 @@ func requireMonitorHistoryRetention(t *testing.T, repo service.ChannelMonitorRep
 		}
 	}
 	require.Equal(t, normalCount, normals)
-	require.Len(t, abnormal, 1)
-	require.Equal(t, wantMessage, abnormal[0].Message)
+	require.Len(t, abnormal, len(wantMessages))
+	for i, message := range wantMessages {
+		require.Equal(t, message, abnormal[i].Message)
+	}
 }
 
 func TestChannelMonitorHistoryRetainsOnlyLatestAbnormalAcrossModels(t *testing.T) {
@@ -74,7 +76,7 @@ func TestChannelMonitorHistoryRetainsOnlyLatestAbnormalAcrossModels(t *testing.T
 		MonitorID: monitorID, Model: "primary", Status: service.MonitorStatusOperational,
 		Message: "new normal", CheckedAt: base.Add(4 * time.Second),
 	}}))
-	requireMonitorHistoryRetention(t, repo, monitorID, "old timeout", 2)
+	requireMonitorHistoryRetention(t, repo, monitorID, []string{"old timeout", "old failed"}, 2)
 
 	// 新异常跨模型替换旧异常；错误也参与同一条保留规则。
 	for i, status := range []string{service.MonitorStatusDegraded, service.MonitorStatusFailed, service.MonitorStatusError} {
@@ -82,7 +84,11 @@ func TestChannelMonitorHistoryRetainsOnlyLatestAbnormalAcrossModels(t *testing.T
 			MonitorID: monitorID, Model: "extra", Status: status,
 			Message: status, CheckedAt: base.Add(time.Duration(5+i) * time.Second),
 		}}))
-		requireMonitorHistoryRetention(t, repo, monitorID, status, 2)
+		want := []string{status, "old timeout"}
+		if i > 0 {
+			want[1] = []string{service.MonitorStatusDegraded, service.MonitorStatusFailed}[i-1]
+		}
+		requireMonitorHistoryRetention(t, repo, monitorID, want, 2)
 	}
 
 	// 迟到的旧异常不能覆盖更晚发生的异常；恢复正常仍保留最新异常。
@@ -90,7 +96,7 @@ func TestChannelMonitorHistoryRetainsOnlyLatestAbnormalAcrossModels(t *testing.T
 		{MonitorID: monitorID, Model: "primary", Status: service.MonitorStatusDegraded, Message: "late old result", CheckedAt: base},
 		{MonitorID: monitorID, Model: "primary", Status: service.MonitorStatusOperational, CheckedAt: base.Add(8 * time.Second)},
 	}))
-	requireMonitorHistoryRetention(t, repo, monitorID, service.MonitorStatusError, 3)
+	requireMonitorHistoryRetention(t, repo, monitorID, []string{service.MonitorStatusError, service.MonitorStatusFailed}, 3)
 	otherHistory, err := repo.ListHistory(ctx, otherID, "", 100)
 	require.NoError(t, err)
 	require.Len(t, otherHistory, 2, "更新一个监控不能清理另一个监控")
@@ -101,7 +107,7 @@ func TestChannelMonitorHistoryRetainsOnlyLatestAbnormalAcrossModels(t *testing.T
 		{MonitorID: monitorID, Model: "primary", Status: service.MonitorStatusFailed, Message: "tied first", CheckedAt: tiedAt},
 		{MonitorID: monitorID, Model: "extra", Status: service.MonitorStatusDegraded, Message: "tied last", CheckedAt: tiedAt},
 	}))
-	requireMonitorHistoryRetention(t, repo, monitorID, "tied last", 3)
+	requireMonitorHistoryRetention(t, repo, monitorID, []string{"tied last", "tied first"}, 3)
 }
 
 func TestChannelMonitorHistoryConcurrentUpdatesRetainLatestAbnormal(t *testing.T) {
@@ -120,7 +126,7 @@ func TestChannelMonitorHistoryConcurrentUpdatesRetainLatestAbnormal(t *testing.T
 		})
 	}
 	require.NoError(t, group.Wait())
-	requireMonitorHistoryRetention(t, repo, monitorID, "failure-7", 8)
+	requireMonitorHistoryRetention(t, repo, monitorID, []string{"failure-7", "failure-6"}, 8)
 }
 
 func TestChannelMonitorHistoryRetentionUsesCallerTransaction(t *testing.T) {
@@ -136,7 +142,7 @@ func TestChannelMonitorHistoryRetentionUsesCallerTransaction(t *testing.T) {
 		Message: "rolled back result", CheckedAt: base.Add(time.Second),
 	}}))
 	require.NoError(t, tx.Rollback())
-	requireMonitorHistoryRetention(t, repo, monitorID, "original failure", 0)
+	requireMonitorHistoryRetention(t, repo, monitorID, []string{"original failure"}, 0)
 }
 
 func TestChannelMonitorHistoryRetentionNormalBatchAndFailedWrite(t *testing.T) {
@@ -153,7 +159,7 @@ func TestChannelMonitorHistoryRetentionNormalBatchAndFailedWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, firstHistory, 1)
 	require.Equal(t, service.MonitorStatusOperational, firstHistory[0].Status)
-	requireMonitorHistoryRetention(t, repo, secondID, "second failure", 0)
+	requireMonitorHistoryRetention(t, repo, secondID, []string{"second failure"}, 0)
 
 	// 使整批插入违反外键约束，确认失败不会先删除已有异常或留下部分新记录。
 	err = repo.InsertHistoryBatch(ctx, []*service.ChannelMonitorHistoryRow{
@@ -162,5 +168,5 @@ func TestChannelMonitorHistoryRetentionNormalBatchAndFailedWrite(t *testing.T) {
 		{MonitorID: -1, Model: "primary", Status: service.MonitorStatusFailed, CheckedAt: base},
 	})
 	require.Error(t, err)
-	requireMonitorHistoryRetention(t, repo, secondID, "second failure", 0)
+	requireMonitorHistoryRetention(t, repo, secondID, []string{"second failure"}, 0)
 }

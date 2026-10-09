@@ -606,6 +606,7 @@ func buildPublicTransitPassiveDisclosure(rows []PublicTransitPassiveAggregate, w
 		out.Window.SuccessRate = passiveSuccessRate(windowAgg.SuccessCount, windowAgg.ErrorCount)
 		out.Window.AvgLatencyMs = passiveAverage(windowAgg.TotalLatencyMs, windowAgg.LatencySamples)
 		out.Window.AvgTTFTMs = passiveAverage(windowAgg.TotalTTFTMs, windowAgg.TTFTSamples)
+		out.Window.Metrics = passiveCacheMetric(windowAgg.InputTokens, windowAgg.CacheCreate, windowAgg.CacheRead)
 	}
 	for k, row := range groupRows {
 		group := passiveGroupFromAggregate(k.platform, k.name, row)
@@ -672,6 +673,7 @@ func passiveModelFromAggregate(platform, model, groupName string, row *PublicTra
 		AvgLatencyMs:  passiveAverage(row.TotalLatencyMs, row.LatencySamples),
 		AvgTTFTMs:     passiveAverage(row.TotalTTFTMs, row.TTFTSamples),
 		LastRequestAt: passiveTime(row.LastRequestAt),
+		Metrics:       passiveCacheMetric(row.InputTokens, row.CacheCreate, row.CacheRead),
 	}
 }
 
@@ -687,6 +689,7 @@ func passiveGroupFromAggregate(platform, name string, row *PublicTransitPassiveA
 		AvgTTFTMs:     passiveAverage(row.TotalTTFTMs, row.TTFTSamples),
 		LastRequestAt: passiveTime(row.LastRequestAt),
 		Buckets:       []PublicTransitPassiveBucket{},
+		Metrics:       passiveCacheMetric(row.InputTokens, row.CacheCreate, row.CacheRead),
 	}
 }
 
@@ -700,7 +703,12 @@ func passiveBucketFromAggregate(start string, row *PublicTransitPassiveAggregate
 		AvgLatencyMs: passiveAverage(row.TotalLatencyMs, row.LatencySamples),
 		AvgTTFTMs:    passiveAverage(row.TotalTTFTMs, row.TTFTSamples),
 		CacheHitRate: passiveCacheHitRate(row.InputTokens, row.CacheCreate, row.CacheRead),
+		Metrics:      passiveCacheMetric(row.InputTokens, row.CacheCreate, row.CacheRead),
 	}
+}
+
+func passiveCacheMetric(input, created, read int64) *ChannelMonitorV2Metric {
+	return &ChannelMonitorV2Metric{CacheRate: passiveCacheHitRate(input, created, read)}
 }
 
 func passiveSuccessRate(success, errors int64) float64 {
