@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
-import {
-  BUILTIN_PLATFORM_CATALOG,
-  resetPlatformCatalog,
-  setPlatformCatalog
-} from '@/constants/platformCatalog'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { BUILTIN_PLATFORM_CATALOG, setPlatformCatalog, resetPlatformCatalog } from '@/constants/platformCatalog'
+
+enableAutoUnmount(afterEach)
 
 const { updateAccountMock, checkMixedChannelRiskMock, authIsSimpleMode } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
@@ -336,22 +334,39 @@ describe('EditAccountModal', () => {
 
   afterEach(() => vi.useRealTimers())
 
-  it('passes existing non-identity mappings to the whitelist selector and preserves them on save', async () => {
+  it('saves and restores Excel BPS independently of existing OAuth settings', async () => {
     const account = buildAccount()
-    account.credentials.model_mapping = { 'gpt-5.2': 'gpt-5.2', 'gpt-latest': 'deepseek-chat' }
+    account.type = 'oauth'
+    account.credentials = { access_token: 'test-token', chatgpt_account_id: 'test-account' }
+    account.extra = { unrelated: 'preserve', openai_oauth_responses_websockets_v2_mode: 'ctx_pool' }
     updateAccountMock.mockReset().mockResolvedValue(account)
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(account)
-    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('modelMappings')).toEqual([
-      { from: 'gpt-latest', to: 'deepseek-chat' }
-    ])
+    const toggle = wrapper.get('[data-testid="excel-bps-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    await toggle.trigger('click')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual(account.credentials.model_mapping)
-    await wrapper.setProps({ show: false })
-    await wrapper.setProps({ show: true, account: { ...account } })
-    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('modelMappings')).toEqual([
-      { from: 'gpt-latest', to: 'deepseek-chat' }
-    ])
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_excel_bps).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.unrelated).toBe('preserve')
+  })
+
+  it('hides Excel BPS on API Key accounts', () => {
+    expect(mountModal(buildAccount()).find('[data-testid="excel-bps-toggle"]').exists()).toBe(false)
+  })
+
+  it('loads and removes Copilot SDK mode without dropping unrelated extra', async () => {
+    const account = buildAccount()
+    account.extra = { openai_copilot_sdk: true, unrelated_setting: 'keep' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.get<HTMLInputElement>('[data-testid="copilot-sdk-toggle"]').element.checked).toBe(true)
+    await wrapper.get('[data-testid="copilot-sdk-toggle"]').setValue(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_copilot_sdk).toBeUndefined()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.unrelated_setting).toBe('keep')
   })
 
   it('sets expiry presets from now instead of extending the saved expiry', async () => {
@@ -936,6 +951,7 @@ describe('EditAccountModal', () => {
     // 关闭后应从 extra 中删除该键，而不是写入 false
     await toggle.trigger('click')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty(

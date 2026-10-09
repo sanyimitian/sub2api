@@ -1,6 +1,10 @@
 package handler
 
 import (
+	"context"
+	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -11,8 +15,20 @@ func (h *OpenAIGatewayHandler) cyberPolicyLogOnly(c *gin.Context, apiKey *servic
 
 // Both HTTP and WebSocket admission skip existing blocks for trusted users.
 func (h *OpenAIGatewayHandler) findBlockedCyberSessionForAPIKey(c *gin.Context, apiKey *service.APIKey, body []byte) string {
-	if apiKey == nil || h.cyberPolicyLogOnly(c, apiKey) {
+	if apiKey == nil || h.cyberPolicyLogOnly(c, apiKey) || c == nil || c.Request == nil {
 		return ""
 	}
 	return findBlockedCyberSessionKey(c.Request.Context(), h.gatewayService, apiKey.ID, c, body)
+}
+
+func findBlockedCyberSessionKey(ctx context.Context, gatewayService *service.OpenAIGatewayService, apiKeyID int64, c *gin.Context, body []byte) string {
+	if gatewayService == nil {
+		return ""
+	}
+	clientIP, userAgent := "", ""
+	if c != nil {
+		clientIP = strings.TrimSpace(ip.GetClientIP(c))
+		userAgent = c.GetHeader("User-Agent")
+	}
+	return gatewayService.FindCyberSessionBlockedForRequest(ctx, apiKeyID, c, body, clientIP, userAgent)
 }

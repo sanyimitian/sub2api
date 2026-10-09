@@ -13,12 +13,6 @@ import (
 	"strings"
 )
 
-const (
-	DefaultBaseURL = "https://api.typesafe.ai"
-	SystemOnePath  = "/v1/systemone"
-	JevLatestModel = "jev-latest"
-)
-
 type Question struct {
 	Type         string `json:"type"`
 	Instructions string `json:"instructions"`
@@ -35,6 +29,12 @@ type Result struct {
 	Scores map[string]float64
 	Usage  Usage
 }
+
+const (
+	DefaultBaseURL = "https://api.typesafe.ai"
+	SystemOnePath  = "/v1/systemone"
+	JevLatestModel = "jev-latest"
+)
 
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`
@@ -61,7 +61,6 @@ func NewSystemOneRequest(ctx context.Context, baseURL, key string, body []byte) 
 	return req, nil
 }
 
-// MaxSystemOneResponseBytes bounds a buffered System One response body.
 const MaxSystemOneResponseBytes = 4 << 20
 
 var ErrSystemOneResponseTooLarge = errors.New("typesafe response exceeds size limit")
@@ -71,7 +70,6 @@ func DecodeSystemOneResponse(r io.Reader) (*SystemOneResponse, error) {
 	if err != nil {
 		return nil, errors.New("typesafe invalid response")
 	}
-	// A truncated body would otherwise surface as a misleading "invalid JSON".
 	if len(body) > MaxSystemOneResponseBytes {
 		return nil, ErrSystemOneResponseTooLarge
 	}
@@ -82,8 +80,6 @@ func DecodeSystemOneResponse(r io.Reader) (*SystemOneResponse, error) {
 	if err := json.Unmarshal(body, &envelope); err != nil || envelope == nil {
 		return nil, errors.New("typesafe invalid response")
 	}
-	// The upstream already answered (and charged); an unexpected model or usage
-	// shape must not discard the answer, so both are decoded leniently.
 	var model string
 	_ = json.Unmarshal(envelope["model"], &model)
 	var usage map[string]json.RawMessage
@@ -98,10 +94,8 @@ func DecodeSystemOneResponse(r io.Reader) (*SystemOneResponse, error) {
 	}, nil
 }
 
-// maxSystemOneTokenCount bounds a reported token count before int conversion.
 const maxSystemOneTokenCount = 1 << 40
 
-// systemOneTokenCount accepts integer, float, or numeric-string token counts.
 func systemOneTokenCount(raw json.RawMessage) int {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {
@@ -130,14 +124,20 @@ func systemOneTokenCount(raw json.RawMessage) int {
 
 // Evaluate performs one attempt. The caller owns timeouts, retries and key rotation.
 func Evaluate(ctx context.Context, client *http.Client, baseURL, key string, input Request) (*Result, int, error) {
+	endpoint, err := url.JoinPath(strings.TrimRight(baseURL, "/"), "/v1/systemone")
+	if err != nil {
+		return nil, 0, errors.New("typesafe invalid endpoint")
+	}
 	body, err := json.Marshal(input)
 	if err != nil {
 		return nil, 0, errors.New("typesafe invalid request")
 	}
-	req, err := NewSystemOneRequest(ctx, baseURL, key, body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, errors.New("typesafe invalid request")
 	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {

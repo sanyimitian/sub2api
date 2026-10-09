@@ -693,6 +693,7 @@
 </template>
 
 <script setup lang="ts">
+import { isMultiProtocolApiKeyPlatform } from './credentialsBuilder'
 import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
@@ -708,11 +709,7 @@ import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
 import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
 import CNProviderBalanceCell from './CNProviderBalanceCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
-import {
-  cnQuotaCellVisible as cnQuotaCellVisibleFn,
-  cnBalanceCellVisible as cnBalanceCellVisibleFn,
-  isMultiProtocolApiKeyPlatform
-} from './credentialsBuilder'
+import { cnQuotaCellVisible as cnQuotaCellVisibleFn, cnBalanceCellVisible as cnBalanceCellVisibleFn } from './credentialsBuilder'
 import OpenCodeGoUsageCell from './OpenCodeGoUsageCell.vue'
 
 // Module-level cache shared across all AccountUsageCell instances

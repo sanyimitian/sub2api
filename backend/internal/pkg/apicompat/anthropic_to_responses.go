@@ -488,9 +488,6 @@ func isReasoningModel(model string) bool {
 	return (ok && major >= 5) || openai.IsGPT6SolOrLunaModelSpelling(model)
 }
 
-// openAIModelGeneration extracts N from a "gpt-N[.M][-suffix]" model id.
-// ok is false for non-GPT ids and for GPT families that carry no numeric
-// generation (gpt-image-1, gpt-audio, ...).
 func openAIModelGeneration(model string) (int, bool) {
 	rest, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-")
 	if !ok {
@@ -504,10 +501,7 @@ func openAIModelGeneration(model string) (int, bool) {
 		major = major*10 + int(r-'0')
 		digits++
 	}
-	if digits == 0 {
-		return 0, false
-	}
-	return major, true
+	return major, digits > 0
 }
 
 // normalizeToolParameters ensures the tool parameter schema is valid for

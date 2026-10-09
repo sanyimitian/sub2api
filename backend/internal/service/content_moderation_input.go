@@ -47,8 +47,7 @@ func extractContentModerationInput(protocol string, body []byte, filterReminders
 		collector.addModerationText(&parts, gjson.GetBytes(body, "prompt").String())
 		collector.collectContentValue(gjson.GetBytes(body, "images"), &parts, &images)
 	case ContentModerationProtocolTypeSafeSystemOne:
-		// System One carries no client-harness reminder blocks, so a literal
-		// <system-reminder> is ordinary user text and must never be skipped.
+		// System One has no client harness reminders; literal reminder text remains user input.
 		moderationTextCollector{}.collectSystemOneInput(body, &parts)
 	default:
 		collector.collectLastResponsesInput(gjson.GetBytes(body, "input"), &parts, &images)
@@ -65,10 +64,6 @@ func extractContentModerationInput(protocol string, body []byte, filterReminders
 	return out
 }
 
-// collectSystemOneInput moderates every client-controlled text of a System One
-// request: question IDs, every question field except the validated type,
-// unknown top-level extension fields, and the evaluated state. Object keys are
-// sent to Jev as part of the JSON, so they are moderated like values.
 func (collector moderationTextCollector) collectSystemOneInput(body []byte, parts *[]string) {
 	root := gjson.ParseBytes(body)
 	questions := root.Get("questions")

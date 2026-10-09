@@ -1130,6 +1130,9 @@ export async function setOpenCodeGoUsageAutoRefresh(id: number, enabled: boolean
 }
 
 export interface CodexHarvestFlowTicket {
+  transport?: string
+  gateway?: string
+  edge_ip?: string
   model: string
   length?: number
   ready: boolean
@@ -1256,12 +1259,8 @@ export async function updateCodexSkipHarvest(id: number, skipHarvest: boolean): 
   return data
 }
 
-export async function refreshOpenCodeGoUsage(id: number): Promise<OpenCodeGoUsageState> {
-  const { data } = await apiClient.post<OpenCodeGoUsageState>(`/admin/accounts/${id}/opencode-go-usage/refresh`)
-  return data
-}
-
 export interface ManualHarvestRequest {
+  collect_lanes?: number
   models?: string[]
   probe_interval_seconds: number
   rate_limit_cooldown_seconds: number
@@ -1347,6 +1346,11 @@ export async function streamManualCodexHarvest(
       // ignore a trailing malformed SSE frame
     }
   }
+}
+
+export async function refreshOpenCodeGoUsage(id: number): Promise<OpenCodeGoUsageState> {
+  const { data } = await apiClient.post<OpenCodeGoUsageState>(`/admin/accounts/${id}/opencode-go-usage/refresh`)
+  return data
 }
 
 export const accountsAPI = {

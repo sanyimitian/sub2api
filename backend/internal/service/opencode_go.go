@@ -370,6 +370,41 @@ func (a *Account) IsMultiProtocolAPIKey() bool {
 	return a != nil && IsMultiProtocolAPIKeyProvider(a.Platform)
 }
 
+// openCodeGoNativeProtocol 返回 OpenCode Go 实际上游协议。
+// 规则未命中、空值或未知协议一律兜底 Chat Completions，避免落入 Responses 转换链。
+func openCodeGoNativeProtocol(account *Account, model string) string {
+	if account == nil {
+		return APIProtocolChatCompletions
+	}
+	switch proto := account.ResolveOpenCodeGoUpstreamProtocol(model); proto {
+	case APIProtocolAnthropic, APIProtocolResponses:
+		return proto
+	default:
+		return APIProtocolChatCompletions
+	}
+}
+
+// ResolveOpenCodeGoUpstreamProtocol 按账号协议配置与模型规则决定上游协议。
+// 显式 pinned 协议优先；adaptive（默认）先走 credentials.protocol_rules，
+// 未配置时回落内置默认表；已配置但未命中则走 Chat Completions。
+func (a *Account) ResolveOpenCodeGoUpstreamProtocol(model string) string {
+	if a == nil || !a.IsOpenCodeGo() {
+		return ""
+	}
+	switch a.GetAPIProtocol() {
+	case APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses:
+		return a.GetAPIProtocol()
+	default:
+		if rules, present := a.configuredProtocolRules(); present {
+			return matchProtocolRules(model, rules)
+		}
+		if a.GetOpenCodeAccountMode() == AccountModeZen {
+			return matchProtocolRules(model, DefaultOpenCodeZenProtocolRules())
+		}
+		return matchProtocolRules(model, DefaultOpenCodeGoProtocolRules())
+	}
+}
+
 // openCodeGoQuotaURL 根据 base_url 解析 OpenCode Go 额度端点。
 // /zen/go/v1（Chat 协议默认，DefaultOpenCodeGoBaseURL）与 /zen/go
 // （Anthropic 协议默认，DefaultOpenCodeGoAnthropicBaseURL）两种 base 统一

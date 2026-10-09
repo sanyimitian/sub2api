@@ -22,6 +22,15 @@ type lifecycleUsageLogRepo struct {
 	logs []*service.UsageLog
 }
 
+type lifecycleAccountRepo struct {
+	service.AccountRepository
+	account *service.Account
+}
+
+func (r *lifecycleAccountRepo) GetOpenAITurnAdmission(context.Context, int64) (*service.Account, *service.Account, error) {
+	return r.account, nil, nil
+}
+
 func (r *lifecycleUsageLogRepo) Create(ctx context.Context, log *service.UsageLog) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
@@ -33,15 +42,6 @@ func (r *lifecycleUsageLogRepo) Create(ctx context.Context, log *service.UsageLo
 type lifecycleBillingRepo struct {
 	service.UsageBillingRepository
 	commands []*service.UsageBillingCommand
-}
-
-type lifecycleTurnAdmissionRepo struct {
-	service.AccountRepository
-	account *service.Account
-}
-
-func (r lifecycleTurnAdmissionRepo) GetOpenAITurnAdmission(_ context.Context, _ int64) (*service.Account, *service.Account, error) {
-	return r.account, nil, nil
 }
 
 func (r *lifecycleBillingRepo) Apply(ctx context.Context, cmd *service.UsageBillingCommand) (*service.UsageBillingApplyResult, error) {
@@ -97,16 +97,19 @@ func TestHTTPUpstreamForwardDrainsUsageAfterClientDisconnect(t *testing.T) {
 	upstream := NewHTTPUpstream(cfg)
 	usageRepo := &lifecycleUsageLogRepo{}
 	billingRepo := &lifecycleBillingRepo{}
-	account := &service.Account{
-		ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
-		Concurrency: 1, Status: "active", Schedulable: true,
-		Credentials: map[string]any{"base_url": srv.URL, "api_key": "test-key"},
-	}
+	accountRepo := &lifecycleAccountRepo{}
 	svc := service.NewOpenAIGatewayService(
-		lifecycleTurnAdmissionRepo{account: account}, nil, usageRepo, billingRepo, nil, nil, nil, nil, cfg, nil, nil,
+		accountRepo, nil, usageRepo, billingRepo, nil, nil, nil, nil, cfg, nil, nil,
 		service.NewBillingService(cfg, nil), nil, nil, upstream,
 		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil,
 	)
+	account := &service.Account{
+		ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{"base_url": srv.URL, "api_key": "test-key"},
+	}
+	accountRepo.account = account
 	body := []byte(`{"model":"gpt-5.1","stream":true,"input":"hello"}`)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body))).WithContext(clientCtx)
