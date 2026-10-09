@@ -87,7 +87,7 @@ func TestNormalizeFailedMonitorResultsUsesDegradedStatus(t *testing.T) {
 	normalizeFailedMonitorResults(results)
 	require.Equal(t, MonitorStatusOperational, results[0].Status)
 	require.Equal(t, MonitorStatusDegraded, results[1].Status)
-	require.Equal(t, MonitorStatusError, results[2].Status)
+	require.Equal(t, MonitorStatusDegraded, results[2].Status)
 }
 
 func TestRunCheck_HistoryFailureDoesNotReportSuccessfulUpdate(t *testing.T) {

@@ -639,7 +639,7 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 
 func normalizeFailedMonitorResults(results []*CheckResult) {
 	for _, result := range results {
-		if result != nil && result.Status == MonitorStatusFailed {
+		if result != nil && (result.Status == MonitorStatusFailed || result.Status == MonitorStatusError) {
 			result.Status = MonitorStatusDegraded
 		}
 	}

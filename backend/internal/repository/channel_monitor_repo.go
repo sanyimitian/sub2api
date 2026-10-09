@@ -5,14 +5,17 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
+	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 
@@ -301,9 +304,11 @@ func insertMonitorHistoryAndPrune(ctx context.Context, client *dbent.Client, row
 // 正常记录不删除；正常更新也会清理既有旧异常。超时等 error 同样属于异常。
 // checked_at 相同时以 ID 较大的记录为最新，确保保留顺序稳定。
 func pruneMonitorAbnormalHistory(ctx context.Context, client *dbent.Client, monitorID int64) error {
+	if err := normalizeFailedMonitorHistory(ctx, client, monitorID); err != nil {
+		return err
+	}
 	statuses := []channelmonitorhistory.Status{
 		channelmonitorhistory.StatusDegraded,
-		channelmonitorhistory.StatusFailed,
 		channelmonitorhistory.StatusError,
 	}
 	latestIDs, err := client.ChannelMonitorHistory.Query().
@@ -315,6 +320,17 @@ func pruneMonitorAbnormalHistory(ctx context.Context, client *dbent.Client, moni
 	}
 	if len(latestIDs) == 0 {
 		return nil
+	}
+	removed, err := client.ChannelMonitorHistory.Query().
+		Where(channelmonitorhistory.MonitorIDEQ(monitorID), channelmonitorhistory.StatusIn(statuses...)).
+		Where(channelmonitorhistory.IDNotIn(latestIDs...)).
+		ForUpdate().
+		All(ctx)
+	if err != nil {
+		return fmt.Errorf("load removed monitor abnormal histories: %w", err)
+	}
+	if err := subtractMonitorHistoryFromRollups(ctx, client, removed); err != nil {
+		return err
 	}
 	where := []predicate.ChannelMonitorHistory{
 		channelmonitorhistory.MonitorIDEQ(monitorID),
@@ -332,11 +348,185 @@ func pruneMonitorAbnormalHistory(ctx context.Context, client *dbent.Client, moni
 	return nil
 }
 
-// DeleteHistoryBefore 物理删 checked_at < before 的明细，分批 channelMonitorPruneBatchSize 行一批，
+// normalizeFailedMonitorHistory migrates persisted failed states and their rollup counts to degraded.
+func normalizeFailedMonitorHistory(ctx context.Context, client *dbent.Client, monitorID int64) error {
+	rows, err := client.ChannelMonitorHistory.Query().
+		Where(
+			channelmonitorhistory.MonitorIDEQ(monitorID),
+			channelmonitorhistory.StatusEQ(channelmonitorhistory.StatusFailed),
+		).ForUpdate().
+		All(ctx)
+	if err != nil {
+		return fmt.Errorf("load failed monitor histories: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	deltas := make(map[monitorHistoryRollupKey]monitorHistoryRollupDelta)
+	for _, row := range rows {
+		key := monitorHistoryRollupKey{monitorID: monitorID, model: row.Model, bucketDate: timezone.StartOfDay(row.CheckedAt)}
+		delta := deltas[key]
+		delta.okCount++
+		delta.degradedCount++
+		delta.failedCount--
+		deltas[key] = delta
+	}
+	if err := applyMonitorHistoryRollupDeltas(ctx, client, deltas); err != nil {
+		return fmt.Errorf("update daily rollups after normalizing failed histories: %w", err)
+	}
+	if _, err := client.ChannelMonitorHistory.Update().
+		Where(
+			channelmonitorhistory.MonitorIDEQ(monitorID),
+			channelmonitorhistory.StatusEQ(channelmonitorhistory.StatusFailed),
+		).
+		SetStatus(channelmonitorhistory.StatusDegraded).
+		Save(ctx); err != nil {
+		return fmt.Errorf("normalize failed monitor histories: %w", err)
+	}
+	return nil
+}
+
+// subtractMonitorHistoryFromRollups keeps daily aggregates consistent with abnormal rows removed from history.
+func subtractMonitorHistoryFromRollups(ctx context.Context, client *dbent.Client, rows []*dbent.ChannelMonitorHistory) error {
+	deltas := make(map[monitorHistoryRollupKey]monitorHistoryRollupDelta)
+	for _, row := range rows {
+		key := monitorHistoryRollupKey{monitorID: row.MonitorID, model: row.Model, bucketDate: timezone.StartOfDay(row.CheckedAt)}
+		delta := deltas[key]
+		delta.totalChecks--
+		switch row.Status {
+		case channelmonitorhistory.StatusOperational:
+			delta.okCount--
+			delta.operationalCount--
+		case channelmonitorhistory.StatusDegraded:
+			delta.okCount--
+			delta.degradedCount--
+		case channelmonitorhistory.StatusFailed:
+			delta.failedCount--
+		case channelmonitorhistory.StatusError:
+			delta.errorCount--
+		}
+		if row.LatencyMs != nil {
+			delta.sumLatencyMs -= int64(*row.LatencyMs)
+			delta.countLatency--
+		}
+		if row.PingLatencyMs != nil {
+			delta.sumPingLatencyMs -= int64(*row.PingLatencyMs)
+			delta.countPingLatency--
+		}
+		deltas[key] = delta
+	}
+	return applyMonitorHistoryRollupDeltas(ctx, client, deltas)
+}
+
+type monitorHistoryRollupKey struct {
+	monitorID  int64
+	model      string
+	bucketDate time.Time
+}
+
+type monitorHistoryRollupDelta struct {
+	totalChecks      int
+	okCount          int
+	operationalCount int
+	degradedCount    int
+	failedCount      int
+	errorCount       int
+	sumLatencyMs     int64
+	countLatency     int
+	sumPingLatencyMs int64
+	countPingLatency int
+}
+
+func applyMonitorHistoryRollupDeltas(ctx context.Context, client *dbent.Client, deltas map[monitorHistoryRollupKey]monitorHistoryRollupDelta) error {
+	keys := make([]monitorHistoryRollupKey, 0, len(deltas))
+	for key := range deltas {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].monitorID != keys[j].monitorID {
+			return keys[i].monitorID < keys[j].monitorID
+		}
+		if keys[i].model != keys[j].model {
+			return keys[i].model < keys[j].model
+		}
+		return keys[i].bucketDate.Before(keys[j].bucketDate)
+	})
+	for _, key := range keys {
+		delta := deltas[key]
+		where := []predicate.ChannelMonitorDailyRollup{
+			channelmonitordailyrollup.MonitorIDEQ(key.monitorID),
+			channelmonitordailyrollup.ModelEQ(key.model),
+			channelmonitordailyrollup.BucketDateEQ(key.bucketDate),
+		}
+		if err := client.ChannelMonitorDailyRollup.Update().Where(where...).
+			AddTotalChecks(delta.totalChecks).
+			AddOkCount(delta.okCount).
+			AddOperationalCount(delta.operationalCount).
+			AddDegradedCount(delta.degradedCount).
+			AddFailedCount(delta.failedCount).
+			AddErrorCount(delta.errorCount).
+			AddSumLatencyMs(delta.sumLatencyMs).
+			AddCountLatency(delta.countLatency).
+			AddSumPingLatencyMs(delta.sumPingLatencyMs).
+			AddCountPingLatency(delta.countPingLatency).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("apply daily rollup delta for monitor %d model %q date %s: %w", key.monitorID, key.model, key.bucketDate.Format("2006-01-02"), err)
+		}
+		if delta.totalChecks < 0 {
+			if _, err := client.ChannelMonitorDailyRollup.Delete().Where(
+				append(where, channelmonitordailyrollup.TotalChecksLTE(0))...,
+			).Exec(ctx); err != nil {
+				return fmt.Errorf("delete empty daily rollup for monitor %d model %q date %s: %w", key.monitorID, key.model, key.bucketDate.Format("2006-01-02"), err)
+			}
+		}
+	}
+	return nil
+}
+
+// DeleteHistoryBefore 物理清理过期明细和超出保留数的旧异常，每批最多 channelMonitorPruneBatchSize 行，
 // 避免单事务删除过多引起锁/WAL 压力。借助 (checked_at) 索引定位小批 id，再按 id 删。
 func (r *channelMonitorRepository) DeleteHistoryBefore(ctx context.Context, before time.Time) (int64, error) {
-	return deleteChannelMonitorBatched(ctx, r.db, channelMonitorPruneHistorySQL, before)
+	if _, err := r.db.ExecContext(ctx, channelMonitorNormalizeFailedHistoryAndRollupsSQL); err != nil {
+		return 0, fmt.Errorf("normalize failed channel monitor history: %w", err)
+	}
+	var total int64
+	for {
+		var deleted int64
+		if err := r.db.QueryRowContext(ctx, channelMonitorPruneHistoryAndRollupsSQL, before, channelMonitorPruneBatchSize).Scan(&deleted); err != nil {
+			return total, fmt.Errorf("channel_monitor prune history and rollups: %w", err)
+		}
+		total += deleted
+		if deleted < channelMonitorPruneBatchSize {
+			return total, nil
+		}
+	}
 }
+
+const channelMonitorNormalizeFailedHistoryAndRollupsSQL = `
+WITH normalized AS (
+    UPDATE channel_monitor_histories
+    SET status = 'degraded'
+    WHERE status = 'failed'
+    RETURNING monitor_id, model, checked_at
+), failed_totals AS (
+    SELECT monitor_id, model, checked_at::date AS bucket_date, COUNT(*) AS count
+    FROM normalized
+    GROUP BY monitor_id, model, checked_at::date
+),
+adjusted AS (
+    UPDATE channel_monitor_daily_rollups r
+    SET failed_count = r.failed_count - t.count,
+        degraded_count = r.degraded_count + t.count,
+        ok_count = r.ok_count + t.count,
+        computed_at = NOW()
+    FROM failed_totals t
+    WHERE r.monitor_id = t.monitor_id
+      AND r.model = t.model
+      AND r.bucket_date = t.bucket_date
+    RETURNING r.id
+)
+SELECT COUNT(*) FROM normalized
+`
 
 // ListHistory 按 checked_at 倒序返回某个监控的最近 N 条历史记录。
 // model 为空时不过滤；非空时只返回该模型的记录。
@@ -745,16 +935,72 @@ func (r *channelMonitorRepository) DeleteRollupsBefore(ctx context.Context, befo
 // 在大表上按 id 小批删可以避免长事务和 WAL 堆积。
 const channelMonitorPruneBatchSize = 5000
 
-// channelMonitorPruneHistorySQL 分批物理删明细表过期行。
-const channelMonitorPruneHistorySQL = `
-WITH batch AS (
-    SELECT id FROM channel_monitor_histories
-    WHERE checked_at < $1
-    ORDER BY id
+// channelMonitorPruneHistoryAndRollupsSQL 物理删除过期明细、保留每个监控最新两条异常，
+// 并在同一语句内从日聚合中扣除已删除行，避免两个数据源统计不一致。
+const channelMonitorPruneHistoryAndRollupsSQL = `
+WITH abnormal_ranked AS (
+    SELECT id,
+           ROW_NUMBER() OVER (PARTITION BY monitor_id ORDER BY checked_at DESC, id DESC) AS abnormal_rank
+    FROM channel_monitor_histories
+    WHERE status IN ('degraded', 'failed', 'error')
+),
+batch AS (
+    SELECT h.id
+    FROM channel_monitor_histories h
+    LEFT JOIN abnormal_ranked a ON a.id = h.id
+    WHERE (a.id IS NOT NULL AND a.abnormal_rank > 2)
+       OR (h.checked_at < $1 AND a.id IS NULL)
+    ORDER BY h.id
     LIMIT $2
+),
+removed AS (
+    DELETE FROM channel_monitor_histories h
+    USING batch b
+    WHERE h.id = b.id
+    RETURNING h.monitor_id, h.model, h.status, h.latency_ms, h.ping_latency_ms, h.checked_at
+),
+removed_totals AS (
+    SELECT monitor_id, model, checked_at::date AS bucket_date,
+           COUNT(*) AS total_checks,
+           COUNT(*) FILTER (WHERE status IN ('operational', 'degraded')) AS ok_count,
+           COUNT(*) FILTER (WHERE status = 'operational') AS operational_count,
+           COUNT(*) FILTER (WHERE status = 'degraded') AS degraded_count,
+           COUNT(*) FILTER (WHERE status = 'failed') AS failed_count,
+           COUNT(*) FILTER (WHERE status = 'error') AS error_count,
+           COALESCE(SUM(latency_ms), 0) AS sum_latency_ms,
+           COUNT(latency_ms) AS count_latency,
+           COALESCE(SUM(ping_latency_ms), 0) AS sum_ping_latency_ms,
+           COUNT(ping_latency_ms) AS count_ping_latency
+    FROM removed
+    GROUP BY monitor_id, model, checked_at::date
+),
+adjusted AS (
+    UPDATE channel_monitor_daily_rollups r
+    SET total_checks = r.total_checks - t.total_checks,
+        ok_count = r.ok_count - t.ok_count,
+        operational_count = r.operational_count - t.operational_count,
+        degraded_count = r.degraded_count - t.degraded_count,
+        failed_count = r.failed_count - t.failed_count,
+        error_count = r.error_count - t.error_count,
+        sum_latency_ms = r.sum_latency_ms - t.sum_latency_ms,
+        count_latency = r.count_latency - t.count_latency,
+        sum_ping_latency_ms = r.sum_ping_latency_ms - t.sum_ping_latency_ms,
+        count_ping_latency = r.count_ping_latency - t.count_ping_latency,
+        computed_at = NOW()
+    FROM removed_totals t
+    WHERE r.monitor_id = t.monitor_id
+      AND r.model = t.model
+      AND r.bucket_date = t.bucket_date
+    RETURNING r.id, r.total_checks
+),
+empty_rollups AS (
+    DELETE FROM channel_monitor_daily_rollups r
+    USING adjusted a
+    WHERE r.id = a.id
+      AND a.total_checks <= 0
+    RETURNING r.id
 )
-DELETE FROM channel_monitor_histories
-WHERE id IN (SELECT id FROM batch)
+SELECT COUNT(*) FROM removed
 `
 
 // channelMonitorPruneRollupSQL 分批物理删 rollup 表过期行。bucket_date 需要 ::date 转型

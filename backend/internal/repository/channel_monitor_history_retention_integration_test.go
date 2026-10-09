@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -169,4 +170,55 @@ func TestChannelMonitorHistoryRetentionNormalBatchAndFailedWrite(t *testing.T) {
 	})
 	require.Error(t, err)
 	requireMonitorHistoryRetention(t, repo, secondID, []string{"second failure"}, 0)
+}
+
+func TestChannelMonitorHistoryCleanupPreservesTwoAbnormalAndReconcilesRollups(t *testing.T) {
+	ctx := context.Background()
+	repo, monitorID := newMonitorHistoryRetentionFixture(t)
+	base := time.Now().UTC().AddDate(0, 0, -35).Truncate(24 * time.Hour)
+	latencies := []int{100, 200, 300, 400}
+	statuses := []string{
+		service.MonitorStatusOperational,
+		service.MonitorStatusFailed,
+		service.MonitorStatusFailed,
+		service.MonitorStatusFailed,
+	}
+	for i, status := range statuses {
+		latency := latencies[i]
+		_, err := integrationEntClient.ChannelMonitorHistory.Create().
+			SetMonitorID(monitorID).SetModel("primary").
+			SetStatus(channelmonitorhistory.Status(status)).
+			SetLatencyMs(latency).
+			SetCheckedAt(base.Add(time.Duration(i) * time.Minute)).
+			Save(ctx)
+		require.NoError(t, err)
+	}
+	_, err := repo.UpsertDailyRollupsFor(ctx, base)
+	require.NoError(t, err)
+
+	deleted, err := repo.DeleteHistoryBefore(ctx, time.Now().UTC().AddDate(0, 0, -30))
+	require.NoError(t, err)
+	require.EqualValues(t, 2, deleted, "delete the normal row and oldest of three old abnormal rows")
+
+	history, err := repo.ListHistory(ctx, monitorID, "", 10)
+	require.NoError(t, err)
+	require.Len(t, history, 2)
+	for _, row := range history {
+		require.Equal(t, service.MonitorStatusDegraded, row.Status)
+	}
+
+	rollup, err := integrationEntClient.ChannelMonitorDailyRollup.Query().Where(
+		channelmonitordailyrollup.MonitorIDEQ(monitorID),
+		channelmonitordailyrollup.ModelEQ("primary"),
+		channelmonitordailyrollup.BucketDateEQ(base),
+	).Only(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, rollup.TotalChecks)
+	require.Equal(t, 2, rollup.OkCount)
+	require.Equal(t, 0, rollup.OperationalCount)
+	require.Equal(t, 2, rollup.DegradedCount)
+	require.Equal(t, 0, rollup.FailedCount)
+	require.Equal(t, 0, rollup.ErrorCount)
+	require.EqualValues(t, 700, rollup.SumLatencyMs)
+	require.Equal(t, 2, rollup.CountLatency)
 }
