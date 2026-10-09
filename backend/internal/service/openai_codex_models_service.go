@@ -273,24 +273,38 @@ func loadCodexGroupCatalogAccounts(ctx context.Context, repo AccountRepository, 
 	return visible, groupAccounts, nil
 }
 
-func openAIConfiguredCodexModelIDs(accounts []Account) []string {
+func openAIConfiguredCodexModelIDs(accounts []Account, groupID *int64) []string {
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
+	add := func(modelID string) {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" || strings.Contains(modelID, "*") {
+			return
+		}
+		if _, exists := seen[modelID]; exists {
+			return
+		}
+		seen[modelID] = struct{}{}
+		models = append(models, modelID)
+	}
 	for i := range accounts {
 		account := &accounts[i]
 		if account.Platform != PlatformOpenAI {
 			continue
 		}
-		for modelID := range account.GetModelMapping() {
-			modelID = strings.TrimSpace(modelID)
-			if modelID == "" || strings.Contains(modelID, "*") {
+		mapping := account.GetModelMapping()
+		for modelID := range mapping {
+			// 账号在本分组里被限制了可用模型时，只公布允许的那部分。
+			if !account.IsModelAllowedInGroup(groupID, modelID) {
 				continue
 			}
-			if _, exists := seen[modelID]; exists {
-				continue
+			add(modelID)
+		}
+		// 没有映射、但在本分组里被限制了模型的账号，按限制清单公布。
+		if len(mapping) == 0 {
+			for _, modelID := range groupAllowedConcreteModels(account, groupID) {
+				add(modelID)
 			}
-			seen[modelID] = struct{}{}
-			models = append(models, modelID)
 		}
 	}
 	sort.Strings(models)
@@ -298,7 +312,11 @@ func openAIConfiguredCodexModelIDs(accounts []Account) []string {
 }
 
 func openAIConfiguredCodexModelIDsForGroup(accounts []Account, group *Group) []string {
-	models := supplementUnmappedOpenAIModels(accounts, openAIConfiguredCodexModelIDs(accounts))
+	var groupID *int64
+	if group != nil {
+		groupID = &group.ID
+	}
+	models := supplementUnmappedOpenAIModels(accounts, groupID, openAIConfiguredCodexModelIDs(accounts, groupID))
 	if group == nil || !group.ModelAllowlistEnabled() {
 		return models
 	}
@@ -314,7 +332,7 @@ func openAIConfiguredCodexModelIDsForGroup(accounts []Account, group *Group) []s
 		}
 		for i := range accounts {
 			account := &accounts[i]
-			if account.Platform != PlatformOpenAI {
+			if account.Platform != PlatformOpenAI || !account.IsModelAllowedInGroup(groupID, selectedModel) {
 				continue
 			}
 			mappedModel, matched := account.ResolveMappedModel(selectedModel)
@@ -487,7 +505,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 	}
 
 	if isClaudeCodexModel(modelID) {
-		if claude.IsOpus55(modelID) || claude.IsSonnet55(modelID) {
+		if claude.IsOpus55(modelID) {
 			descriptor.ContextWindow = 1_000_000
 			descriptor.MaxContextWindow = 1_000_000
 		}
@@ -520,7 +538,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 			descriptor.TruncationPolicy = configuredCodexTruncationPolicy{Mode: "tokens", Limit: configuredCodexToolOutputMaxTokens}
 			// GPT-6 Sol/Luna retain the existing 5.6 Codex window as an offline
 			// compatibility template; live account metadata remains authoritative.
-			if isOpenAIGPT56Model(modelID) || openai.IsGPT6SolOrLunaModelSpelling(modelID) || openai.IsGPT61SolModelSpelling(modelID) {
+			if isOpenAIGPT56Model(modelID) || openai.IsGPT6SolOrLunaModelSpelling(modelID) {
 				descriptor.MaxContextWindow = configuredCodexGPT56MaxContext
 			}
 			if isOpenAIGPT6AstraModel(modelID) {
@@ -907,20 +925,32 @@ func buildCodexModelsManifestForAccounts(
 ) ([]byte, error) {
 	imageInputModels := make(map[string]bool, len(modelIDs))
 	searchToolModels := make(map[string]bool, len(modelIDs))
-	metadataModels := codexCatalogMetadataModels(
-		effectivePlatform,
-		modelIDs,
-		accounts,
-		compositeRoutes,
-		compositeRoutesAvailable,
-	)
+	var groupID *int64
+	if group != nil {
+		groupID = &group.ID
+	}
+	metadataModels := make(map[string]string, len(modelIDs))
 	modelMetadata := make(map[string]codexModelMetadataOverride, len(modelIDs))
 	for _, modelID := range modelIDs {
 		modelID = strings.TrimSpace(modelID)
+		// 模型能力按本分组里允许服务该模型的账号汇总，被分组限制排除的账号不参与。
+		modelAccounts := accountsAllowedInGroupForModel(accounts, groupID, modelID)
+		if modelID != "" {
+			metadataModelID := resolveCodexCatalogMetadataModel(
+				effectivePlatform,
+				modelID,
+				modelAccounts,
+				compositeRoutes,
+				compositeRoutesAvailable,
+			)
+			if metadataModelID != "" && metadataModelID != modelID {
+				metadataModels[modelID] = metadataModelID
+			}
+		}
 		if groupCodexModelSupportsImageInput(
 			effectivePlatform,
 			modelID,
-			accounts,
+			modelAccounts,
 			compositeRoutes,
 			compositeRoutesAvailable,
 		) {
@@ -929,7 +959,7 @@ func buildCodexModelsManifestForAccounts(
 		if groupCodexModelSupportsSearchTool(
 			effectivePlatform,
 			modelID,
-			accounts,
+			modelAccounts,
 			compositeRoutes,
 			compositeRoutesAvailable,
 		) {
@@ -938,7 +968,7 @@ func buildCodexModelsManifestForAccounts(
 		if metadata, ok := groupCodexModelMetadata(
 			effectivePlatform,
 			modelID,
-			accounts,
+			modelAccounts,
 			group,
 			compositeRoutes,
 			compositeRoutesAvailable,
@@ -1009,33 +1039,6 @@ func buildCodexModelsManifest(
 	return json.Marshal(struct {
 		Models []json.RawMessage `json:"models"`
 	}{Models: models})
-}
-
-func codexCatalogMetadataModels(
-	platform string,
-	modelIDs []string,
-	accounts []Account,
-	compositeRoutes []CompositeModelRoute,
-	compositeRoutesAvailable bool,
-) map[string]string {
-	metadataModels := make(map[string]string, len(modelIDs))
-	for _, modelID := range modelIDs {
-		modelID = strings.TrimSpace(modelID)
-		if modelID == "" {
-			continue
-		}
-		metadataModelID := resolveCodexCatalogMetadataModel(
-			platform,
-			modelID,
-			accounts,
-			compositeRoutes,
-			compositeRoutesAvailable,
-		)
-		if metadataModelID != "" && metadataModelID != modelID {
-			metadataModels[modelID] = metadataModelID
-		}
-	}
-	return metadataModels
 }
 
 func resolveCodexCatalogMetadataModel(

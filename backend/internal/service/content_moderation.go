@@ -921,11 +921,7 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		if cfg.KeywordBlockingMode != ContentModerationKeywordModeAPIOnly && len(cfg.BlockedKeywords) > 0 {
 			keywordText := extractContentModerationKeywordText(input.Protocol, input.Body)
 			if keyword, hit := runtimeSnapshot.matchBlockedKeyword(keywordText); hit {
-				metricAction := ContentModerationActionKeywordBlock
-				if input.riskControlLogOnly {
-					metricAction = ContentModerationActionAllow
-				}
-				s.recordPreBlockSyncMetric(0, metricAction)
+				s.recordPreBlockSyncMetric(0, ContentModerationActionKeywordBlock)
 				slog.Info("content_moderation.keyword_block",
 					"user_id", input.UserID,
 					"api_key_id", input.APIKeyID,

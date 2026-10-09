@@ -19,8 +19,6 @@ import (
 // totalCost 是本次请求的客户计费（倍率前），用于优先级 2。
 // serviceTier 是最终参与用户计费的 OpenAI 服务层级，用于优先级 3。
 // pricingAt 与本次客户计费使用同一时刻，避免跨峰谷请求的成本与售价错位。
-// longContextPricingEnabled 表示上游是否对本次请求收取长上下文费率，用于优先级 3；
-// 由 accountStatsLongContextPricingEnabled 按账号开关得出，不受分组售价开关影响。
 // reasoningEffort 是最终转发等级；按账号统计定价中配置的等级倍率计费。
 func resolveAccountStatsCost(
 	ctx context.Context,

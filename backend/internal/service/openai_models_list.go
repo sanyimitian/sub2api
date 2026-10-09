@@ -165,12 +165,20 @@ func standardOpenAIModelsBody(body []byte, fromManifest bool) ([]byte, error) {
 // representations while retaining the source entry's metadata. It never changes
 // the shared response and never synthesizes models absent from this account.
 func projectAccountModelsBody(body []byte, account *Account, group *Group, codex bool) ([]byte, error) {
-	if account.IsOpenAIPassthroughEnabled() || len(account.GetModelMapping()) == 0 {
-		return body, nil
+	var groupID *int64
+	if group != nil {
+		groupID = &group.ID
 	}
 	field, idField := "data", "id"
 	if codex {
 		field, idField = "models", "slug"
+	}
+	if account.IsOpenAIPassthroughEnabled() || len(account.GetModelMapping()) == 0 {
+		if len(account.GroupAllowedModels(derefGroupID(groupID))) == 0 {
+			return body, nil
+		}
+		// 没有映射的账号原样公布上游列表；在本分组被限制时只保留允许的模型。
+		return filterModelsBodyForGroup(body, account, groupID, field, idField)
 	}
 	envelope, entries, err := modelCatalogEntries(body, field)
 	if err != nil {
@@ -224,6 +232,9 @@ func projectAccountModelsBody(body []byte, account *Account, group *Group, codex
 		if _, ok := seen[id]; ok {
 			continue
 		}
+		if !account.IsModelAllowedInGroup(groupID, id) {
+			continue
+		}
 		target, matched := account.ResolveMappedModel(id)
 		raw, available := byID[strings.TrimSpace(target)]
 		if !matched || !available {
@@ -258,9 +269,36 @@ func projectAccountModelsBody(body []byte, account *Account, group *Group, codex
 	return json.Marshal(envelope)
 }
 
-// ApplyPinnedCodexModelsMapping projects all remotely discovered Codex catalogs,
-// including ordinary discovery and pinned scheduler fallback. Locally generated
-// catalogs retain their existing policy and do not pass through this function.
+// filterModelsBodyForGroup keeps only the catalog entries the account may serve
+// in the group, preserving every other field of the envelope and the entries.
+func filterModelsBodyForGroup(body []byte, account *Account, groupID *int64, field, idField string) ([]byte, error) {
+	envelope, entries, err := modelCatalogEntries(body, field)
+	if err != nil {
+		return nil, err
+	}
+	kept := make([]json.RawMessage, 0, len(entries))
+	for _, raw := range entries {
+		var entry map[string]json.RawMessage
+		if json.Unmarshal(raw, &entry) != nil {
+			continue
+		}
+		var id string
+		if json.Unmarshal(entry[idField], &id) != nil {
+			continue
+		}
+		if account.IsModelAllowedInGroup(groupID, strings.TrimSpace(id)) {
+			kept = append(kept, raw)
+		}
+	}
+	envelope[field], err = json.Marshal(kept)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(envelope)
+}
+
+// ApplyPinnedCodexModelsMapping is used by pinned discovery and its scheduler
+// fallback. The ordinary (non-pinned) Codex path retains its local catalog policy.
 func ApplyPinnedCodexModelsMapping(response *OpenAIModelsResponse, account *Account, group *Group) error {
 	if group == nil || group.Platform != PlatformOpenAI {
 		return nil

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -67,7 +68,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 	// Resolve the mapped model before choosing its thinking/tool protocol.
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
-	if err := validateClaude55Request(body, upstreamModel); err != nil {
+	if err := validateClaudeOpus55Request(body, upstreamModel); err != nil {
 		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
@@ -274,7 +275,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 		}
 	}
 
-	if isClaude55SignedThinkingModel(upstreamModel) {
+	if claude.IsOpus55(upstreamModel) {
 		finalResp.Model = upstreamModel
 	}
 	responsesResp := apicompat.AnthropicToResponsesResponse(finalResp)
@@ -335,7 +336,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 
 	state := apicompat.NewAnthropicEventToResponsesState()
 	state.Model = originalModel
-	state.PreserveThinkingSignatures = isClaude55SignedThinkingModel(upstreamModel)
+	state.PreserveThinkingSignatures = claude.IsOpus55(upstreamModel)
 	clientToolRestorer := apicompat.NewResponsesClientToolStreamRestorer(clientToolMapping)
 
 	var usage ClaudeUsage

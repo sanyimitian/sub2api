@@ -1770,6 +1770,16 @@ func TestShouldReportOpenAIWSProxyAccountFailure(t *testing.T) {
 		require.Equal(t, "model switch requires reconnect", closeErr.Reason())
 	})
 
+	t.Run("local session admission rejection does not penalize account", func(t *testing.T) {
+		err := fmt.Errorf("wrapped ingress turn: %w", newOpenAIWSLocalAdmissionCloseError("invalid or conflicting session identity"))
+		require.False(t, shouldReportOpenAIWSProxyAccountFailure(err))
+
+		var closeErr *service.OpenAIWSClientCloseError
+		require.ErrorAs(t, err, &closeErr)
+		require.Equal(t, coderws.StatusPolicyViolation, closeErr.StatusCode())
+		require.Equal(t, "invalid or conflicting session identity", closeErr.Reason())
+	})
+
 	t.Run("upstream policy violation still penalizes account", func(t *testing.T) {
 		err := service.NewOpenAIWSClientCloseError(
 			coderws.StatusPolicyViolation,
@@ -1932,10 +1942,7 @@ func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject
 
 type openAIResponsesWSUsageLogCase struct {
 	simpleModeRejectAtRead int64
-	compositeResolver      *service.CompositeRouteResolver
-	accountPlatform        string
 	closeReason            string
-	closeStatus            coderws.StatusCode
 	firstPayload           string
 	// midPayload 在首个 turn 完成后发送（如 session.update），上游桩会为它
 	// 回一个 response.completed，客户端按普通事件读取。
@@ -3077,7 +3084,6 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	}
 	h := &OpenAIGatewayHandler{
 		cfg:                 cfg,
-		compositeResolver:   tc.compositeResolver,
 		gatewayService:      gatewaySvc,
 		billingCacheService: billingCacheSvc,
 		apiKeyService:       &service.APIKeyService{},
@@ -3088,12 +3094,6 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		ID:      1801,
 		GroupID: &groupID,
 		User:    &service.User{ID: 1701, Status: service.StatusActive},
-	}
-	if tc.apiKeyService != nil {
-		h.apiKeyService = tc.apiKeyService
-		authKey, err := tc.apiKeyService.GetByKey(context.Background(), tc.apiKeyCredential)
-		require.NoError(t, err)
-		apiKey = authKey
 	}
 	if tc.simpleModeRejectAtRead > 0 {
 		apiKey.RateLimit5h = 1
@@ -3148,17 +3148,12 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		require.Error(t, readErr, "first frame should have been rejected with a close")
 		var closeErr coderws.CloseError
 		require.ErrorAs(t, readErr, &closeErr)
-		status := tc.closeStatus
-		if status == 0 {
-			status = coderws.StatusPolicyViolation
-		}
-		require.Equal(t, status, closeErr.Code)
+		require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
 		reason := tc.closeReason
 		if reason == "" {
 			reason = "not available for this group"
 		}
 		require.Contains(t, closeErr.Reason, reason)
-		require.Empty(t, upstreamPayloadCh, "rejected first frame must not reach upstream")
 		_ = clientConn.CloseNow()
 		return openAIResponsesWSUsageLogResult{}
 	}
@@ -3192,17 +3187,12 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 			require.Error(t, readErr, "second turn should have been rejected with a close")
 			var closeErr coderws.CloseError
 			require.ErrorAs(t, readErr, &closeErr)
-			status := tc.closeStatus
-			if status == 0 {
-				status = coderws.StatusPolicyViolation
-			}
-			require.Equal(t, status, closeErr.Code)
+			require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
 			reason := tc.closeReason
 			if reason == "" {
 				reason = "not available for this group"
 			}
 			require.Contains(t, closeErr.Reason, reason)
-			require.Len(t, upstreamPayloadCh, turnCount-1, "rejected turn must not reach upstream")
 			_ = clientConn.CloseNow()
 			return openAIResponsesWSUsageLogResult{}
 		}

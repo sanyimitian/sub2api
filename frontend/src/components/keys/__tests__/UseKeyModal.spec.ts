@@ -715,13 +715,12 @@ describe('UseKeyModal', () => {
 
     const parsed = JSON.parse(wrapper.find('pre code').text())
     const models = parsed.provider.openai.models
-    for (const model of ['gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna']) {
+    for (const model of ['gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-6-sol', 'gpt-6-luna']) {
       expect(models[model]).toBeDefined()
       expect(models[model].variants).toHaveProperty('max')
       expect(models[model].variants).toHaveProperty('xhigh')
     }
     expect(models['gpt-5.6'].name).toBe('GPT-5.6 (Sol)')
-    expect(models['gpt-6.1-sol'].variants).not.toHaveProperty('none')
     expect(models['gpt-6-sol'].variants).toHaveProperty('none')
     expect(models['gpt-6-luna'].limit).toEqual({ context: 1050000, output: 128000 })
     expect(models['gpt-6']).toEqual({
@@ -738,7 +737,7 @@ describe('UseKeyModal', () => {
     })
   })
 
-  it('exports Claude 5.5 models on the Anthropic provider with adaptive defaults', async () => {
+  it('exports Opus 5.5 only on the Anthropic provider with adaptive defaults', async () => {
     const wrapper = mount(UseKeyModal, {
       props: { show: true, apiKey: 'sk-test', baseUrl: 'https://example.com/v1', platform: 'anthropic' },
       global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: { template: '<span />' } } }
@@ -747,15 +746,11 @@ describe('UseKeyModal', () => {
     expect(tab).toBeDefined()
     await tab!.trigger('click')
     await nextTick()
-    const models = JSON.parse(wrapper.find('pre code').text()).provider.anthropic.models
-    expect(models['claude-opus-5-5'].limit).toEqual({ context: 1000000, output: 128000 })
-    expect(models['claude-opus-5-5'].options).toEqual({ thinking: { type: 'adaptive' }, effort: 'medium' })
-    expect(models['claude-opus-5-5'].variants.xhigh.effort).toBe('xhigh')
-    expect(models['claude-opus-5-5'].variants).not.toHaveProperty('none')
-    expect(models['claude-sonnet-5-5'].limit).toEqual({ context: 1000000, output: 128000 })
-    expect(models['claude-sonnet-5-5'].options).toEqual({ thinking: { type: 'adaptive' }, effort: 'high' })
-    expect(models['claude-sonnet-5-5'].variants.xhigh.effort).toBe('xhigh')
-    expect(models['claude-sonnet-5-5'].variants).not.toHaveProperty('none')
+    const model = JSON.parse(wrapper.find('pre code').text()).provider.anthropic.models['claude-opus-5-5']
+    expect(model.limit).toEqual({ context: 1000000, output: 128000 })
+    expect(model.options).toEqual({ thinking: { type: 'adaptive' }, effort: 'medium' })
+    expect(model.variants.xhigh.effort).toBe('xhigh')
+    expect(model.variants).not.toHaveProperty('none')
   })
 
   it('renders Claude Fable 5 OpenCode config with adaptive thinking', async () => {

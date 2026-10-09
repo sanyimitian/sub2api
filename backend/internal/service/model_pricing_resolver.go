@@ -249,7 +249,14 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 	resolved.BasePricing.FastMultiplier = chPricing.FastMultiplier
 	resolved.BasePricing.FlexMultiplier = chPricing.FlexMultiplier
 	resolved.BasePricing.ReasoningEffortMultipliers = maps.Clone(chPricing.ReasoningEffortMultipliers)
-	applyChannelImagePriceOverrides(chPricing, resolved.BasePricing)
+	// 渠道定价覆盖一切：显式配置则用配置值，未配置则归零（不回退到 LiteLLM）
+	if chPricing.ImageOutputPrice != nil {
+		resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
+	} else {
+		resolved.BasePricing.ImageOutputPricePerToken = 0
+	}
+	resolved.BasePricing.ImageOutputPriceExplicit = true
+	applyChannelImageInputPrice(chPricing, resolved.BasePricing)
 
 	// 区间未命中时回退到上面已经应用渠道覆盖的基础价。
 	resolved.Intervals = filterValidIntervals(chPricing.Intervals)

@@ -708,11 +708,7 @@ import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
 import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
 import CNProviderBalanceCell from './CNProviderBalanceCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
-import {
-  cnQuotaCellVisible as cnQuotaCellVisibleFn,
-  cnBalanceCellVisible as cnBalanceCellVisibleFn,
-  isMultiProtocolApiKeyPlatform
-} from './credentialsBuilder'
+import { cnQuotaCellVisible as cnQuotaCellVisibleFn, cnBalanceCellVisible as cnBalanceCellVisibleFn } from './credentialsBuilder'
 import OpenCodeGoUsageCell from './OpenCodeGoUsageCell.vue'
 
 // Module-level cache shared across all AccountUsageCell instances

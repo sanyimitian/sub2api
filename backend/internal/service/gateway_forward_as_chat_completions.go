@@ -65,14 +65,14 @@ func (s *GatewayService) ForwardAsChatCompletions(
 			mappedModel = normalized
 		}
 	}
-	if err := validateClaude55Request(body, mappedModel); err != nil {
+	if err := validateClaudeOpus55Request(body, mappedModel); err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
 	responsesReq.Model = mappedModel
 	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
 	if err != nil {
-		if isClaude55SignedThinkingModel(mappedModel) {
+		if claude.IsOpus55(mappedModel) {
 			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		}
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
@@ -421,11 +421,10 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		if event == nil {
 			return false
 		}
+		// Drop Anthropic keepalive pings before OpenAI conversion:
+		// leaking `event: ping` frames crashes OpenAI-stream clients.
+		// Error events must still forward — they carry upstream failures.
 		if event.Type == "ping" {
-			if _, err := fmt.Fprint(c.Writer, ": ping\n\n"); err != nil {
-				return true
-			}
-			c.Writer.Flush()
 			return false
 		}
 		if firstChunk {

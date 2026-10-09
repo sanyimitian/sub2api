@@ -7390,6 +7390,14 @@
           </div>
         </div>
 
+        <PelicanShowcaseSettings
+          v-model:enabled="form.pelican_showcase_enabled"
+          v-model:config="form.pelican_showcase_config"
+          :groups="pelicanShowcaseGroups"
+          :groups-loaded="pelicanShowcaseGroupsLoaded"
+          :groups-load-failed="pelicanShowcaseGroupsLoadFailed"
+        />
+
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -7576,6 +7584,23 @@
                 min="1"
                 class="input"
               />
+            </div>
+
+            <div
+              v-if="form.cyber_session_block_enabled"
+              class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/60 dark:bg-amber-950/30"
+            >
+              <div class="flex items-center justify-between gap-4">
+                <div>
+                  <label class="text-sm font-medium text-amber-900 dark:text-amber-200">
+                    {{ t('admin.settings.features.riskControl.cyberSessionIdentityStrict') }}
+                  </label>
+                  <p class="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                    {{ t('admin.settings.features.riskControl.cyberSessionIdentityStrictHint') }}
+                  </p>
+                </div>
+                <Toggle v-model="form.cyber_session_identity_strict_enabled" />
+              </div>
             </div>
           </div>
         </div>
@@ -9080,6 +9105,7 @@ import type {
   DefaultSubscriptionSetting,
   DefaultPlatformQuotasMap,
   OpenAIFastPolicyRule,
+  PelicanShowcaseConfig,
   WeChatConnectMode,
   WebSearchEmulationConfig,
   WebSearchProviderConfig,
@@ -9122,6 +9148,11 @@ import {
 } from "@/utils/rechargeBonus";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import MihomoSettings from "@/views/admin/settings/MihomoSettings.vue";
+import PelicanShowcaseSettings from "@/views/admin/settings/PelicanShowcaseSettings.vue";
+import {
+  defaultPelicanShowcaseConfig,
+  sanitizePelicanShowcaseConfig,
+} from "@/views/admin/settings/pelicanShowcase";
 import { useClipboard } from "@/composables/useClipboard";
 import {
   useStepUp,
@@ -9267,6 +9298,9 @@ const newAdminApiKey = ref("");
 const subscriptionGroups = ref<AdminGroup[]>([]);
 const codexHarvestGroups = ref<AdminGroup[]>([]);
 const codexHarvestGroupsLoadFailed = ref(false);
+const pelicanShowcaseGroups = ref<AdminGroup[]>([]);
+const pelicanShowcaseGroupsLoaded = ref(false);
+const pelicanShowcaseGroupsLoadFailed = ref(false);
 const codexHarvestGroupChoices = computed(() => {
   const known = new Set(codexHarvestGroups.value.map(group => group.id));
   return [
@@ -9814,6 +9848,8 @@ type SettingsForm = Omit<
   channel_monitor_hide_throughput: boolean;
   channel_monitor_show_quota: boolean;
   channel_monitor_hide_user_ranking: boolean;
+  pelican_showcase_enabled: boolean;
+  pelican_showcase_config: PelicanShowcaseConfig;
   smtp_password: string;
   turnstile_secret_key: string;
   tencent_captcha_app_secret_key: string;
@@ -9914,6 +9950,7 @@ const form = reactive<SettingsForm>({
   cyber_policy_user_allowlist: "",
   cyber_session_block_enabled: false,
   cyber_session_block_ttl_seconds: 3600,
+  cyber_session_identity_strict_enabled: false,
   payment_min_amount: 1,
   payment_max_amount: 10000,
   payment_daily_limit: 50000,
@@ -10135,6 +10172,10 @@ const form = reactive<SettingsForm>({
   openai_codex_ticket_harvest_proxy_url: "",
   openai_codex_ticket_harvest_proxy_configured: false,
   openai_codex_ticket_models: ["gpt-6-astra", "gpt-5.6-sol"],
+  claude_code_client_version: "",
+  // 只读展示：自动同步任务写入的官方最新稳定版，不参与提交（提交载荷按字段显式构造）
+  claude_code_client_version_synced: "",
+  claude_code_version_auto_sync_enabled: true,
   // codex_cli_only 加固
   min_codex_version: "",
   max_codex_version: "",
@@ -10158,6 +10199,9 @@ const form = reactive<SettingsForm>({
   channel_monitor_hide_user_ranking: false,
   // Available Channels feature switch
   available_channels_enabled: false,
+  // Pelican showcase switch + gallery limits (defaults match the backend)
+  pelican_showcase_enabled: false,
+  pelican_showcase_config: defaultPelicanShowcaseConfig(),
   // Subscription feature switch (user sidebar "My Subscriptions" entry)
   subscription_enabled: true,
   public_transit_enabled: true,
@@ -11177,6 +11221,13 @@ function selectCodexTicketProxyMode(mode: CodexTicketProxyMode): void {
       codexTicketStaticProxyDraft.value;
   }
 }
+const claudeSyncedVersionLabel = computed(() => {
+  const synced = form.claude_code_client_version_synced?.trim();
+  if (!synced) return "";
+  return t("admin.settings.gatewayForwarding.claudeCodeVersionSyncedValue", {
+    version: synced,
+  });
+});
 
 async function loadSettings() {
   loading.value = true;
@@ -11198,6 +11249,10 @@ async function loadSettings() {
     form.openai_codex_ticket_harvest_scope.account_policy =
       form.openai_codex_ticket_harvest_scope.account_policy || 'schedulable_only';
     syncCodexTicketProxyMode();
+    // For this optional override, null explicitly selects per-account rates.
+    if (settings.openai_oauth_scheduling_rate_multiplier === null) {
+      form.openai_oauth_scheduling_rate_multiplier = null;
+    }
     syncCaptchaProviderSelection();
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
@@ -11374,6 +11429,9 @@ async function loadSubscriptionGroups() {
     const groups = await adminAPI.groups.getAll();
     codexHarvestGroups.value = groups.filter(group => group.platform === 'openai');
     codexHarvestGroupsLoadFailed.value = false;
+    pelicanShowcaseGroups.value = groups.filter((group) => group.status === "active");
+    pelicanShowcaseGroupsLoaded.value = true;
+    pelicanShowcaseGroupsLoadFailed.value = false;
     subscriptionGroups.value = groups.filter(
       (group) =>
         group.subscription_type === "subscription" && group.status === "active",
@@ -11382,6 +11440,9 @@ async function loadSubscriptionGroups() {
     subscriptionGroups.value = [];
     codexHarvestGroups.value = [];
     codexHarvestGroupsLoadFailed.value = true;
+    pelicanShowcaseGroups.value = [];
+    pelicanShowcaseGroupsLoaded.value = false;
+    pelicanShowcaseGroupsLoadFailed.value = true;
   }
 }
 
@@ -11851,6 +11912,9 @@ async function saveSettings() {
         form.openai_codex_ticket_harvest_proxy_url?.trim() || "",
       openai_codex_ticket_use_saved_static_proxy: codexTicketProxyMode.value === 'static',
       openai_codex_ticket_models: [...form.openai_codex_ticket_models],
+      claude_code_client_version: form.claude_code_client_version?.trim() || "",
+      claude_code_version_auto_sync_enabled:
+        form.claude_code_version_auto_sync_enabled,
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",
       codex_cli_only_allow_app_server_clients:
@@ -11871,6 +11935,8 @@ async function saveSettings() {
       cyber_session_block_enabled: form.cyber_session_block_enabled,
       cyber_session_block_ttl_seconds:
         Number(form.cyber_session_block_ttl_seconds) || 3600,
+      cyber_session_identity_strict_enabled:
+        form.cyber_session_identity_strict_enabled,
       payment_min_amount: Number(form.payment_min_amount) || 0,
       payment_max_amount: Number(form.payment_max_amount) || 0,
       payment_daily_limit: Number(form.payment_daily_limit) || 0,
@@ -11958,6 +12024,9 @@ async function saveSettings() {
       channel_monitor_hide_user_ranking: Boolean(form.channel_monitor_hide_user_ranking),
       // Available Channels feature switch
       available_channels_enabled: form.available_channels_enabled,
+      // Pelican showcase switch + gallery limits
+      pelican_showcase_enabled: form.pelican_showcase_enabled,
+      pelican_showcase_config: sanitizePelicanShowcaseConfig(form.pelican_showcase_config),
       // Subscription feature switch
       subscription_enabled: form.subscription_enabled,
       public_transit_enabled: form.public_transit_enabled,

@@ -443,6 +443,18 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyPublicTransitEnabled] = strconv.FormatBool(settings.PublicTransitEnabled)
 	updates[SettingKeyPublicTransitPageEnabled] = strconv.FormatBool(settings.PublicTransitEnabled && settings.PublicTransitPageEnabled)
 
+	// Pelican showcase switch + gallery limits
+	updates[SettingKeyPelicanShowcaseEnabled] = strconv.FormatBool(settings.PelicanShowcaseEnabled)
+	showcase, showcaseErr := NormalizePelicanShowcaseConfig(settings.PelicanShowcase)
+	if showcaseErr != nil {
+		return nil, infraerrors.BadRequest("INVALID_PELICAN_SHOWCASE", showcaseErr.Error())
+	}
+	if err := s.validateAddedPelicanShowcaseGroups(ctx, showcase.GroupIDs); err != nil {
+		return nil, err
+	}
+	showcaseJSON, _ := json.Marshal(showcase)
+	updates[SettingKeyPelicanShowcaseConfig] = string(showcaseJSON)
+
 	// Subscription feature switch
 	updates[SettingKeySubscriptionEnabled] = strconv.FormatBool(settings.SubscriptionEnabled)
 
@@ -467,6 +479,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if settings.CyberSessionBlockTTLSeconds > 0 {
 		updates[SettingKeyCyberSessionBlockTTLSeconds] = strconv.Itoa(settings.CyberSessionBlockTTLSeconds)
 	}
+	updates[SettingKeyCyberSessionIdentityStrictEnabled] = strconv.FormatBool(settings.CyberSessionIdentityStrictEnabled)
 
 	// Claude Code version check
 	updates[SettingKeyMinClaudeCodeVersion] = settings.MinClaudeCodeVersion
@@ -810,6 +823,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	s.InvalidateOpenAICodexTicketModelsCache()
 	s.InvalidateOpenAICodexTicketHarvestProxyCache()
 	s.InvalidateOpenAICodexTicketHarvestScopeCache()
+	s.InvalidateClaudeCodeClientVersionCache()
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
 	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
 		lowUpstreamRatePriorityEnabled: settings.OpenAILowUpstreamRatePriorityEnabled,
@@ -863,11 +877,10 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	// codex_cli_only 加固策略缓存：设置更新后强制下次重载（涉及 4 个键 + JSON 解析，直接置过期）。
 	s.codexRestrictionPolicySF.Forget("codex_restriction_policy")
 	s.codexRestrictionPolicyCache.Store(&cachedCodexRestrictionPolicy{expiresAt: 0})
-	// Retain the successfully saved allowlist if the next DB refresh fails.
-	s.cyberSessionBlockRuntimeMu.Lock()
-	allowlistedUsers, _ := ParseCyberPolicyUserAllowlist(settings.CyberPolicyUserAllowlist)
-	s.cyberSessionBlockRuntimeCache.Store(&cachedCyberSessionBlockRuntime{allowlistedUsers: allowlistedUsers})
-	s.cyberSessionBlockRuntimeMu.Unlock()
+	// Cyber 会话屏蔽与严格身份门控必须在后台保存后立即生效，不能继续
+	// 使用最长 60 秒的旧开关快照。
+	s.cyberSessionBlockRuntimeSF.Forget("cyber_session_block_runtime")
+	s.cyberSessionBlockRuntimeCache.Store(&cachedCyberSessionBlockRuntime{expiresAt: 0})
 	if s.onUpdate != nil {
 		s.onUpdate() // Invalidate cache after settings update
 	}

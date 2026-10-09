@@ -1477,23 +1477,6 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
         max: {}
       }
     },
-    'gpt-6.1-sol': {
-      name: 'GPT-6.1 Sol',
-      limit: {
-        context: 1050000,
-        output: 128000
-      },
-      options: {
-        store: false
-      },
-      variants: {
-        low: {},
-        medium: {},
-        high: {},
-        xhigh: {},
-        max: {}
-      }
-    },
     'gpt-6-sol': {
       name: 'GPT-6 Sol',
       limit: {
@@ -2001,19 +1984,6 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
         limit: { context: 1000000, output: 128000 },
         modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
         options: { thinking: { type: 'adaptive' }, effort: 'medium' },
-        variants: {
-          low: { effort: 'low' },
-          medium: { effort: 'medium' },
-          high: { effort: 'high' },
-          xhigh: { effort: 'xhigh' },
-          max: { effort: 'max' }
-        }
-      },
-      'claude-sonnet-5-5': {
-        name: 'Claude Sonnet 5.5',
-        limit: { context: 1000000, output: 128000 },
-        modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-        options: { thinking: { type: 'adaptive' }, effort: 'high' },
         variants: {
           low: { effort: 'low' },
           medium: { effort: 'medium' },

@@ -165,7 +165,7 @@ func openAITurnRouteFingerprint(a *Account) [32]byte {
 	routeExtra := make(map[string]any)
 	for _, key := range []string{
 		codexFingerprintSeedExtraKey, codexFingerprintModeExtraKey,
-		"openai_passthrough", "openai_oauth_passthrough",
+		"openai_passthrough", "openai_oauth_passthrough", "openai_excel_bps",
 		"openai_oauth_responses_websockets_v2_mode", "openai_apikey_responses_websockets_v2_mode",
 		"openai_oauth_responses_websockets_v2_enabled", "openai_apikey_responses_websockets_v2_enabled",
 		"responses_websockets_v2_enabled", "openai_ws_enabled", "openai_ws_force_http",
@@ -325,6 +325,10 @@ func (s *OpenAIGatewayService) admitOpenAITurnWithGroup(
 	latest, err := s.latestOpenAITurnAccountForGroup(ctx, selected, groupID, enforceGroup)
 	if err != nil {
 		return nil, err
+	}
+	// 会话中途被收窄了分组内的可用模型、或后续 turn 换成了不允许的模型时，要求客户端重连重新选号。
+	if enforceGroup && !latest.IsModelAllowedInGroup(&groupID, outboundModel) {
+		return nil, denyOpenAITurn("model_not_allowed_in_group")
 	}
 	if !latest.IsOpenAI() {
 		return latest, nil

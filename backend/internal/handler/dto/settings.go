@@ -229,6 +229,9 @@ type SystemSettings struct {
 	OpenAICodexTicketStaticProxyURL         string   `json:"openai_codex_ticket_static_proxy_url,omitempty"`
 	OpenAICodexTicketHarvestProxyConfigured bool     `json:"openai_codex_ticket_harvest_proxy_configured"`
 	OpenAICodexTicketModels                 []string `json:"openai_codex_ticket_models"`
+	ClaudeCodeClientVersion                 string   `json:"claude_code_client_version"`
+	ClaudeCodeClientVersionSynced           string   `json:"claude_code_client_version_synced"`
+	ClaudeCodeVersionAutoSyncEnabled        bool     `json:"claude_code_version_auto_sync_enabled"`
 
 	// codex_cli_only 加固
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -336,6 +339,10 @@ type SystemSettings struct {
 	PublicTransitEnabled     bool `json:"public_transit_enabled"`
 	PublicTransitPageEnabled bool `json:"public_transit_page_enabled"`
 
+	// Pelican showcase (user-facing gallery of scheduled Pelican HTML results)
+	PelicanShowcaseEnabled bool                          `json:"pelican_showcase_enabled"`
+	PelicanShowcase        service.PelicanShowcaseConfig `json:"pelican_showcase_config"`
+
 	// Subscription feature switch: gates the whole user-facing subscription surface
 	// (sidebar entries, purchase-page subscription tab, header badge, /subscriptions route).
 	SubscriptionEnabled bool `json:"subscription_enabled"`
@@ -350,9 +357,9 @@ type SystemSettings struct {
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 
 	// cyber 会话屏蔽开关 + TTL
-	CyberSessionBlockEnabled    bool   `json:"cyber_session_block_enabled"`
-	CyberPolicyUserAllowlist    string `json:"cyber_policy_user_allowlist"`
-	CyberSessionBlockTTLSeconds int    `json:"cyber_session_block_ttl_seconds"`
+	CyberSessionBlockEnabled          bool `json:"cyber_session_block_enabled"`
+	CyberSessionBlockTTLSeconds       int  `json:"cyber_session_block_ttl_seconds"`
+	CyberSessionIdentityStrictEnabled bool `json:"cyber_session_identity_strict_enabled"`
 
 	// Affiliate (邀请返利) feature switch
 	AffiliateEnabled bool `json:"affiliate_enabled"`
@@ -449,8 +456,7 @@ type PublicSettings struct {
 	ChannelMonitorHideUserRanking        bool   `json:"channel_monitor_hide_user_ranking"`
 
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
-	PublicTransitEnabled     bool `json:"public_transit_enabled"`
-	PublicTransitPageEnabled bool `json:"public_transit_page_enabled"`
+	PelicanShowcaseEnabled   bool `json:"pelican_showcase_enabled"`
 
 	SubscriptionEnabled bool `json:"subscription_enabled"`
 
