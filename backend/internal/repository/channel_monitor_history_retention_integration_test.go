@@ -11,6 +11,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
@@ -221,4 +222,81 @@ func TestChannelMonitorHistoryCleanupPreservesTwoAbnormalAndReconcilesRollups(t 
 	require.Equal(t, 0, rollup.ErrorCount)
 	require.EqualValues(t, 700, rollup.SumLatencyMs)
 	require.Equal(t, 2, rollup.CountLatency)
+}
+
+func TestChannelMonitorHistoryRetentionUsesDatabaseTimezoneForRollups(t *testing.T) {
+	ctx := context.Background()
+	integrationDB.SetMaxOpenConns(1)
+	_, err := integrationDB.ExecContext(ctx, "SET TIME ZONE 'Asia/Shanghai'")
+	require.NoError(t, err)
+	require.NoError(t, timezone.Init("Asia/Shanghai"))
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "SET TIME ZONE 'UTC'")
+		_ = timezone.Init("UTC")
+		integrationDB.SetMaxOpenConns(0)
+	})
+
+	repo, monitorID := newMonitorHistoryRetentionFixture(t)
+
+	var timezoneName string
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SHOW TIME ZONE").Scan(&timezoneName))
+	loc, err := time.LoadLocation(timezoneName)
+	require.NoError(t, err)
+	var checkedAt time.Time
+	utcDay := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	for hour := 0; hour < 24; hour++ {
+		candidate := utcDay.Add(time.Duration(hour) * time.Hour)
+		if candidate.In(loc).Format("2006-01-02") != candidate.UTC().Format("2006-01-02") {
+			checkedAt = candidate
+			break
+		}
+	}
+	require.False(t, checkedAt.IsZero(), "test requires a database timezone with a UTC date boundary")
+	localCheckedAt := checkedAt.In(loc)
+	bucketDate := time.Date(localCheckedAt.Year(), localCheckedAt.Month(), localCheckedAt.Day(), 0, 0, 0, 0, loc)
+
+	for _, row := range []struct {
+		model     string
+		status    string
+		latencyMs int
+		checkedAt time.Time
+	}{
+		{model: "primary", status: service.MonitorStatusFailed, latencyMs: 100, checkedAt: checkedAt},
+		{model: "primary", status: service.MonitorStatusOperational, latencyMs: 200, checkedAt: checkedAt.Add(time.Minute)},
+		{model: "extra", status: service.MonitorStatusFailed, latencyMs: 150, checkedAt: checkedAt.Add(2 * time.Minute)},
+	} {
+		_, err := integrationEntClient.ChannelMonitorHistory.Create().
+			SetMonitorID(monitorID).SetModel(row.model).
+			SetStatus(channelmonitorhistory.Status(row.status)).
+			SetLatencyMs(row.latencyMs).SetCheckedAt(row.checkedAt).
+			Save(ctx)
+		require.NoError(t, err)
+	}
+	_, err = repo.UpsertDailyRollupsFor(ctx, bucketDate)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.InsertHistoryBatch(ctx, []*service.ChannelMonitorHistoryRow{
+		{MonitorID: monitorID, Model: "primary", Status: service.MonitorStatusDegraded, CheckedAt: checkedAt.Add(3 * time.Minute)},
+		{MonitorID: monitorID, Model: "extra", Status: service.MonitorStatusError, CheckedAt: checkedAt.Add(4 * time.Minute)},
+	}))
+
+	primaryRollup, err := integrationEntClient.ChannelMonitorDailyRollup.Query().Where(
+		channelmonitordailyrollup.MonitorIDEQ(monitorID),
+		channelmonitordailyrollup.ModelEQ("primary"),
+		channelmonitordailyrollup.BucketDateEQ(bucketDate),
+	).Only(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, primaryRollup.TotalChecks)
+	require.Equal(t, 1, primaryRollup.OperationalCount)
+	require.Equal(t, 0, primaryRollup.DegradedCount)
+	require.Equal(t, 0, primaryRollup.FailedCount)
+	require.EqualValues(t, 200, primaryRollup.SumLatencyMs)
+
+	extraRollups, err := integrationEntClient.ChannelMonitorDailyRollup.Query().Where(
+		channelmonitordailyrollup.MonitorIDEQ(monitorID),
+		channelmonitordailyrollup.ModelEQ("extra"),
+		channelmonitordailyrollup.BucketDateEQ(bucketDate),
+	).Count(ctx)
+	require.NoError(t, err)
+	require.Zero(t, extraRollups, "an empty rollup must be removed with its history")
 }

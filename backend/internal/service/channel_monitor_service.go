@@ -30,7 +30,7 @@ type ChannelMonitorRepository interface {
 	// 调度器辅助
 	ListEnabled(ctx context.Context) ([]*ChannelMonitor, error)
 	MarkChecked(ctx context.Context, id int64, checkedAt time.Time) error
-	// InsertHistoryBatch 原子写入历史并清理旧异常，每个监控（跨模型）最多保留一条最新异常。
+	// InsertHistoryBatch 原子写入历史并清理旧异常，每个监控（跨模型）最多保留两条最新异常。
 	InsertHistoryBatch(ctx context.Context, rows []*ChannelMonitorHistoryRow) error
 	DeleteHistoryBefore(ctx context.Context, before time.Time) (int64, error)
 
@@ -54,7 +54,7 @@ type ChannelMonitorRepository interface {
 	// 聚合到 channel_monitor_daily_rollups。targetDate 会被截断到日期；
 	// 用 ON CONFLICT DO UPDATE 实现幂等回填，返回 upsert 影响的行数。
 	UpsertDailyRollupsFor(ctx context.Context, targetDate time.Time) (int64, error)
-	// DeleteRollupsBefore 软删 bucket_date < beforeDate 的聚合行，返回删除行数。
+	// DeleteRollupsBefore 物理删除 bucket_date < beforeDate 的聚合行，返回删除行数。
 	DeleteRollupsBefore(ctx context.Context, beforeDate time.Time) (int64, error)
 	// LoadAggregationWatermark 读 watermark（id=1）。
 	// 返回 nil 表示从未聚合过；watermark 表本身预期已存在单行（migration 110 写入）。
@@ -768,7 +768,7 @@ func (s *ChannelMonitorService) ListEnabledMonitors(ctx context.Context) ([]*Cha
 }
 
 // cleanupOldHistory 删除 monitorHistoryRetentionDays 天之前的明细历史记录。
-// 由 RunDailyMaintenance 调用；SoftDeleteMixin 自动把 DELETE 改为 UPDATE deleted_at。
+// 由 RunDailyMaintenance 调用；仓储层会同步调整聚合统计。
 func (s *ChannelMonitorService) cleanupOldHistory(ctx context.Context) error {
 	before := time.Now().UTC().AddDate(0, 0, -monitorHistoryRetentionDays)
 	deleted, err := s.repo.DeleteHistoryBefore(ctx, before)
@@ -782,7 +782,7 @@ func (s *ChannelMonitorService) cleanupOldHistory(ctx context.Context) error {
 	return nil
 }
 
-// RunDailyMaintenance 每日维护任务：聚合昨天之前未聚合的明细，软删过期明细和聚合。
+// RunDailyMaintenance 每日维护任务：聚合昨天之前未聚合的明细，物理删除过期明细和聚合。
 // 由 OpsCleanupService 的 cron 调度触发（共享 schedule 和 leader lock）。
 //
 // 幂等性：
@@ -856,7 +856,7 @@ func (s *ChannelMonitorService) resolveAggregationStart(watermark *time.Time, to
 	return watermark.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
 }
 
-// cleanupOldRollups 软删 bucket_date < today - monitorRollupRetentionDays 的日聚合行。
+// cleanupOldRollups 物理删除 bucket_date < today - monitorRollupRetentionDays 的日聚合行。
 func (s *ChannelMonitorService) cleanupOldRollups(ctx context.Context, today time.Time) error {
 	cutoff := today.AddDate(0, 0, -monitorRollupRetentionDays)
 	deleted, err := s.repo.DeleteRollupsBefore(ctx, cutoff)

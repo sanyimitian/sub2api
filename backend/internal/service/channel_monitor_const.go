@@ -21,7 +21,7 @@ const (
 	// 聚合表 channel_monitor_daily_rollups 仍然保留，作为长期历史回填/降级查询的兜底。
 	monitorHistoryRetentionDays = 30
 	// monitorRollupRetentionDays 日聚合保留天数。
-	// 日聚合行由 RunDailyMaintenance 在超过该窗口后软删。
+	// 日聚合行由 RunDailyMaintenance 在超过该窗口后物理删除。
 	monitorRollupRetentionDays = 30
 	// monitorMaintenanceMaxDaysPerRun 单次维护任务最多聚合的天数。
 	// 用于限制首次上线回填（30 天）+ 少量余量，避免长事务。
