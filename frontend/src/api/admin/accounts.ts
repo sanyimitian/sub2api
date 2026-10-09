@@ -1259,33 +1259,6 @@ export async function updateCodexSkipHarvest(id: number, skipHarvest: boolean): 
   return data
 }
 
-export async function getOpenCodeGoUsageSettings(): Promise<OpenCodeGoUsageSettings> {
-  const { data } = await apiClient.get<OpenCodeGoUsageSettings>('/admin/accounts/opencode-go-usage/settings')
-  return data
-}
-
-export async function updateOpenCodeGoUsageSettings(
-  settings: OpenCodeGoUsageSettings
-): Promise<OpenCodeGoUsageSettings> {
-  const { data } = await apiClient.put<OpenCodeGoUsageSettings>(
-    '/admin/accounts/opencode-go-usage/settings',
-    settings
-  )
-  return data
-}
-
-export async function getOpenCodeGoUsage(id: number): Promise<OpenCodeGoUsageState> {
-  const { data } = await apiClient.get<OpenCodeGoUsageState>(`/admin/accounts/${id}/opencode-go-usage`)
-  return data
-}
-
-export async function setOpenCodeGoUsageAutoRefresh(id: number, enabled: boolean): Promise<OpenCodeGoUsageState> {
-  const { data } = await apiClient.put<OpenCodeGoUsageState>(`/admin/accounts/${id}/opencode-go-usage/auto-refresh`, {
-    enabled
-  })
-  return data
-}
-
 export interface ManualHarvestRequest {
   collect_lanes?: number
   models?: string[]
@@ -1451,12 +1424,7 @@ export const accountsAPI = {
   refreshOpenCodeGoUsage,
   getCodexHarvestFlow,
   updateCodexSkipHarvest,
-  streamManualCodexHarvest,
-  getOpenCodeGoUsageSettings,
-  updateOpenCodeGoUsageSettings,
-  getOpenCodeGoUsage,
-  setOpenCodeGoUsageAutoRefresh,
-  refreshOpenCodeGoUsage
+  streamManualCodexHarvest
 }
 
 export default accountsAPI

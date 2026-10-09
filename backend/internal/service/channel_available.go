@@ -126,6 +126,17 @@ func fillGlobalPricingFallback(pricingService *PricingService, models []Supporte
 			models[i].PricingSource = ModelPriceSourceCustom
 			continue
 		}
+		if pricingService == nil {
+			models[i].PricingSource = ModelPriceSourceUnknown
+			continue
+		}
+		lp := pricingService.GetModelPricing(models[i].Name)
+		if lp == nil {
+			models[i].PricingSource = ModelPriceSourceUnknown
+			continue
+		}
+		models[i].Pricing = synthesizePricingFromLiteLLM(lp, models[i].Pricing)
+		models[i].PricingSource = ModelPriceSourceStandard
 	}
 }
 

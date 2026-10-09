@@ -694,14 +694,17 @@ const expandPlan = async (planId: number) => {
   expandedPlanId.value = planId
   expandedResultIds.clear()
   loadingResults.value = true
+  const requestId = resultsRequestId
   try {
     const data = await adminAPI.scheduledTests.listResults(planId, 20, !props.pelicanConfig)
+    if (requestId !== resultsRequestId) return
     if (alive && props.show && props.accountId === accountId && expandedPlanId.value === planId) { results.value = data; emit('history', data) }
   } catch (error: any) {
+    if (requestId !== resultsRequestId) return
     appStore.showError(error?.message || 'Failed to load results')
     results.value = []
   } finally {
-    loadingResults.value = false
+    if (requestId === resultsRequestId) loadingResults.value = false
   }
 }
 

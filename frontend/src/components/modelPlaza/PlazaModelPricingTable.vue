@@ -313,6 +313,7 @@ import { platformAccentColor, platformBadgeLightClass, platformLabel } from '@/u
 import {
   BILLING_MODE_TOKEN,
   BILLING_MODE_IMAGE,
+  BILLING_MODE_VIDEO,
   REASONING_EFFORT_LEVELS,
   type BillingMode
 } from '@/constants/channel'

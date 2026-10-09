@@ -29,8 +29,12 @@ type openAIWSPassthroughHandlerHarness struct {
 	apiKey         *service.APIKey
 }
 
-func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string) *openAIWSPassthroughHandlerHarness {
-	return newOpenAIWSPassthroughHandlerHarnessWithOptions(t, upstreamURL, http.Header{"Session_id": []string{"ws-test-session"}}, nil)
+func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, extraSettings ...map[string]string) *openAIWSPassthroughHandlerHarness {
+	var settings map[string]string
+	if len(extraSettings) > 0 {
+		settings = extraSettings[0]
+	}
+	return newOpenAIWSPassthroughHandlerHarnessWithOptions(t, upstreamURL, http.Header{"Session_id": []string{"ws-test-session"}}, settings)
 }
 
 func newOpenAIWSPassthroughHandlerHarnessWithOptions(t *testing.T, upstreamURL string, clientHeaders http.Header, extraSettings map[string]string) *openAIWSPassthroughHandlerHarness {

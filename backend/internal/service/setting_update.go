@@ -823,7 +823,6 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	s.InvalidateOpenAICodexTicketModelsCache()
 	s.InvalidateOpenAICodexTicketHarvestProxyCache()
 	s.InvalidateOpenAICodexTicketHarvestScopeCache()
-	s.InvalidateClaudeCodeClientVersionCache()
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
 	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
 		lowUpstreamRatePriorityEnabled: settings.OpenAILowUpstreamRatePriorityEnabled,
@@ -880,7 +879,10 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	// Cyber 会话屏蔽与严格身份门控必须在后台保存后立即生效，不能继续
 	// 使用最长 60 秒的旧开关快照。
 	s.cyberSessionBlockRuntimeSF.Forget("cyber_session_block_runtime")
-	s.cyberSessionBlockRuntimeCache.Store(&cachedCyberSessionBlockRuntime{expiresAt: 0})
+	s.cyberSessionBlockRuntimeMu.Lock()
+	allowlistedUsers, _ := ParseCyberPolicyUserAllowlist(settings.CyberPolicyUserAllowlist)
+	s.cyberSessionBlockRuntimeCache.Store(&cachedCyberSessionBlockRuntime{allowlistedUsers: allowlistedUsers, expiresAt: 0})
+	s.cyberSessionBlockRuntimeMu.Unlock()
 	if s.onUpdate != nil {
 		s.onUpdate() // Invalidate cache after settings update
 	}

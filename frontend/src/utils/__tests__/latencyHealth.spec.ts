@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { durationSeverity, firstTokenSeverity, tpsSeverity } from '../latencyHealth'
+import { durationSeverity, firstTokenSeverity, tpsSeverity, formatUsageOutputRate } from '../latencyHealth'
 
 describe('latencyHealth', () => {
   it('classifies first-token latency at 10s/30s/60s boundaries', () => {

@@ -378,8 +378,6 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/codex-harvest-nodes/reset", h.Admin.Account.ResetCodexHarvestNodes)
 		accounts.PUT("/:id/codex-skip-harvest", h.Admin.Account.SetCodexSkipHarvest)
 		accounts.POST("/:id/manual-harvest", h.Admin.Account.ManualCodexHarvest)
-		accounts.GET("/opencode-go-usage/settings", h.Admin.Account.GetOpenCodeGoUsageSettings)
-		accounts.PUT("/opencode-go-usage/settings", h.Admin.Account.UpdateOpenCodeGoUsageSettings)
 		accounts.GET("/:id", h.Admin.Account.GetByID)
 		accounts.GET("/:id/claude/reset-credits", h.Admin.Account.ClaudeResetCredits)
 		// Same protection as the Codex reset-quota route (admin auth, audit, compliance guard).

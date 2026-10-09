@@ -395,10 +395,13 @@ func (a *Account) ResolveOpenCodeGoUpstreamProtocol(model string) string {
 	case APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses:
 		return a.GetAPIProtocol()
 	default:
-		if rules, present := a.openCodeGoProtocolRules(); present {
-			return matchOpenCodeGoProtocolRules(model, rules)
+		if rules, present := a.configuredProtocolRules(); present {
+			return matchProtocolRules(model, rules)
 		}
-		return matchOpenCodeGoProtocolRules(model, defaultOpenCodeProtocolRules(a.GetOpenCodeAccountMode()))
+		if a.GetOpenCodeAccountMode() == AccountModeZen {
+			return matchProtocolRules(model, DefaultOpenCodeZenProtocolRules())
+		}
+		return matchProtocolRules(model, DefaultOpenCodeGoProtocolRules())
 	}
 }
 

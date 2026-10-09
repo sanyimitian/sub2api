@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { BUILTIN_PLATFORM_CATALOG, setPlatformCatalog, resetPlatformCatalog } from '@/constants/platformCatalog'
 
 enableAutoUnmount(afterEach)
 

@@ -2656,6 +2656,19 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for your account in this group", denied))
 		return
 	}
+	wsRouteModel := reqModel
+	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
+		decision, resolveErr := h.compositeResolver.Resolve(c.Request.Context(), apiKey.Group.ID, reqModel, service.CompositeRouteEndpointResponses)
+		if resolveErr != nil {
+			reqLog.Error("openai.websocket_composite_route_failed", zap.Error(resolveErr))
+			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "Failed to resolve composite model route")
+			return
+		}
+		if decision.Matched {
+			c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), decision))
+			wsRouteModel = decision.UpstreamModel
+		}
+	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	ctx = c.Request.Context()
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
@@ -3069,6 +3082,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// turn 级定价：首轮回退到 TurnStarted 的所属 turn 时刻；后续 turn 由
 		// BeforeTurn 重新冻结 pricingAt 并按最新门复核当前账号。
 		var turnPricing openAIWSTurnPricing
+		var turnBillingAPIKeys openAIWSTurnBillingAPIKeys
 		// Passthrough ingress does not invoke BeforeTurn for the first frame.
 		if err := checkSimpleModeTurnBilling(); err != nil {
 			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
@@ -4751,7 +4765,8 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarkedWithIdentity(c *gin.Cont
 		IdentitySource:    identity.Metadata.Source,
 		IdentityInherited: identity.Inherited,
 	}
-	if gwSvc != nil && apiKey != nil {
+	cyberLogOnly := h.cyberPolicyLogOnly(c, apiKey)
+	if gwSvc != nil && apiKey != nil && !cyberLogOnly {
 		if identity.BlockKey != "" {
 			blockCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 			gwSvc.MarkCyberSessionBlocked(blockCtx, "", []string{identity.BlockKey})

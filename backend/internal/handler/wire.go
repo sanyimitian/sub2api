@@ -54,6 +54,7 @@ func ProvideAdminHandlers(
 	settingService *service.SettingService,
 	codexHarvest *service.CodexHarvestService,
 	openAIGatewayService *service.OpenAIGatewayService,
+	claudeResetCredits *service.ClaudeResetCreditService,
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
@@ -61,6 +62,7 @@ func ProvideAdminHandlers(
 	accountHandler.SetCodexHarvestService(codexHarvest)
 	accountHandler.SetOpenAIGatewayService(openAIGatewayService)
 	accountHandler.SetOpenCodeGoUsageService(opencodeGoUsage)
+	accountHandler.SetClaudeResetCreditService(claudeResetCredits)
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,

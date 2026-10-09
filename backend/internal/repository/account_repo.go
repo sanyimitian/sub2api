@@ -634,10 +634,6 @@ func lockAndMergeAccountProbeExtra(
 	if account.ProxyID != nil {
 		proxyID = *account.ProxyID
 	}
-	currentExtraColumn := ""
-	if account.IsOpenAIOAuth() {
-		currentExtraColumn = ", extra"
-	}
 	rows, err := client.QueryContext(ctx, `
 		SELECT
 			platform = $2
@@ -728,7 +724,8 @@ func lockAndMergeAccountProbeExtra(
 		&currentOpenCodeAutoRefresh,
 		&currentOpenCodeSnapshot,
 		&currentExtraJSON,
-	); err != nil {
+	}
+	if err := rows.Scan(scanTargets...); err != nil {
 		return nil, err
 	}
 	if err := rows.Err(); err != nil {
@@ -737,7 +734,7 @@ func lockAndMergeAccountProbeExtra(
 
 	extra := copyJSONMap(normalizeJSONMap(account.Extra))
 	currentCodexExtra := map[string]any{}
-	if value, ok, decodeErr := decodeAccountExtraJSON(currentExtra); decodeErr == nil && ok {
+	if value, ok, decodeErr := decodeAccountExtraJSON(currentExtraJSON); decodeErr == nil && ok {
 		if current, isMap := value.(map[string]any); isMap {
 			currentCodexExtra = current
 		}

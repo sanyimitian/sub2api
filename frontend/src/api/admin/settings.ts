@@ -666,9 +666,6 @@ export interface SystemSettings {
   openai_codex_ticket_static_proxy_url?: string;
   openai_codex_ticket_harvest_proxy_configured: boolean;
   openai_codex_ticket_models: string[];
-  claude_code_client_version: string;
-  claude_code_client_version_synced: string;
-  claude_code_version_auto_sync_enabled: boolean;
   // codex_cli_only 加固
   min_codex_version: string;
   max_codex_version: string;
@@ -1010,8 +1007,6 @@ export interface UpdateSettingsRequest {
   openai_codex_ticket_use_saved_static_proxy?: boolean;
   openai_codex_ticket_strict_response?: boolean;
   openai_codex_ticket_models?: string[];
-  claude_code_client_version?: string;
-  claude_code_version_auto_sync_enabled?: boolean;
   // codex_cli_only 加固
   min_codex_version?: string;
   max_codex_version?: string;

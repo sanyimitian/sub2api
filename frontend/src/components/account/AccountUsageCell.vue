@@ -693,6 +693,7 @@
 </template>
 
 <script setup lang="ts">
+import { isMultiProtocolApiKeyPlatform } from './credentialsBuilder'
 import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

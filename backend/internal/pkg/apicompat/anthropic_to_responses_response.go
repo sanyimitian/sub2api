@@ -53,7 +53,7 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 	for _, block := range resp.Content {
 		switch block.Type {
 		case "thinking", "redacted_thinking":
-			if claude.IsOpus55(resp.Model) && (block.Signature != "" || block.Data != "") {
+			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model)) && (block.Signature != "" || block.Data != "") {
 				item := ResponsesOutput{Type: "reasoning", ID: generateItemID(), EncryptedContent: encodeAnthropicThinking(block)}
 				if block.Thinking != "" {
 					item.Summary = []ResponsesSummary{{Type: "summary_text", Text: block.Thinking}}
@@ -72,7 +72,7 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 				})
 			}
 		case "text":
-			if claude.IsOpus55(resp.Model) && block.Text != "" {
+			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model)) && block.Text != "" {
 				outputs = append(outputs, ResponsesOutput{Type: "message", ID: generateItemID(), Role: "assistant", Status: "completed", Content: []ResponsesContentPart{{Type: "output_text", Text: block.Text}}})
 				continue
 			}
@@ -199,6 +199,12 @@ type AnthropicEventToResponsesState struct {
 	CurrentThinking            AnthropicContentBlock
 	PreserveThinkingSignatures bool
 
+	// PendingToolInput holds tool arguments that arrived complete on
+	// content_block_start instead of as input_json_delta. It is only consumed at
+	// content_block_stop, and only when no delta ever arrived, so a canonical
+	// Anthropic stream keeps its exact event sequence.
+	PendingToolInput string
+
 	// Outputs accumulates every closed output item so that response.completed
 	// can carry the full output list. The OpenAI SDK's get_final_response()
 	// parses the terminal event's response directly; without this, clients see
@@ -279,7 +285,7 @@ func ResponsesEventToSSE(evt ResponsesStreamEvent) (string, error) {
 func anthToResHandleMessageStart(evt *AnthropicStreamEvent, state *AnthropicEventToResponsesState) []ResponsesStreamEvent {
 	if evt.Message != nil {
 		state.ResponseID = evt.Message.ID
-		state.PreserveThinkingSignatures = state.PreserveThinkingSignatures || claude.IsOpus55(evt.Message.Model)
+		state.PreserveThinkingSignatures = state.PreserveThinkingSignatures || claude.IsOpus55(evt.Message.Model) || claude.IsSonnet55(evt.Message.Model)
 		if state.Model == "" {
 			state.Model = evt.Message.Model
 		}
@@ -477,21 +483,19 @@ func anthToResHandleContentBlockStop(evt *AnthropicStreamEvent, state *Anthropic
 		return events
 
 	case "function_call":
-		// Emit function_call_arguments.done + output item done.
-		// arguments must repeat exactly what the deltas already streamed for this
-		// item: clients reconcile the done event against the accumulated
-		// function_call_arguments.delta payloads and reject the call as
-		// inconsistent_tool_call when the two disagree. Omitting the field left it
-		// empty while the deltas carried the whole JSON.
-		events := []ResponsesStreamEvent{
-			makeResponsesEvent(state, "response.function_call_arguments.done", &ResponsesStreamEvent{
+		var events []ResponsesStreamEvent
+		// No delta ever arrived, so the arguments the upstream put on
+		// content_block_start are all there is. Emit them as one delta here so
+		// the done event below still repeats exactly what the deltas streamed.
+		if state.CurrentArgs == "" && state.PendingToolInput != "" {
+			state.CurrentArgs = state.PendingToolInput
+			events = append(events, makeResponsesEvent(state, "response.function_call_arguments.delta", &ResponsesStreamEvent{
 				OutputIndex: state.OutputIndex,
 				Delta:       state.PendingToolInput,
 				ItemID:      state.CurrentItemID,
 				CallID:      state.CurrentCallID,
 				Name:        state.CurrentName,
-				Arguments:   state.CurrentArgs,
-			}),
+			}))
 		}
 		state.PendingToolInput = ""
 

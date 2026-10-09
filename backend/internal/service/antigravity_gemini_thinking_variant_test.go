@@ -21,6 +21,7 @@ func newAntigravityAccountWithMapping(mapping map[string]string) *Account {
 		},
 	}
 }
+
 func TestGeminiThinkingLevelFromBody(t *testing.T) {
 	tests := []struct {
 		name string

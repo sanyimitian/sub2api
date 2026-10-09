@@ -256,6 +256,8 @@
                 :title="row.first_token_ms != null ? t('usage.latencyTpsHint') : t('usage.latencyTpsHintNoFirstToken')"
               >{{ formatUsageOutputTps(row) }}</span>
               <span v-else data-testid="latency-tps" class="text-gray-400 dark:text-gray-500">-</span>
+              <span class="text-gray-400 dark:text-gray-500" :title="t('usage.outputTpsHint')">{{ t('usage.outputTps') }}</span>
+              <span data-testid="output-tps" class="font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatUsageOutputRate(row) }}</span>
             </div>
           </component>
         </template>
@@ -558,6 +560,7 @@ import {
   LATENCY_TEXT_CLASSES,
   durationSeverity,
   firstTokenSeverity,
+  formatUsageOutputRate,
   tpsSeverity,
 } from '@/utils/latencyHealth'
 import { formatUsageOutputTps, usageOutputTps } from '@/utils/usageTps'

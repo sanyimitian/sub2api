@@ -46,6 +46,11 @@ func IsOpus55(model string) bool {
 	return normalizeEffortModelID(model) == "claude-opus-5-5"
 }
 
+// IsSonnet55 identifies the fixed Sonnet 5.5 ID after provider/local suffix normalization.
+func IsSonnet55(model string) bool {
+	return normalizeEffortModelID(model) == "claude-sonnet-5-5"
+}
+
 func normalizeEffortModelID(model string) string {
 	id := strings.ToLower(strings.TrimSpace(model))
 	id = strings.TrimPrefix(id, "models/")

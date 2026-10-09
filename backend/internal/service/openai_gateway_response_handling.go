@@ -475,8 +475,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		code, message := classifyOpenAIUpstreamStreamReadError(scanErr)
 		sendErrorEvent(code, message)
 		s.recordOpenAIProxyStreamDisconnect(account, scanErr, upstreamRequestID, resp)
-		code, message := classifyOpenAIUpstreamStreamReadError(scanErr)
-		sendErrorEvent(code, message)
 		return resultWithUsage(), fmt.Errorf("stream read error: %w", scanErr), true
 	}
 	processSSELine := func(line string, queueDrained bool) {

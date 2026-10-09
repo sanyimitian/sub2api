@@ -155,10 +155,11 @@ type cachedCodexRestrictionPolicy struct {
 // cachedCyberSessionBlockRuntime cyber 会话屏蔽开关、TTL 与用户白名单缓存（60s TTL）。
 // GetCyberSessionBlockRuntime 在网关请求热路径上被调用，避免每次访问 DB。
 type cachedCyberSessionBlockRuntime struct {
-	enabled   bool
-	strict    bool
-	ttl       time.Duration
-	expiresAt int64 // unix nano
+	allowlistedUsers map[int64]struct{}
+	enabled          bool
+	strict           bool
+	ttl              time.Duration
+	expiresAt        int64 // unix nano
 }
 
 const cyberSessionBlockRuntimeCacheTTL = 60 * time.Second
@@ -200,17 +201,9 @@ func (s *SettingService) GetCyberSessionBlockRuntime(ctx context.Context) (bool,
 		cacheTTL := cyberSessionBlockRuntimeCacheTTL
 		if enabledErr != nil && !errors.Is(enabledErr, ErrSettingNotFound) {
 			slog.Warn("failed to get cyber_session_block_enabled setting", "error", enabledErr)
-			entry := &cachedCyberSessionBlockRuntime{
-				enabled:   false,
-				strict:    false,
-				ttl:       time.Hour,
-				expiresAt: time.Now().Add(cyberSessionBlockRuntimeErrorTTL).UnixNano(),
-			}
-			s.cyberSessionBlockRuntimeCache.Store(entry)
-			return entry, nil
+			cacheTTL = cyberSessionBlockRuntimeErrorTTL
 		}
 
-		cacheTTL := cyberSessionBlockRuntimeCacheTTL
 		if strictErr != nil && !errors.Is(strictErr, ErrSettingNotFound) {
 			slog.Warn("failed to get cyber_session_identity_strict_enabled setting", "error", strictErr)
 			strictVal = "false"
@@ -240,10 +233,11 @@ func (s *SettingService) GetCyberSessionBlockRuntime(ctx context.Context) (bool,
 			}
 		}
 		entry := &cachedCyberSessionBlockRuntime{
-			enabled:   enabled,
-			strict:    strict,
-			ttl:       ttl,
-			expiresAt: time.Now().Add(cacheTTL).UnixNano(),
+			allowlistedUsers: allowlistedUsers,
+			enabled:          enabled,
+			strict:           strict,
+			ttl:              ttl,
+			expiresAt:        time.Now().Add(cacheTTL).UnixNano(),
 		}
 		s.cyberSessionBlockRuntimeCache.Store(entry)
 		return entry, nil
@@ -316,7 +310,6 @@ func (s *SettingService) GetAntigravityUserAgentVersion(ctx context.Context) str
 	}
 	return fallback
 }
-
 
 // GetOpenAICodexUserAgent 返回 OpenAI Codex 上游请求使用的 User-Agent。
 // 后台设置优先；为空时回退到内置默认值。

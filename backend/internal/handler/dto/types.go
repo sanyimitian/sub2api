@@ -235,9 +235,7 @@ type Account struct {
 	AutoPauseOnExpired      bool                              `json:"auto_pause_on_expired"`
 	CreatedAt               time.Time                         `json:"created_at"`
 	UpdatedAt               time.Time                         `json:"updated_at"`
-	OpenCodeGoUsage         *service.OpenCodeGoUsageState     `json:"opencode_go_usage,omitempty"`
-
-	Schedulable bool `json:"schedulable"`
+	Schedulable             bool                              `json:"schedulable"`
 
 	RateLimitedAt    *time.Time `json:"rate_limited_at"`
 	RateLimitResetAt *time.Time `json:"rate_limit_reset_at"`

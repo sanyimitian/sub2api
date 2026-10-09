@@ -10172,10 +10172,6 @@ const form = reactive<SettingsForm>({
   openai_codex_ticket_harvest_proxy_url: "",
   openai_codex_ticket_harvest_proxy_configured: false,
   openai_codex_ticket_models: ["gpt-6-astra", "gpt-5.6-sol"],
-  claude_code_client_version: "",
-  // 只读展示：自动同步任务写入的官方最新稳定版，不参与提交（提交载荷按字段显式构造）
-  claude_code_client_version_synced: "",
-  claude_code_version_auto_sync_enabled: true,
   // codex_cli_only 加固
   min_codex_version: "",
   max_codex_version: "",
@@ -11221,14 +11217,6 @@ function selectCodexTicketProxyMode(mode: CodexTicketProxyMode): void {
       codexTicketStaticProxyDraft.value;
   }
 }
-const claudeSyncedVersionLabel = computed(() => {
-  const synced = form.claude_code_client_version_synced?.trim();
-  if (!synced) return "";
-  return t("admin.settings.gatewayForwarding.claudeCodeVersionSyncedValue", {
-    version: synced,
-  });
-});
-
 async function loadSettings() {
   loading.value = true;
   loadFailed.value = false;
@@ -11912,9 +11900,6 @@ async function saveSettings() {
         form.openai_codex_ticket_harvest_proxy_url?.trim() || "",
       openai_codex_ticket_use_saved_static_proxy: codexTicketProxyMode.value === 'static',
       openai_codex_ticket_models: [...form.openai_codex_ticket_models],
-      claude_code_client_version: form.claude_code_client_version?.trim() || "",
-      claude_code_version_auto_sync_enabled:
-        form.claude_code_version_auto_sync_enabled,
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",
       codex_cli_only_allow_app_server_clients:

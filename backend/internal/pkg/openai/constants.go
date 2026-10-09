@@ -25,6 +25,7 @@ var DefaultModels = []Model{
 	{ID: "gpt-5.6", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 (Sol)"},
 	{ID: "gpt-5.6-terra", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Terra"},
 	{ID: "gpt-5.6-luna", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Luna"},
+	{ID: "gpt-6.1-sol", Object: "model", Created: 1790640000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 Sol"},
 	{ID: "gpt-6-sol", Object: "model", Created: 1790035200, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Sol"},
 	{ID: "gpt-6-luna", Object: "model", Created: 1790035200, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Luna"},
 	{ID: "gpt-6-astra", Object: "model", Created: 1788480000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Astra"},
@@ -194,4 +195,35 @@ func IsGPT6SolOrLunaModelSpelling(model string) bool {
 		}
 	}
 	return false
+}
+
+// IsGPT61SolModelSpelling recognizes the published model and local effort/compact
+// spellings. Invalid effort suffixes remain identifiable for request validation.
+func IsGPT61SolModelSpelling(model string) bool {
+	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
+	if canonical == "gpt-6.1-sol" {
+		return true
+	}
+	suffix, ok := strings.CutPrefix(canonical, "gpt-6.1-sol-")
+	if !ok {
+		return false
+	}
+	switch suffix {
+	case "none", "minimal", "low", "medium", "high", "xhigh", "max", "openai-compact":
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidateGPT61SolReasoningEffort rejects disabled reasoning instead of silently
+// increasing the client's requested effort on compatibility paths.
+func ValidateGPT61SolReasoningEffort(model, effort string) error {
+	if IsGPT61SolModelSpelling(model) {
+		switch strings.ToLower(strings.TrimSpace(effort)) {
+		case "none", "minimal":
+			return fmt.Errorf("gpt-6.1-sol does not support reasoning effort %q; use low, medium, high, xhigh or max", effort)
+		}
+	}
+	return nil
 }

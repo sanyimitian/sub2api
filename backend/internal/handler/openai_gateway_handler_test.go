@@ -1942,7 +1942,10 @@ func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject
 
 type openAIResponsesWSUsageLogCase struct {
 	simpleModeRejectAtRead int64
+	compositeResolver      *service.CompositeRouteResolver
+	accountPlatform        string
 	closeReason            string
+	closeStatus            coderws.StatusCode
 	firstPayload           string
 	// midPayload 在首个 turn 完成后发送（如 session.update），上游桩会为它
 	// 回一个 response.completed，客户端按普通事件读取。
@@ -3088,6 +3091,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		billingCacheService: billingCacheSvc,
 		apiKeyService:       &service.APIKeyService{},
 		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
+		compositeResolver:   tc.compositeResolver,
 	}
 
 	apiKey := &service.APIKey{
@@ -3100,6 +3104,13 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	}
 	if tc.group != nil {
 		apiKey.Group = tc.group
+	}
+	if tc.apiKeyService != nil {
+		h.apiKeyService = tc.apiKeyService
+		authenticatedKey, authErr := tc.apiKeyService.GetByKey(context.Background(), tc.apiKeyCredential)
+		require.NoError(t, authErr)
+		require.NotNil(t, authenticatedKey)
+		apiKey = authenticatedKey
 	}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -3148,7 +3159,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		require.Error(t, readErr, "first frame should have been rejected with a close")
 		var closeErr coderws.CloseError
 		require.ErrorAs(t, readErr, &closeErr)
-		require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
+		require.Equal(t, tc.closeStatus, closeErr.Code)
 		reason := tc.closeReason
 		if reason == "" {
 			reason = "not available for this group"
@@ -3187,7 +3198,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 			require.Error(t, readErr, "second turn should have been rejected with a close")
 			var closeErr coderws.CloseError
 			require.ErrorAs(t, readErr, &closeErr)
-			require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
+			require.Equal(t, tc.closeStatus, closeErr.Code)
 			reason := tc.closeReason
 			if reason == "" {
 				reason = "not available for this group"

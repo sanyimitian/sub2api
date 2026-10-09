@@ -484,7 +484,24 @@ func boolPtr(v bool) *bool {
 // fell through to the sampling branch and failed upstream on every compat
 // request until someone edited this line.
 func isReasoningModel(model string) bool {
-	return strings.HasPrefix(model, "gpt-5") || openai.IsGPT6SolOrLunaModelSpelling(model)
+	major, ok := openAIModelGeneration(model)
+	return (ok && major >= 5) || openai.IsGPT6SolOrLunaModelSpelling(model)
+}
+
+func openAIModelGeneration(model string) (int, bool) {
+	rest, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-")
+	if !ok {
+		return 0, false
+	}
+	major, digits := 0, 0
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			break
+		}
+		major = major*10 + int(r-'0')
+		digits++
+	}
+	return major, digits > 0
 }
 
 // normalizeToolParameters ensures the tool parameter schema is valid for
