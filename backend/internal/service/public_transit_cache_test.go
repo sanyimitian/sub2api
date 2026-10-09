@@ -32,7 +32,7 @@ func TestPublicTransitCachePolicyValidation(t *testing.T) {
 	require.NoError(t, DefaultPublicTransitCachePolicy().Validate())
 	require.Equal(t, 10.0, DefaultPublicTransitCachePolicy().IncreasePercent)
 	invalid := DefaultPublicTransitCachePolicy()
-	invalid.LowRateMax = 81
+	invalid.LowRateDisplayMax = invalid.LowRateDisplayMin
 	require.Error(t, invalid.Validate())
 	invalid = DefaultPublicTransitCachePolicy()
 	invalid.IncreasePercent = 101
@@ -43,20 +43,52 @@ func TestAdjustPublicCacheRateUsesConfiguredIncreasePercent(t *testing.T) {
 	policy := DefaultPublicTransitCachePolicy()
 	require.InDelta(t, 88, adjustPublicCacheRateWithPolicy(80, "default", policy), 1e-12)
 
-	policy.IncreasePercent = 25
-	policy.LowRateMin = 1
-	policy.LowRateMax = 2
-	policy.MinimumRate = 3
+	policy.IncreasePercent = 5
+	policy.LowRateThreshold = 1
+	policy.LowRateDisplayMin = 80
+	policy.LowRateDisplayMax = 82
 	policy.MaximumRate = 100
 	require.NoError(t, policy.Validate())
-	require.InDelta(t, 50, adjustPublicCacheRateWithPolicy(40, "custom", policy), 1e-12)
+	require.InDelta(t, 86.1, adjustPublicCacheRateWithPolicy(82, "custom", policy), 1e-12)
 
-	policy.GroupIncreasePercent = map[int64]float64{42: 35}
-	require.InDelta(t, 54, adjustPublicCacheRateWithPolicy(40, "group", policy.forGroup(42)), 1e-12)
-	require.InDelta(t, 50, adjustPublicCacheRateWithPolicy(40, "default-group", policy.forGroup(43)), 1e-12)
+	policy.GroupIncreasePercent = map[int64]float64{42: 10}
+	require.InDelta(t, 90.2, adjustPublicCacheRateWithPolicy(82, "group", policy.forGroup(42)), 1e-12)
+	require.InDelta(t, 86.1, adjustPublicCacheRateWithPolicy(82, "default-group", policy.forGroup(43)), 1e-12)
 	require.NoError(t, policy.Validate())
 	policy.GroupIncreasePercent[0] = 10
 	require.Error(t, policy.Validate())
+}
+
+func TestAdjustPublicCacheRateUsesConfiguredLowDisplayRange(t *testing.T) {
+	policy := DefaultPublicTransitCachePolicy()
+	policy.LowRateThreshold = 78
+	policy.LowRateDisplayMin = 75
+	policy.LowRateDisplayMax = 82
+
+	for _, sourceRate := range []float64{0, 50, 77.99} {
+		adjusted := adjustPublicCacheRateWithPolicy(sourceRate, fmt.Sprintf("low/%v", sourceRate), policy)
+		require.GreaterOrEqual(t, adjusted, 75.0)
+		require.LessOrEqual(t, adjusted, 82.0)
+	}
+	require.Greater(t, adjustPublicCacheRateWithPolicy(78, "threshold", policy), 82.0)
+}
+
+func TestAdjustPublicCacheRateDoesNotApplyLowDisplayMinimumAboveThreshold(t *testing.T) {
+	policy := DefaultPublicTransitCachePolicy()
+	policy.LowRateThreshold = 50
+	policy.IncreasePercent = 0
+	require.InDelta(t, 60, adjustPublicCacheRateWithPolicy(60, "normal-below-old-floor", policy), 1e-12)
+}
+
+func TestAdjustedLowCacheCountsRespectConfiguredDisplayRange(t *testing.T) {
+	policy := DefaultPublicTransitCachePolicy()
+	policy.LowRateThreshold = 78
+	policy.LowRateDisplayMin = 80.01
+	policy.LowRateDisplayMax = 80.02
+	input, created, read, rate := adjustPublicCacheCountsWithPolicy(1000, 0, 1, "low-counts", policy)
+	require.GreaterOrEqual(t, rate, 80.01)
+	require.LessOrEqual(t, rate, 80.02)
+	require.InDelta(t, rate, float64(read)/float64(input+created+read)*100, 1e-12)
 }
 
 func TestPublicTransitPassiveGroupPolicyUsesPublicGroupLookup(t *testing.T) {

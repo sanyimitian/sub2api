@@ -11,10 +11,12 @@ func (s *SettingService) GetPublicTransitCachePolicy(ctx context.Context) (Publi
 	defaults := DefaultPublicTransitCachePolicy()
 	values, err := s.settingRepo.GetMultiple(ctx, []string{
 		SettingKeyPublicTransitCacheEnabled,
-		SettingKeyPublicTransitCacheMinimumRate,
 		SettingKeyPublicTransitCacheMaximumRate,
 		SettingKeyPublicTransitCacheIncreasePercent,
 		SettingKeyPublicTransitCacheGroupIncreasePercent,
+		SettingKeyPublicTransitCacheLowRateThreshold,
+		SettingKeyPublicTransitCacheLowRateDisplayMin,
+		SettingKeyPublicTransitCacheLowRateDisplayMax,
 		SettingKeyPublicTransitCacheLowRateMin,
 		SettingKeyPublicTransitCacheLowRateMax,
 	})
@@ -33,11 +35,11 @@ func (s *SettingService) GetPublicTransitCachePolicy(ctx context.Context) (Publi
 		key   string
 		value *float64
 	}{
-		{SettingKeyPublicTransitCacheMinimumRate, &policy.MinimumRate},
 		{SettingKeyPublicTransitCacheMaximumRate, &policy.MaximumRate},
 		{SettingKeyPublicTransitCacheIncreasePercent, &policy.IncreasePercent},
-		{SettingKeyPublicTransitCacheLowRateMin, &policy.LowRateMin},
-		{SettingKeyPublicTransitCacheLowRateMax, &policy.LowRateMax},
+		{SettingKeyPublicTransitCacheLowRateThreshold, &policy.LowRateThreshold},
+		{SettingKeyPublicTransitCacheLowRateDisplayMin, &policy.LowRateDisplayMin},
+		{SettingKeyPublicTransitCacheLowRateDisplayMax, &policy.LowRateDisplayMax},
 	} {
 		raw, ok := values[item.key]
 		if !ok || raw == "" {
@@ -48,6 +50,33 @@ func (s *SettingService) GetPublicTransitCachePolicy(ctx context.Context) (Publi
 			return PublicTransitCachePolicy{}, fmt.Errorf("invalid public transit cache policy value %s: %w", item.key, err)
 		}
 		*item.value = parsed
+	}
+	if values[SettingKeyPublicTransitCacheLowRateThreshold] == "" {
+		if legacyThreshold := values[SettingKeyPublicTransitCacheLowRateMin]; legacyThreshold != "" {
+			parsed, err := strconv.ParseFloat(legacyThreshold, 64)
+			if err != nil {
+				return PublicTransitCachePolicy{}, fmt.Errorf("invalid legacy public transit low-rate threshold: %w", err)
+			}
+			policy.LowRateThreshold = parsed
+		}
+	}
+	if values[SettingKeyPublicTransitCacheLowRateDisplayMin] == "" {
+		if legacyMinimum := values[SettingKeyPublicTransitCacheLowRateMin]; legacyMinimum != "" {
+			parsed, err := strconv.ParseFloat(legacyMinimum, 64)
+			if err != nil {
+				return PublicTransitCachePolicy{}, fmt.Errorf("invalid legacy public transit low-rate minimum: %w", err)
+			}
+			policy.LowRateDisplayMin = parsed
+		}
+	}
+	if values[SettingKeyPublicTransitCacheLowRateDisplayMax] == "" {
+		if legacyMaximum := values[SettingKeyPublicTransitCacheLowRateMax]; legacyMaximum != "" {
+			parsed, err := strconv.ParseFloat(legacyMaximum, 64)
+			if err != nil {
+				return PublicTransitCachePolicy{}, fmt.Errorf("invalid legacy public transit low-rate maximum: %w", err)
+			}
+			policy.LowRateDisplayMax = parsed
+		}
 	}
 	if raw := values[SettingKeyPublicTransitCacheGroupIncreasePercent]; raw != "" {
 		if err := json.Unmarshal([]byte(raw), &policy.GroupIncreasePercent); err != nil {
@@ -73,11 +102,11 @@ func (s *SettingService) SetPublicTransitCachePolicy(ctx context.Context, policy
 	}
 	return s.settingRepo.SetMultiple(ctx, map[string]string{
 		SettingKeyPublicTransitCacheEnabled:              strconv.FormatBool(policy.Enabled),
-		SettingKeyPublicTransitCacheMinimumRate:          strconv.FormatFloat(policy.MinimumRate, 'f', -1, 64),
 		SettingKeyPublicTransitCacheMaximumRate:          strconv.FormatFloat(policy.MaximumRate, 'f', -1, 64),
 		SettingKeyPublicTransitCacheIncreasePercent:      strconv.FormatFloat(policy.IncreasePercent, 'f', -1, 64),
 		SettingKeyPublicTransitCacheGroupIncreasePercent: string(groupIncreasePercent),
-		SettingKeyPublicTransitCacheLowRateMin:           strconv.FormatFloat(policy.LowRateMin, 'f', -1, 64),
-		SettingKeyPublicTransitCacheLowRateMax:           strconv.FormatFloat(policy.LowRateMax, 'f', -1, 64),
+		SettingKeyPublicTransitCacheLowRateThreshold:     strconv.FormatFloat(policy.LowRateThreshold, 'f', -1, 64),
+		SettingKeyPublicTransitCacheLowRateDisplayMin:    strconv.FormatFloat(policy.LowRateDisplayMin, 'f', -1, 64),
+		SettingKeyPublicTransitCacheLowRateDisplayMax:    strconv.FormatFloat(policy.LowRateDisplayMax, 'f', -1, 64),
 	})
 }

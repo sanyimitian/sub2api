@@ -1100,10 +1100,10 @@ export interface PublicTransitCachePolicy {
   enabled: boolean;
   increase_percent: number;
   group_increase_percent: Record<string, number>;
-  minimum_rate: number;
   maximum_rate: number;
-  low_rate_min: number;
-  low_rate_max: number;
+  low_rate_threshold: number;
+  low_rate_display_min: number;
+  low_rate_display_max: number;
 }
 
 export async function getPublicTransitCachePolicy(): Promise<PublicTransitCachePolicy> {

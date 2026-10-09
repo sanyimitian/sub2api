@@ -63,13 +63,6 @@
               </span>
             </label>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-200">
-              {{ t('publicTransit.cacheConfig.minimumRate') }}
-              <span class="mt-2 flex items-center gap-2">
-                <input v-model.number="policy.minimum_rate" type="number" min="0" max="100" step="0.1" class="cache-number" />
-                <span class="text-gray-500">%</span>
-              </span>
-            </label>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-200">
               {{ t('publicTransit.cacheConfig.maximumRate') }}
               <span class="mt-2 flex items-center gap-2">
                 <input v-model.number="policy.maximum_rate" type="number" min="0" max="100" step="0.1" class="cache-number" />
@@ -90,16 +83,23 @@
           </div>
           <div class="grid gap-5 sm:grid-cols-2">
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-200">
+              {{ t('publicTransit.cacheConfig.lowThreshold') }}
+              <span class="mt-2 flex items-center gap-2">
+                <input v-model.number="policy.low_rate_threshold" type="number" min="0" max="100" step="0.1" class="cache-number" />
+                <span class="text-gray-500">%</span>
+              </span>
+            </label>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-200">
               {{ t('publicTransit.cacheConfig.lowMinimum') }}
               <span class="mt-2 flex items-center gap-2">
-                <input v-model.number="policy.low_rate_min" type="number" min="0" max="100" step="0.1" class="cache-number" />
+                <input v-model.number="policy.low_rate_display_min" type="number" min="0" max="100" step="0.1" class="cache-number" />
                 <span class="text-gray-500">%</span>
               </span>
             </label>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-200">
               {{ t('publicTransit.cacheConfig.lowMaximum') }}
               <span class="mt-2 flex items-center gap-2">
-                <input v-model.number="policy.low_rate_max" type="number" min="0" max="100" step="0.1" class="cache-number" />
+                <input v-model.number="policy.low_rate_display_max" type="number" min="0" max="100" step="0.1" class="cache-number" />
                 <span class="text-gray-500">%</span>
               </span>
             </label>
@@ -193,19 +193,18 @@ const policy = ref<PublicTransitCachePolicy>({
   enabled: true,
   increase_percent: 10,
   group_increase_percent: {},
-  minimum_rate: 80,
   maximum_rate: 92,
-  low_rate_min: 75,
-  low_rate_max: 80,
+  low_rate_threshold: 75,
+  low_rate_display_min: 75,
+  low_rate_display_max: 80,
 })
 
 const valid = computed(() => {
-  const values = [policy.value.increase_percent, policy.value.low_rate_min, policy.value.low_rate_max, policy.value.minimum_rate, policy.value.maximum_rate]
+  const values = [policy.value.increase_percent, policy.value.low_rate_threshold, policy.value.low_rate_display_min, policy.value.low_rate_display_max, policy.value.maximum_rate]
   return values.every(value => Number.isFinite(value) && value >= 0 && value <= 100)
     && Object.values(policy.value.group_increase_percent).every(value => Number.isFinite(value) && value >= 0 && value <= 100)
-    && policy.value.low_rate_min < policy.value.low_rate_max
-    && policy.value.low_rate_max <= policy.value.minimum_rate
-    && policy.value.minimum_rate <= policy.value.maximum_rate
+    && policy.value.low_rate_display_min < policy.value.low_rate_display_max
+    && policy.value.low_rate_display_max <= policy.value.maximum_rate
 })
 
 onMounted(async () => {
