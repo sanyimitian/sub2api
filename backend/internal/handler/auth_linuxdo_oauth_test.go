@@ -699,7 +699,7 @@ func TestLinuxDoOAuthCallbackEmailVerificationCompletesWithBoundEmail(t *testing
 
 	createRecorder := httptest.NewRecorder()
 	createCtx, _ := gin.CreateTestContext(createRecorder)
-	body := bytes.NewBufferString(`{"email":"fresh@example.com","verify_code":"246810","password":"secret-123","adopt_display_name":false,"adopt_avatar":false}`)
+	body := bytes.NewBufferString(`{"email":"fresh@example.com","verify_code":"246810","password":"Secret-123","adopt_display_name":false,"adopt_avatar":false}`)
 	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth/pending/create-account", body)
 	createReq.Header.Set("Content-Type", "application/json")
 	createReq.AddCookie(sessionCookie)

@@ -27,6 +27,10 @@ legitimately occupy it for many minutes. Apply connection and unauthenticated
 request controls at the edge; authenticated user/API-key concurrency remains
 the application's responsibility.
 
+## 新用户注册密码
+
+用户自行设置的新注册密码至少需要 6 个字符，且同时包含英文大写字母、小写字母和数字；允许特殊字符。普通邮箱注册、第三方登录后的本地账号创建与已验证邮箱补全注册共用服务端校验，前端同步提示并拦截提交。弱密码会在验证码消费、账号创建和待注册会话变更前被拒绝。现有账号登录及第三方登录自动生成的内部密码不受此注册规则影响。
+
 ## Trusted client IPs
 
 所有来源地址解析均受 `server.trusted_proxies`（可信代理列表）约束。未配置或显式配置为空时，只使用直接连接地址；启用旧版兼容开关也不能跳过此校验。反向代理部署升级前必须配置实际连接应用的代理地址，否则多个客户端会按同一个代理地址统计与限流。

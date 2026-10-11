@@ -166,6 +166,10 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		return "", nil, ErrRegDisabled
 	}
 
+	if err := ValidateRegistrationPassword(password); err != nil {
+		return "", nil, err
+	}
+
 	// 防止用户注册 LinuxDo OAuth 合成邮箱，避免第三方登录与本地账号发生碰撞。
 	if isReservedEmail(email) {
 		return "", nil, ErrEmailReserved

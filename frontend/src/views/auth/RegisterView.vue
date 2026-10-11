@@ -365,6 +365,7 @@
 </template>
 
 <script setup lang="ts">
+import { isRegistrationPasswordValid } from '@/utils/registrationPassword'
 import { computed, ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -960,8 +961,8 @@ function validateForm(): boolean {
   if (!formData.password) {
     errors.password = t('auth.passwordRequired')
     isValid = false
-  } else if (formData.password.length < 6) {
-    errors.password = t('auth.passwordMinLength')
+  } else if (!isRegistrationPasswordValid(formData.password)) {
+    errors.password = t('auth.registrationPasswordRequirements')
     isValid = false
   }
 

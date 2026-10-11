@@ -183,6 +183,10 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	if err := service.ValidateRegistrationPassword(req.Password); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 
 	// 验证当前启用的验证码（邮箱验证码注册场景避免重复校验一次性票据）
 	proof := captchaProof(req.TurnstileToken, req.TencentCaptchaTicket, req.TencentCaptchaRandstr)

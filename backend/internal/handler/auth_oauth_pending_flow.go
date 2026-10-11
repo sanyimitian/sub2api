@@ -1713,6 +1713,10 @@ func (h *AuthHandler) createPendingOAuthAccount(c *gin.Context, provider string)
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	if err := service.ValidateRegistrationPassword(req.Password); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 
 	_, session, clearCookies, err := readPendingOAuthBrowserSession(c, h)
 	if err != nil {

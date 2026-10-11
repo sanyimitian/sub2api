@@ -348,6 +348,10 @@ func (h *AuthHandler) completeEmailOAuthRegistration(c *gin.Context, provider st
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	if err := service.ValidateRegistrationPassword(req.Password); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 
 	_, session, clearCookies, err := readPendingOAuthBrowserSession(c, h)
 	if err != nil {

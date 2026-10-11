@@ -106,7 +106,7 @@ describe('PendingOAuthCreateAccountForm', () => {
     })
 
     await flushPromises()
-    await wrapper.get('[data-testid="oidc-create-account-password"]').setValue('secret-123')
+    await wrapper.get('[data-testid="oidc-create-account-password"]').setValue('Secret-123')
     await wrapper.get('[data-testid="oidc-create-account-verify-code"]').setValue('246810')
     await wrapper.get('[data-testid="oidc-create-account-send-code"]').trigger('click')
     await flushPromises()
@@ -141,7 +141,7 @@ describe('PendingOAuthCreateAccountForm', () => {
     })
 
     await wrapper.get('[data-testid="linuxdo-create-account-email"]').setValue('  user@example.com  ')
-    await wrapper.get('[data-testid="linuxdo-create-account-password"]').setValue('secret-123')
+    await wrapper.get('[data-testid="linuxdo-create-account-password"]').setValue('Secret-123')
     await wrapper.get('[data-testid="linuxdo-create-account-verify-code"]').setValue(' 246810 ')
     await wrapper.get('form').trigger('submit.prevent')
 
@@ -149,7 +149,7 @@ describe('PendingOAuthCreateAccountForm', () => {
       [
         {
           email: 'user@example.com',
-          password: 'secret-123',
+          password: 'Secret-123',
           verifyCode: '246810'
         }
       ]
@@ -185,7 +185,7 @@ describe('PendingOAuthCreateAccountForm', () => {
     })
 
     await flushPromises()
-    await wrapper.get('[data-testid="linuxdo-create-account-password"]').setValue('secret-123')
+    await wrapper.get('[data-testid="linuxdo-create-account-password"]').setValue('Secret-123')
     await wrapper.get('form').trigger('submit.prevent')
 
     expect(wrapper.find('[data-testid="linuxdo-create-account-verify-code"]').exists()).toBe(false)
@@ -194,7 +194,7 @@ describe('PendingOAuthCreateAccountForm', () => {
       [
         {
           email: 'prefill@example.com',
-          password: 'secret-123',
+          password: 'Secret-123',
           verifyCode: ''
         }
       ]
@@ -219,7 +219,7 @@ describe('PendingOAuthCreateAccountForm', () => {
     })
 
     await flushPromises()
-    await wrapper.get('[data-testid="linuxdo-create-account-password"]').setValue('secret-123')
+    await wrapper.get('[data-testid="linuxdo-create-account-password"]').setValue('Secret-123')
     await wrapper.get('[data-testid="linuxdo-create-account-verify-code"]').setValue('246810')
     await wrapper.get('[data-testid="linuxdo-create-account-invitation-code"]').setValue(' INVITE123 ')
     await wrapper.get('form').trigger('submit.prevent')
@@ -228,7 +228,7 @@ describe('PendingOAuthCreateAccountForm', () => {
       [
         {
           email: 'prefill@example.com',
-          password: 'secret-123',
+          password: 'Secret-123',
           verifyCode: '246810',
           invitationCode: 'INVITE123'
         }
@@ -376,7 +376,7 @@ describe('PendingOAuthCreateAccountForm', () => {
     })
 
     await flushPromises()
-    await wrapper.get('[data-testid="linuxdo-create-account-password"]').setValue('secret-123')
+    await wrapper.get('[data-testid="linuxdo-create-account-password"]').setValue('Secret-123')
 
     expect(wrapper.get('[data-testid="linuxdo-create-account-submit"]').attributes('disabled')).toBeDefined()
 
@@ -394,7 +394,7 @@ describe('PendingOAuthCreateAccountForm', () => {
       [
         {
           email: 'user@example.com',
-          password: 'secret-123',
+          password: 'Secret-123',
           verifyCode: '',
           turnstileToken: 'turnstile-token',
           invitationCode: undefined
@@ -427,7 +427,7 @@ describe('PendingOAuthCreateAccountForm', () => {
     })
 
     await flushPromises()
-    await wrapper.get('[data-testid="linuxdo-create-account-password"]').setValue('secret-123')
+    await wrapper.get('[data-testid="linuxdo-create-account-password"]').setValue('Secret-123')
     await wrapper.get('[data-testid="turnstile-verify"]').trigger('click')
     await wrapper.get('[data-testid="linuxdo-create-account-send-code"]').trigger('click')
     await flushPromises()

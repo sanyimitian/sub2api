@@ -16,6 +16,7 @@
       :placeholder="t('auth.passwordPlaceholder')"
       :disabled="isSubmitting"
     />
+    <p class="input-hint">{{ t('auth.registrationPasswordRequirements') }}</p>
     <div v-if="captchaEnabled" class="space-y-2">
       <TurnstileWidget
         ref="turnstileRef"
@@ -80,7 +81,7 @@
       :data-testid="`${testIdPrefix}-create-account-submit`"
       type="button"
       class="btn btn-primary w-full"
-      :disabled="isSubmitting || !email.trim() || password.length < 6 || (invitationCodeEnabled && !invitationCode.trim()) || (turnstileEnabled && !turnstileToken)"
+      :disabled="isSubmitting || !email.trim() || !isRegistrationPasswordValid(password) || (invitationCodeEnabled && !invitationCode.trim()) || (turnstileEnabled && !turnstileToken)"
       @click="handleSubmit"
     >
       {{ isSubmitting ? t('common.processing') : t('auth.createAccount') }}
@@ -97,6 +98,7 @@
 </template>
 
 <script setup lang="ts">
+import { isRegistrationPasswordValid } from '@/utils/registrationPassword'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import TurnstileWidget from '@/components/CaptchaChallenge.vue'
@@ -304,7 +306,7 @@ async function handleSendCode() {
 
 async function handleSubmit() {
   const trimmedEmail = email.value.trim()
-  if (!trimmedEmail || password.value.length < 6) {
+  if (!trimmedEmail || !isRegistrationPasswordValid(password.value)) {
     return
   }
 

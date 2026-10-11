@@ -183,7 +183,7 @@ func TestRegisterOAuthEmailAccountRollsBackCreatedUserWhenTokenPairGenerationFai
 	tokenPair, user, err := authService.RegisterOAuthEmailAccount(
 		context.Background(),
 		"fresh@example.com",
-		"secret-123",
+		"Secret-123",
 		"246810",
 		"INVITE123",
 		"oidc",
@@ -221,7 +221,7 @@ func TestRegisterOAuthEmailAccount_NonWhitelistDomainLimit(t *testing.T) {
 	_, _, err := authService.RegisterOAuthEmailAccount(
 		context.Background(),
 		"second@custom.example",
-		"secret-123",
+		"Secret-123",
 		"246810",
 		"",
 		"oidc",
@@ -248,7 +248,7 @@ func TestRegisterVerifiedOAuthEmailAccount_NonWhitelistDomainLimit(t *testing.T)
 	_, _, err := authService.RegisterVerifiedOAuthEmailAccount(
 		context.Background(),
 		"second@custom.example",
-		"secret-123",
+		"Secret-123",
 		"",
 		"oidc",
 	)
@@ -327,7 +327,7 @@ func TestRegisterOAuthEmailAccountSetsNormalizedSignupSourceOnCreatedUser(t *tes
 	tokenPair, user, err := authService.RegisterOAuthEmailAccount(
 		context.Background(),
 		"fresh@example.com",
-		"secret-123",
+		"Secret-123",
 		"246810",
 		"",
 		" OIDC ",
@@ -387,7 +387,7 @@ func TestRegisterOAuthEmailAccountKeepsGitHubAndGoogleSignupSource(t *testing.T)
 			tokenPair, user, err := authService.RegisterOAuthEmailAccount(
 				context.Background(),
 				tt.email,
-				"secret-123",
+				"Secret-123",
 				"246810",
 				"",
 				tt.signupSource,
@@ -427,7 +427,7 @@ func TestRegisterOAuthEmailAccountFallsBackUnknownSignupSourceToEmail(t *testing
 	tokenPair, user, err := authService.RegisterOAuthEmailAccount(
 		context.Background(),
 		"fallback@example.com",
-		"secret-123",
+		"Secret-123",
 		"246810",
 		"",
 		"unknown-provider",

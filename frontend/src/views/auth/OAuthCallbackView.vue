@@ -41,6 +41,7 @@
               autocomplete="new-password"
               @keyup.enter="handleSubmitRegistration"
             />
+            <p class="input-hint">{{ t('auth.registrationPasswordRequirements') }}</p>
           </div>
           <div>
             <label class="input-label">{{ t('auth.confirmPassword') }}</label>
@@ -146,6 +147,7 @@
 </template>
 
 <script setup lang="ts">
+import { isRegistrationPasswordValid } from '@/utils/registrationPassword'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -213,7 +215,7 @@ const registrationHint = computed(() =>
 )
 const canSubmitRegistration = computed(() => {
   if (!registrationEmail.value.trim()) return false
-  if (password.value.length < 6) return false
+  if (!isRegistrationPasswordValid(password.value)) return false
   if (password.value !== confirmPassword.value) return false
   if (invitationRequired.value && !invitationCode.value.trim()) return false
   return true
@@ -329,8 +331,8 @@ async function handleSubmitRegistration() {
     registrationError.value = t('auth.emailRequired')
     return
   }
-  if (password.value.length < 6) {
-    registrationError.value = t('auth.passwordMinLength')
+  if (!isRegistrationPasswordValid(password.value)) {
+    registrationError.value = t('auth.registrationPasswordRequirements')
     return
   }
   if (password.value !== confirmPassword.value) {

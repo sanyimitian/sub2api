@@ -269,7 +269,7 @@ func TestAuthService_Register_Disabled(t *testing.T) {
 		SettingKeyRegistrationEnabled: "false",
 	}, nil, nil)
 
-	_, _, err := service.Register(context.Background(), "user@test.com", "password")
+	_, _, err := service.Register(context.Background(), "user@test.com", "Password123")
 	require.ErrorIs(t, err, ErrRegDisabled)
 }
 
@@ -278,7 +278,7 @@ func TestAuthService_Register_DisabledByDefault(t *testing.T) {
 	repo := &userRepoStub{}
 	service := newAuthService(repo, nil, nil, nil)
 
-	_, _, err := service.Register(context.Background(), "user@test.com", "password")
+	_, _, err := service.Register(context.Background(), "user@test.com", "Password123")
 	require.ErrorIs(t, err, ErrRegDisabled)
 }
 
@@ -291,7 +291,7 @@ func TestAuthService_Register_SnapshotsPlatformQuotaDefaults(t *testing.T) {
 		SettingKeyDefaultPlatformQuotas: `{"openai": {"weekly": 12.34}}`,
 	}, nil, quotaRepo)
 
-	_, user, err := service.Register(context.Background(), "newuser@test.com", "password")
+	_, user, err := service.Register(context.Background(), "newuser@test.com", "Password123")
 	require.NoError(t, err)
 	require.NotNil(t, user)
 
@@ -314,7 +314,7 @@ func TestAuthService_Register_NoDefaultQuotasSkipsSnapshot(t *testing.T) {
 		SettingKeyRegistrationEnabled: "true",
 	}, nil, quotaRepo)
 
-	_, user, err := service.Register(context.Background(), "newuser2@test.com", "password")
+	_, user, err := service.Register(context.Background(), "newuser2@test.com", "Password123")
 	require.NoError(t, err)
 	require.NotNil(t, user)
 
@@ -329,7 +329,7 @@ func TestAuthService_Register_DoesNotSnapshotOnDisabled(t *testing.T) {
 		SettingKeyRegistrationEnabled: "false",
 	}, nil, quotaRepo)
 
-	_, _, err := service.Register(context.Background(), "user@test.com", "password")
+	_, _, err := service.Register(context.Background(), "user@test.com", "Password123")
 	require.ErrorIs(t, err, ErrRegDisabled)
 
 	require.Empty(t, quotaRepo.bulkInsertCalls, "registration rejected before user creation must not snapshot")
@@ -344,7 +344,7 @@ func TestAuthService_Register_EmailVerifyEnabledButServiceNotConfigured(t *testi
 	}, nil, nil)
 
 	// 应返回服务不可用错误，而不是允许绕过验证
-	_, _, err := service.RegisterWithVerification(context.Background(), "user@test.com", "password", "any-code", "", "", "")
+	_, _, err := service.RegisterWithVerification(context.Background(), "user@test.com", "Password123", "any-code", "", "", "")
 	require.ErrorIs(t, err, ErrServiceUnavailable)
 }
 
@@ -356,7 +356,7 @@ func TestAuthService_Register_EmailVerifyRequired(t *testing.T) {
 		SettingKeyEmailVerifyEnabled:  "true",
 	}, cache, nil)
 
-	_, _, err := service.RegisterWithVerification(context.Background(), "user@test.com", "password", "", "", "", "")
+	_, _, err := service.RegisterWithVerification(context.Background(), "user@test.com", "Password123", "", "", "", "")
 	require.ErrorIs(t, err, ErrEmailVerifyRequired)
 }
 
@@ -370,7 +370,7 @@ func TestAuthService_Register_EmailVerifyInvalid(t *testing.T) {
 		SettingKeyEmailVerifyEnabled:  "true",
 	}, cache, nil)
 
-	_, _, err := service.RegisterWithVerification(context.Background(), "user@test.com", "password", "wrong", "", "", "")
+	_, _, err := service.RegisterWithVerification(context.Background(), "user@test.com", "Password123", "wrong", "", "", "")
 	require.ErrorIs(t, err, ErrInvalidVerifyCode)
 	require.ErrorContains(t, err, "verify code")
 }
@@ -381,7 +381,7 @@ func TestAuthService_Register_EmailExists(t *testing.T) {
 		SettingKeyRegistrationEnabled: "true",
 	}, nil, nil)
 
-	_, _, err := service.Register(context.Background(), "user@test.com", "password")
+	_, _, err := service.Register(context.Background(), "user@test.com", "Password123")
 	require.ErrorIs(t, err, ErrEmailExists)
 }
 
@@ -391,7 +391,7 @@ func TestAuthService_Register_AliasDuplicateRejected(t *testing.T) {
 		SettingKeyRegistrationEnabled: "true",
 	}, nil, nil)
 
-	_, _, err := service.Register(context.Background(), "some.one+bulk294@gmail.com", "password")
+	_, _, err := service.Register(context.Background(), "some.one+bulk294@gmail.com", "Password123")
 	require.ErrorIs(t, err, ErrEmailExists)
 	require.Empty(t, repo.created)
 }
@@ -403,7 +403,7 @@ func TestAuthService_Register_UsesAliasGuardedCreate(t *testing.T) {
 		SettingKeyRegistrationEnabled: "true",
 	}, nil, nil)
 
-	_, user, err := service.Register(context.Background(), "newuser@gmail.com", "password")
+	_, user, err := service.Register(context.Background(), "newuser@gmail.com", "Password123")
 	require.NoError(t, err)
 	require.NotNil(t, user)
 	require.Equal(t, 1, repo.guardedCreates)
@@ -415,7 +415,7 @@ func TestAuthService_Register_CheckEmailError(t *testing.T) {
 		SettingKeyRegistrationEnabled: "true",
 	}, nil, nil)
 
-	_, _, err := service.Register(context.Background(), "user@test.com", "password")
+	_, _, err := service.Register(context.Background(), "user@test.com", "Password123")
 	require.ErrorIs(t, err, ErrServiceUnavailable)
 }
 
@@ -425,7 +425,7 @@ func TestAuthService_Register_ReservedEmail(t *testing.T) {
 		SettingKeyRegistrationEnabled: "true",
 	}, nil, nil)
 
-	_, _, err := service.Register(context.Background(), "linuxdo-123@linuxdo-connect.invalid", "password")
+	_, _, err := service.Register(context.Background(), "linuxdo-123@linuxdo-connect.invalid", "Password123")
 	require.ErrorIs(t, err, ErrEmailReserved)
 }
 
@@ -437,7 +437,7 @@ func TestAuthService_Register_EmailSuffixNotAllowed(t *testing.T) {
 		SettingKeyRegistrationEmailDomainQuotaEnabled: "true",
 	}, nil, nil)
 
-	_, _, err := service.Register(context.Background(), "user@other.com", "password")
+	_, _, err := service.Register(context.Background(), "user@other.com", "Password123")
 	require.ErrorIs(t, err, ErrEmailDomainRegistrationLimit)
 	appErr := infraerrors.FromError(err)
 	require.Equal(t, "EMAIL_DOMAIN_REGISTRATION_LIMIT", appErr.Reason)
@@ -452,7 +452,7 @@ func TestAuthService_Register_NonWhitelistDomainAllowsFirstAccount(t *testing.T)
 		SettingKeyRegistrationEmailDomainQuotaEnabled: "true",
 	}, nil, nil)
 
-	_, user, err := svc.Register(context.Background(), "first@custom.example", "password")
+	_, user, err := svc.Register(context.Background(), "first@custom.example", "Password123")
 	require.NoError(t, err)
 	require.Equal(t, int64(9), user.ID)
 }
@@ -465,7 +465,7 @@ func TestAuthService_Register_NonWhitelistDomainRejectsSecondAccount(t *testing.
 		SettingKeyRegistrationEmailDomainQuotaEnabled: "true",
 	}, nil, nil)
 
-	_, _, err := svc.Register(context.Background(), "second@sub.custom.example", "password")
+	_, _, err := svc.Register(context.Background(), "second@sub.custom.example", "Password123")
 	require.ErrorIs(t, err, ErrEmailDomainRegistrationLimit)
 }
 
@@ -478,7 +478,7 @@ func TestAuthService_Register_NonWhitelistDomainRejectedWhenQuotaDisabledByDefau
 		SettingKeyRegistrationEmailSuffixWhitelist: `["@example.com"]`,
 	}, nil, nil)
 
-	_, _, err := svc.Register(context.Background(), "first@custom.example", "password")
+	_, _, err := svc.Register(context.Background(), "first@custom.example", "Password123")
 	require.ErrorIs(t, err, ErrEmailSuffixNotAllowed)
 	appErr := infraerrors.FromError(err)
 	require.Equal(t, "EMAIL_SUFFIX_NOT_ALLOWED", appErr.Reason)
@@ -494,7 +494,7 @@ func TestAuthService_Register_NonWhitelistDomainRejectedWhenQuotaExplicitlyDisab
 		SettingKeyRegistrationEmailDomainQuotaEnabled: "false",
 	}, nil, nil)
 
-	_, _, err := svc.Register(context.Background(), "first@custom.example", "password")
+	_, _, err := svc.Register(context.Background(), "first@custom.example", "Password123")
 	require.ErrorIs(t, err, ErrEmailSuffixNotAllowed)
 	require.Empty(t, repo.created)
 }
@@ -507,7 +507,7 @@ func TestAuthService_Register_WhitelistDomainAllowedWhenQuotaDisabled(t *testing
 		SettingKeyRegistrationEmailSuffixWhitelist: `["@example.com"]`,
 	}, nil, nil)
 
-	_, user, err := svc.Register(context.Background(), "user@example.com", "password")
+	_, user, err := svc.Register(context.Background(), "user@example.com", "Password123")
 	require.NoError(t, err)
 	require.Equal(t, int64(12), user.ID)
 	require.Zero(t, repo.domainLimitedCreates)
@@ -542,7 +542,7 @@ func TestAuthService_Register_EmptyWhitelistAllowsAllDomains(t *testing.T) {
 		SettingKeyRegistrationEmailSuffixWhitelist: `[]`,
 	}, nil, nil)
 
-	_, _, err := svc.Register(context.Background(), "any@custom.example", "password")
+	_, _, err := svc.Register(context.Background(), "any@custom.example", "Password123")
 	require.NoError(t, err)
 }
 
@@ -553,7 +553,7 @@ func TestAuthService_Register_EmailSuffixAllowed(t *testing.T) {
 		SettingKeyRegistrationEmailSuffixWhitelist: `["example.com"]`,
 	}, nil, nil)
 
-	_, user, err := service.Register(context.Background(), "user@example.com", "password")
+	_, user, err := service.Register(context.Background(), "user@example.com", "Password123")
 	require.NoError(t, err)
 	require.NotNil(t, user)
 	require.Equal(t, int64(8), user.ID)
@@ -603,7 +603,7 @@ func TestAuthService_Register_CreateError(t *testing.T) {
 		SettingKeyRegistrationEnabled: "true",
 	}, nil, nil)
 
-	_, _, err := service.Register(context.Background(), "user@test.com", "password")
+	_, _, err := service.Register(context.Background(), "user@test.com", "Password123")
 	require.ErrorIs(t, err, ErrServiceUnavailable)
 }
 
@@ -614,7 +614,7 @@ func TestAuthService_Register_CreateEmailExistsRace(t *testing.T) {
 		SettingKeyRegistrationEnabled: "true",
 	}, nil, nil)
 
-	_, _, err := service.Register(context.Background(), "user@test.com", "password")
+	_, _, err := service.Register(context.Background(), "user@test.com", "Password123")
 	require.ErrorIs(t, err, ErrEmailExists)
 }
 
@@ -625,7 +625,7 @@ func TestAuthService_Register_Success(t *testing.T) {
 		SettingKeyAuthSourceDefaultEmailGrantOnSignup: "false",
 	}, nil, nil)
 
-	token, user, err := service.Register(context.Background(), "user@test.com", "password")
+	token, user, err := service.Register(context.Background(), "user@test.com", "Password123")
 	require.NoError(t, err)
 	require.NotEmpty(t, token)
 	require.NotNil(t, user)
@@ -636,7 +636,7 @@ func TestAuthService_Register_Success(t *testing.T) {
 	require.Equal(t, 3.5, user.Balance)
 	require.Equal(t, 2, user.Concurrency)
 	require.Len(t, repo.created, 1)
-	require.True(t, user.CheckPassword("password"))
+	require.True(t, user.CheckPassword("Password123"))
 }
 
 func TestAuthService_ValidateToken_ExpiredReturnsClaimsWithError(t *testing.T) {
@@ -775,7 +775,7 @@ func TestAuthService_Register_AssignsDefaultSubscriptions(t *testing.T) {
 	}, nil, nil)
 	service.defaultSubAssigner = assigner
 
-	_, user, err := service.Register(context.Background(), "default-sub@test.com", "password")
+	_, user, err := service.Register(context.Background(), "default-sub@test.com", "Password123")
 	require.NoError(t, err)
 	require.NotNil(t, user)
 	require.Len(t, assigner.calls, 2)
@@ -799,7 +799,7 @@ func TestAuthService_Register_UsesEmailAuthSourceDefaultsWhenGrantEnabled(t *tes
 	}, nil, nil)
 	service.defaultSubAssigner = assigner
 
-	_, user, err := service.Register(context.Background(), "email-defaults@test.com", "password")
+	_, user, err := service.Register(context.Background(), "email-defaults@test.com", "Password123")
 	require.NoError(t, err)
 	require.NotNil(t, user)
 	require.Equal(t, 12.5, user.Balance)
@@ -822,7 +822,7 @@ func TestAuthService_Register_GrantOnSignupFalseFallsBackToGlobalDefaults(t *tes
 	}, nil, nil)
 	service.defaultSubAssigner = assigner
 
-	_, user, err := service.Register(context.Background(), "email-global@test.com", "password")
+	_, user, err := service.Register(context.Background(), "email-global@test.com", "Password123")
 	require.NoError(t, err)
 	require.NotNil(t, user)
 	require.Equal(t, 3.5, user.Balance)
@@ -845,7 +845,7 @@ func TestAuthService_Register_GrantOnSignupMergesSourceOverridesWithGlobalDefaul
 	}, nil, nil)
 	service.defaultSubAssigner = assigner
 
-	_, user, err := service.Register(context.Background(), "email-merged@test.com", "password")
+	_, user, err := service.Register(context.Background(), "email-merged@test.com", "Password123")
 	require.NoError(t, err)
 	require.NotNil(t, user)
 	require.Equal(t, 9.5, user.Balance)

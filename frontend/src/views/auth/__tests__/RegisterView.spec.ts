@@ -136,6 +136,23 @@ describe('RegisterView', () => {
     expect(wrapper.find('#promo_code').exists()).toBe(true)
   })
 
+  it.each(['12345678', 'secret123', 'SECRET123', 'SecretPass'])(
+    'rejects weak registration password %s before captcha or API calls',
+    async password => {
+      getPublicSettingsMock.mockResolvedValueOnce(publicSettings)
+      const wrapper = mountRegister()
+      await flushPromises()
+      await wrapper.get('#email').setValue('user@example.com')
+      await wrapper.get('#password').setValue(password)
+      await wrapper.get('#confirmPassword').setValue(password)
+      await wrapper.get('form').trigger('submit.prevent')
+      await flushPromises()
+      expect(wrapper.get('#password').classes()).toContain('input-error')
+      expect(registerMock).not.toHaveBeenCalled()
+      expect(verifyActionMock).not.toHaveBeenCalled()
+    }
+  )
+
   it.each([
     ['', 'auth.confirmPasswordRequired'],
     ['different-password', 'auth.passwordsDoNotMatch']
@@ -149,7 +166,7 @@ describe('RegisterView', () => {
     const wrapper = mountRegister()
     await flushPromises()
     await wrapper.get('#email').setValue('user@example.com')
-    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#password').setValue('Secret-123')
     await wrapper.get('#confirmPassword').setValue(confirmation)
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
@@ -161,7 +178,7 @@ describe('RegisterView', () => {
     expect(pushMock).not.toHaveBeenCalled()
     expect(sessionStorage.getItem('register_data')).toBeNull()
 
-    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('Secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
@@ -169,7 +186,7 @@ describe('RegisterView', () => {
     expect(verifyActionMock).toHaveBeenCalledOnce()
     expect(registerMock).toHaveBeenCalledWith({
       email: 'user@example.com',
-      password: 'secret-123',
+      password: 'Secret-123',
       turnstile_token: undefined,
       tencent_captcha_ticket: 'ticket',
       tencent_captcha_randstr: 'randstr',
@@ -188,7 +205,7 @@ describe('RegisterView', () => {
     const wrapper = mountRegister()
     await flushPromises()
     await wrapper.get('#email').setValue('user@example.com')
-    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#password').setValue('Secret-123')
     await wrapper.get('#confirmPassword').setValue('different-password')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
@@ -196,13 +213,13 @@ describe('RegisterView', () => {
     expect(sessionStorage.getItem('register_data')).toBeNull()
     expect(pushMock).not.toHaveBeenCalled()
 
-    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('Secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
     expect(JSON.parse(sessionStorage.getItem('register_data')!)).toEqual({
       email: 'user@example.com',
-      password: 'secret-123'
+      password: 'Secret-123'
     })
     expect(pushMock).toHaveBeenCalledWith('/email-verify')
     expect(registerMock).not.toHaveBeenCalled()
@@ -247,8 +264,8 @@ describe('RegisterView', () => {
     const wrapper = mountRegister()
     await flushPromises()
     await wrapper.get('#email').setValue('first@custom.example')
-    await wrapper.get('#password').setValue('secret-123')
-    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('#password').setValue('Secret-123')
+    await wrapper.get('#confirmPassword').setValue('Secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
@@ -273,8 +290,8 @@ describe('RegisterView', () => {
     const wrapper = mountRegister()
     await flushPromises()
     await wrapper.get('#email').setValue('second@custom.example')
-    await wrapper.get('#password').setValue('secret-123')
-    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('#password').setValue('Secret-123')
+    await wrapper.get('#confirmPassword').setValue('Secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
@@ -294,8 +311,8 @@ describe('RegisterView', () => {
     const wrapper = mountRegister()
     await flushPromises()
     await wrapper.get('#email').setValue('first@custom.example')
-    await wrapper.get('#password').setValue('secret-123')
-    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('#password').setValue('Secret-123')
+    await wrapper.get('#confirmPassword').setValue('Secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
@@ -315,8 +332,8 @@ describe('RegisterView', () => {
     const wrapper = mountRegister()
     await flushPromises()
     await wrapper.get('#email').setValue('user@allowed.com')
-    await wrapper.get('#password').setValue('secret-123')
-    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('#password').setValue('Secret-123')
+    await wrapper.get('#confirmPassword').setValue('Secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
