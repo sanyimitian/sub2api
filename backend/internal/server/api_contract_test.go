@@ -719,6 +719,8 @@ func TestAPIContracts(t *testing.T) {
 					"registration_email_suffix_whitelist": [],
 					"registration_email_domain_quota_enabled": false,
 					"promo_code_enabled": true,
+					"public_transit_enabled": true,
+					"public_transit_page_enabled": false,
 					"password_reset_enabled": false,
 						"frontend_url": "",
 						"totp_enabled": false,
@@ -1077,6 +1079,8 @@ func TestAPIContracts(t *testing.T) {
 					"registration_email_suffix_whitelist": [],
 					"registration_email_domain_quota_enabled": false,
 					"promo_code_enabled": true,
+					"public_transit_enabled": true,
+					"public_transit_page_enabled": false,
 					"password_reset_enabled": false,
 					"frontend_url": "",
 						"invitation_code_enabled": false,
@@ -2862,7 +2866,7 @@ func (r *stubUsageLogRepo) GetStatsWithFilters(ctx context.Context, filters usag
 		Endpoints:                []usagestats.EndpointStat{},
 	}, nil
 }
-func (r *stubUsageLogRepo) GetAllGroupUsageSummary(ctx context.Context, todayStart, since24h, since7d time.Time) ([]usagestats.GroupUsageSummary, error) {
+func (r *stubUsageLogRepo) GetAllGroupUsageSummary(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
 	return nil, errors.New("not implemented")
 }
 

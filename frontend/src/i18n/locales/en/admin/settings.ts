@@ -285,11 +285,11 @@ export default {
           'Choose which client IP is used by API Key allowlists/denylists, admin audit logs, and session IP/UA binding',
         trustForwardedIp: 'Trust forwarded client IP',
         trustForwardedIpHint:
-          'Enabled by default for upgrade compatibility. When enabled, raw CF-Connecting-IP, X-Real-IP, or X-Forwarded-For values take over server.trusted_proxies for client-IP resolution. Disable it to enforce the Gin trusted-proxy chain configured by server.trusted_proxies. Only enable takeover mode when the origin cannot be reached directly. Changing this switch changes existing session IP fingerprints.',
+          'Allows custom client-IP headers only from proxies configured in server.trusted_proxies. Standard headers always use the trusted-proxy chain; without configured proxies, only the direct peer address is used. Changing this switch may change existing session IP fingerprints.',
         forwardedClientIpHeaders: 'Custom client-IP headers',
-        forwardedClientIpHeadersHint: 'Add CDN or proxy header names to check before the built-in headers.',
+        forwardedClientIpHeadersHint: 'Add headers overwritten by your trusted CDN or proxy, checked before standard forwarding headers.',
         forwardedClientIpHeadersPlaceholder: 'X-Client-IP',
-        forwardedClientIpHeadersRiskHint: 'These raw headers can be spoofed when the origin is reachable directly. Restrict origin access before trusting them.',
+        forwardedClientIpHeadersRiskHint: 'Only configure headers your proxy overwrites, and restrict origin access. Cloudflare client-IP headers must be explicitly listed.',
         forwardedClientIpHeaderInvalid: 'Enter a valid HTTP header name.',
         forwardedClientIpHeadersLimit: 'At most {max} custom client-IP headers are allowed.',
         removeForwardedClientIpHeader: 'Remove {header}'

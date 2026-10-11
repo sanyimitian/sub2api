@@ -25,6 +25,7 @@ import (
 
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 )
 
 const (
@@ -1622,7 +1623,7 @@ func writeOAuthTokenPairResponse(c *gin.Context, tokenPair *service.TokenPair) {
 
 func (h *AuthHandler) bindPendingOAuthLogin(c *gin.Context, provider string) {
 	var req bindPendingOAuthLoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindBodyWith(&req, binding.JSON); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}

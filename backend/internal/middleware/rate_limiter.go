@@ -2,15 +2,19 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	ippkg "github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -110,9 +114,7 @@ func (r *RateLimiter) Allow(ctx context.Context, key string, limit int, window t
 
 // clientIPForRateLimit 返回 IP 维度限流使用的客户端地址。
 // 与审计日志/会话绑定/API Key IP ACL 共用同一套安全客户端 IP 解析
-// （SessionBindingContext 快照：兼容开关开启时信任反代转发头，关闭时走
-// server.trusted_proxies 可信链）。避免默认反代部署下 Gin ClientIP 恒等于
-// 代理地址、所有用户坍缩进同一个限流桶造成整体误拦截。
+// 标准头和自定义头都必须通过可信代理校验，避免伪造来源绕过限流。
 func clientIPForRateLimit(c *gin.Context) string {
 	if resolved := ippkg.GetSecurityClientIP(c, false); resolved != "" {
 		return resolved
@@ -126,6 +128,34 @@ func clientIPForRateLimit(c *gin.Context) string {
 // window: 时间窗口
 func (r *RateLimiter) Limit(key string, limit int, window time.Duration) gin.HandlerFunc {
 	return r.LimitWithOptions(key, limit, window, RateLimitOptions{})
+}
+
+// LimitLoginByEmail 按账号限制密码登录，与 IP 限流叠加，阻止轮换来源地址。
+// 与登录处理器复用 Gin 缓存的 JSON，保证限流邮箱与实际认证邮箱一致。
+func (r *RateLimiter) LimitLoginByEmail(limit int, window time.Duration) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Email    string `json:"email" binding:"required,email"`
+			Password string `json:"password" binding:"required"`
+		}
+		if err := c.ShouldBindBodyWith(&req, binding.JSON); err != nil {
+			response.BadRequest(c, "Invalid request: "+err.Error())
+			return
+		}
+		// 邮箱查找不区分大小写；摘要避免在缓存键中存放个人信息。
+		digest := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(req.Email))))
+		result, err := r.Allow(c.Request.Context(), fmt.Sprintf("auth-login-email:%x", digest), limit, window)
+		if err != nil {
+			log.Printf("[RateLimit] account login limiter unavailable")
+			abortRateLimit(c, window)
+			return
+		}
+		if !result.Allowed {
+			abortRateLimit(c, result.RetryAfter)
+			return
+		}
+		c.Next()
+	}
 }
 
 // LimitWithOptions 返回速率限制中间件（带可选配置）

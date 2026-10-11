@@ -24,6 +24,7 @@ func RegisterAuthRoutes(
 ) {
 	// 创建速率限制器
 	rateLimiter := middleware.NewRateLimiter(redisClient)
+	passwordLoginLimit := rateLimiter.LimitLoginByEmail(10, time.Minute)
 
 	// 公开接口
 	auth := v1.Group("/auth")
@@ -37,7 +38,7 @@ func RegisterAuthRoutes(
 		}), h.Auth.Register)
 		auth.POST("/login", rateLimiter.LimitWithOptions("auth-login", 20, time.Minute, middleware.RateLimitOptions{
 			FailureMode: middleware.RateLimitFailClose,
-		}), h.Auth.Login)
+		}), passwordLoginLimit, h.Auth.Login)
 		auth.POST("/login/2fa", rateLimiter.LimitWithOptions("auth-login-2fa", 20, time.Minute, middleware.RateLimitOptions{
 			FailureMode: middleware.RateLimitFailClose,
 		}), h.Auth.Login2FA)
@@ -140,6 +141,7 @@ func RegisterAuthRoutes(
 			rateLimiter.LimitWithOptions("oauth-pending-bind-login", 10, time.Minute, middleware.RateLimitOptions{
 				FailureMode: middleware.RateLimitFailClose,
 			}),
+			passwordLoginLimit,
 			h.Auth.BindPendingOAuthLogin,
 		)
 		auth.POST("/oauth/linuxdo/complete-registration",
@@ -152,6 +154,7 @@ func RegisterAuthRoutes(
 			rateLimiter.LimitWithOptions("oauth-linuxdo-bind-login", 20, time.Minute, middleware.RateLimitOptions{
 				FailureMode: middleware.RateLimitFailClose,
 			}),
+			passwordLoginLimit,
 			h.Auth.BindLinuxDoOAuthLogin,
 		)
 		auth.POST("/oauth/linuxdo/create-account",
@@ -170,6 +173,7 @@ func RegisterAuthRoutes(
 			rateLimiter.LimitWithOptions("oauth-wechat-bind-login", 20, time.Minute, middleware.RateLimitOptions{
 				FailureMode: middleware.RateLimitFailClose,
 			}),
+			passwordLoginLimit,
 			h.Auth.BindWeChatOAuthLogin,
 		)
 		auth.POST("/oauth/wechat/create-account",
@@ -199,6 +203,7 @@ func RegisterAuthRoutes(
 			rateLimiter.LimitWithOptions("oauth-oidc-bind-login", 20, time.Minute, middleware.RateLimitOptions{
 				FailureMode: middleware.RateLimitFailClose,
 			}),
+			passwordLoginLimit,
 			h.Auth.BindOIDCOAuthLogin,
 		)
 		auth.POST("/oauth/oidc/create-account",
@@ -228,6 +233,7 @@ func RegisterAuthRoutes(
 			rateLimiter.LimitWithOptions("oauth-dingtalk-bind-login", 20, time.Minute, middleware.RateLimitOptions{
 				FailureMode: middleware.RateLimitFailClose,
 			}),
+			passwordLoginLimit,
 			h.Auth.BindDingTalkOAuthLogin,
 		)
 		auth.POST("/oauth/dingtalk/create-account",

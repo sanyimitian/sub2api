@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	servermiddleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
@@ -17,6 +19,7 @@ import (
 func newAuthRoutesTestRouter(redisClient *redis.Client) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	_ = router.SetTrustedProxies(nil)
 	v1 := router.Group("/api/v1")
 
 	RegisterAuthRoutes(
@@ -37,6 +40,50 @@ func newAuthRoutesTestRouter(redisClient *redis.Client) *gin.Engine {
 	)
 
 	return router
+}
+
+func TestAuthLoginRouteLimitsEmailAcrossIPs(t *testing.T) {
+	srv := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: srv.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	router := newAuthRoutesTestRouter(rdb)
+	for i := 1; i <= 11; i++ {
+		// 可选验证码字段类型错误：通过邮箱限流后应进入真实登录处理器的校验。
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"victim@example.com","password":"secret","turnstile_token":{}}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = fmt.Sprintf("198.51.100.%d:1234", i)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if i <= 10 {
+			require.Equal(t, http.StatusBadRequest, w.Code)
+		} else {
+			require.Equal(t, http.StatusTooManyRequests, w.Code)
+		}
+	}
+}
+
+func TestPasswordLoginRoutesShareAccountLimit(t *testing.T) {
+	srv := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: srv.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	router := newAuthRoutesTestRouter(rdb)
+	paths := []string{
+		"/login", "/oauth/pending/bind-login", "/oauth/linuxdo/bind-login",
+		"/oauth/wechat/bind-login", "/oauth/oidc/bind-login", "/oauth/dingtalk/bind-login",
+	}
+	for i := 0; i < 16; i++ {
+		// adoption 字段类型错误让绑定处理器在触及数据库前返回 400。
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth"+paths[i%len(paths)], strings.NewReader(`{"email":"victim@example.com","password":"secret","turnstile_token":{},"adopt_avatar":"invalid"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = fmt.Sprintf("198.51.100.%d:1234", i+1)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if i < 10 {
+			require.Equal(t, http.StatusBadRequest, w.Code)
+		} else {
+			require.Equal(t, http.StatusTooManyRequests, w.Code, "path=%s", paths[i%len(paths)])
+		}
+	}
 }
 
 func TestAuthRoutesRateLimitFailCloseWhenRedisUnavailable(t *testing.T) {

@@ -29,44 +29,15 @@ the application's responsibility.
 
 ## Trusted client IPs
 
-`security.trust_forwarded_ip_for_api_key_acl` is enabled by default for upgrade
-compatibility. While enabled, raw forwarding headers take over client-IP
-resolution for logs and security-sensitive paths. Custom headers from
-`security.forwarded_client_ip_headers` are checked in configured order before
-the built-in `CF-Connecting-IP`, `X-Real-IP`, and `X-Forwarded-For` fallback.
-Header names are case-insensitive, normalized when loaded, de-duplicated, and
-limited to 16 unique valid HTTP field names. Header values must contain IP
-literals; comma-separated values are supported, invalid entries are skipped,
-and public addresses are preferred over private fallback addresses.
+所有来源地址解析均受 `server.trusted_proxies`（可信代理列表）约束。未配置或显式配置为空时，只使用直接连接地址；启用旧版兼容开关也不能跳过此校验。反向代理部署升级前必须配置实际连接应用的代理地址，否则多个客户端会按同一个代理地址统计与限流。
 
-The list can be supplied in YAML or with the comma-separated environment
-variable `SECURITY_FORWARDED_CLIENT_IP_HEADERS`; an explicitly empty environment
-value clears YAML values. It is also editable from the admin security settings
-and updates at runtime without a restart. A request snapshots the switch and
-header list together, so one request cannot mix old and new settings. Custom
-headers are ignored completely when the switch is disabled. In that mode Gin's
-`server.trusted_proxies` chain is authoritative: configure only the exact
-CIDR/IP addresses that connect directly to Codebot. An explicit empty list
-trusts no forwarded client IPs.
+标准 `X-Forwarded-For`（代理链）和 `X-Real-IP`（实际来源地址）使用 Gin 的可信代理链，从最近一跳向前解析到首个不可信地址。`CF-Connecting-IP`（Cloudflare 客户端地址）不再自动优先于反向代理写入的标准头。
 
-On the first upgrade to this mode, a legacy `false` value is changed to `true`
-only when `server.trusted_proxies` was not explicitly configured; explicit
-proxy policies remain in secure mode. New installations persist the configured
-custom header list during database initialization. Existing installations
-backfill a missing database value from the YAML configuration. A hidden
-migration marker prevents later administrator changes from being overwritten.
-If settings cannot be read or the persisted custom-header list is malformed,
-the process fails closed to trusted-proxy mode with no custom headers. If a
-migration write fails, the computed mode remains active for the current process
-and startup records a warning.
+`security.trust_forwarded_ip_for_api_key_acl`（自定义来源头开关）保留现有设置入口：开启后，仅当连接来自可信代理时，才按 `security.forwarded_client_ip_headers`（自定义来源头列表）依次尝试额外请求头。名单必须只包含代理会覆盖的头；例如使用 Cloudflare 时，可显式配置 `CF-Connecting-IP`，同时限制源站只能由 Cloudflare 访问。自定义头中的地址链也从最近一跳向前解析，不会跳过不可信的内网地址。关闭开关后，仅使用标准可信代理链。
 
-Compatibility takeover accepts forwarded headers without validating the direct
-peer, including any configured custom header. Protect the origin from direct
-access while it is enabled. A CDN deployment must firewall the origin so only
-the CDN or load balancer can reach it, and that proxy must overwrite every
-trusted client-IP header rather than append an untrusted client value.
+自定义头列表最多 16 项，头名不区分大小写。列表和开关可从管理设置动态更新，同一个请求使用一致快照；可信代理列表修改需要重启应用。设置加载失败时使用标准可信代理模式。
 
-Example for a proxy on the same host:
+同机反代、应用直接监听宿主机的配置示例：
 
 ```yaml
 server:
@@ -74,6 +45,23 @@ server:
     - 127.0.0.1/32
     - ::1/128
 ```
+
+宿主机 Nginx 连接 Docker 映射端口时，应用看到的直接来源可能是 Docker 网桥网关，应配置实际网关的单个地址，不能将整个内网或所有地址加入可信名单。本次排查服务器的直接网关为 `172.19.0.1`，上线前应重新核对：
+
+```yaml
+server:
+  trusted_proxies:
+    - 172.19.0.1/32
+security:
+  trust_forwarded_ip_for_api_key_acl: false
+  forwarded_client_ip_headers: []
+```
+
+面向宿主机反代的 Docker 端口应绑定回环地址，例如 `127.0.0.1:3000:8080`，关闭公网直连后端。Nginx 应覆盖标准来源头并清除未经校验的 CDN 头；自定义头也必须覆盖或清除，不能原样传入应用。
+
+普通密码登录限制每个真实来源每分钟 20 次；普通登录与第三方绑定密码登录共用每个邮箱每分钟 10 次的计数，邮箱按忽略大小写和首尾空白的形式归一化，使用摘要作为 Redis（共享计数缓存）键。每次有效格式的密码登录都计数，不查询账号是否存在；超过次数返回 429（请求过多），携带 `Retry-After`（等待秒数）。窗口结束后可再次登录，缓存故障时拒绝登录，防止绕过。分布式节点共享邮箱计数；邮箱限制也可能被恶意消耗，因此它只是与来源限制配合的一层防护，不能代替独立密码和第二步验证。
+
+升级不会使已经泄露的密码或令牌失效。受影响账号必须通过正式改密流程撤销旧登录会话，再轮换接口令牌。
 
 ## Nginx baseline
 
@@ -99,8 +87,14 @@ server {
     large_client_header_buffers 4 16k;
     limit_conn sub2api_conn 40;
 
-    location ~ ^/(auth|api/auth)/ {
+    location ^~ /api/v1/auth/ {
         limit_req zone=sub2api_auth burst=10 nodelay;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header CF-Connecting-IP "";
+        proxy_set_header True-Client-IP "";
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_pass http://127.0.0.1:8080;
     }
 
@@ -115,6 +109,8 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header CF-Connecting-IP "";
+        proxy_set_header True-Client-IP "";
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade $http_upgrade;
