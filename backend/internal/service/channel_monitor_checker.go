@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -73,7 +74,7 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	res.LatencyMs = &latencyMs
 
 	if err != nil {
-		res.Status = MonitorStatusError
+		res.Status = monitorRequestErrorStatus(err)
 		res.Message = truncateMessage(sanitizeErrorMessage(err.Error()))
 		return res
 	}
@@ -105,6 +106,17 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	}
 
 	return finalizeOperationalOrDegraded(res, latency, latencyMs)
+}
+
+func monitorRequestErrorStatus(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return MonitorStatusFailed
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return MonitorStatusFailed
+	}
+	return MonitorStatusError
 }
 
 // finalizeOperationalOrDegraded 负责走到最后一步的 operational/degraded 判定。
