@@ -1981,6 +1981,10 @@ func (h *GatewayHandler) mapUpstreamError(statusCode int) (int, string, string) 
 
 // handleStreamingAwareError handles errors that may occur after streaming has started
 func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	if errType == gatewayQueueFullCode {
+		h.handleStreamingAwareErrorWithCode(c, status, "rate_limit_error", gatewayQueueFullCode, message, streamStarted)
+		return
+	}
 	h.handleStreamingAwareErrorWithCode(c, status, errType, "", message, streamStarted)
 }
 
@@ -2114,6 +2118,10 @@ func (h *GatewayHandler) checkClaudeCodeVersion(c *gin.Context) bool {
 
 // errorResponse 返回Claude API格式的错误响应
 func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+	if errType == gatewayQueueFullCode {
+		h.errorResponseWithCode(c, status, "rate_limit_error", gatewayQueueFullCode, message)
+		return
+	}
 	h.errorResponseWithCode(c, status, errType, "", message)
 }
 
@@ -2508,12 +2516,11 @@ func billingErrorDetails(err error) (status int, code, message string, retryAfte
 		msg := pkgerrors.Message(err)
 		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
 	}
-	// 用户/分组 RPM 超限统一映射为 HTTP 429；保留与其它 rate_limit 一致的错误码便于客户端分类。
-	// 返回 Retry-After 秒数（当前分钟剩余秒数），让 SDK 自动退避。
+	// 用户/分组 RPM 超限使用与等待队列已满一致的错误码和消息。
+	// Retry-After 仍指向当前分钟结束时间，便于客户端退避。
 	if errors.Is(err, service.ErrGroupRPMExceeded) || errors.Is(err, service.ErrUserRPMExceeded) {
-		msg := pkgerrors.Message(err)
 		retrySeconds := 60 - int(time.Now().Unix()%60)
-		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, retrySeconds
+		return http.StatusTooManyRequests, gatewayQueueFullCode, "Too many pending requests, please retry later", retrySeconds
 	}
 	if errors.Is(err, service.ErrUserPlatformDailyQuotaExhausted) ||
 		errors.Is(err, service.ErrUserPlatformWeeklyQuotaExhausted) ||

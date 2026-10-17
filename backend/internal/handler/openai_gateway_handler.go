@@ -3694,6 +3694,10 @@ func (h *OpenAIGatewayHandler) mapUpstreamError(statusCode int) (int, string, st
 
 // handleStreamingAwareError handles errors that may occur after streaming has started
 func (h *OpenAIGatewayHandler) handleStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	if errType == gatewayQueueFullCode {
+		h.handleStreamingAwareErrorWithCode(c, status, "rate_limit_error", gatewayQueueFullCode, message, streamStarted, false)
+		return
+	}
 	h.handleStreamingAwareErrorWithCode(c, status, errType, "", message, streamStarted, false)
 }
 
@@ -3889,20 +3893,24 @@ func openAIFirstOutputFailoverExhausted(failoverErr *service.UpstreamFailoverErr
 
 // errorResponse returns OpenAI API format error response
 func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+	errorCode := ""
+	if errType == gatewayQueueFullCode {
+		errType = "rate_limit_error"
+		errorCode = gatewayQueueFullCode
+	}
 	// body-signal compact 心跳可能已把响应头提交为 200：JSON 错误体会与已
 	// 提交的 SSE 流交错，必须降级为 response.failed 终止事件（#3887）。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
 		service.MarkOpsStreamError(c, errType, message, status)
-		if writeResponsesFailedSSE(c, errType, "", message) {
+		if writeResponsesFailedSSE(c, errType, errorCode, message) {
 			return
 		}
 	}
-	c.JSON(status, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
-	})
+	errorObject := gin.H{"type": errType, "message": message}
+	if errorCode != "" {
+		errorObject["code"] = errorCode
+	}
+	c.JSON(status, gin.H{"error": errorObject})
 }
 
 // openAICompactKeepaliveInterval 复用流式 keepalive 配置作为 compact 下游

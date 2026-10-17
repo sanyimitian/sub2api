@@ -390,11 +390,16 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 // chatCompletionsErrorResponse writes an error in OpenAI Chat Completions format.
 func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int, errType, message string) {
+	errorObject := gin.H{
+		"type":    errType,
+		"message": message,
+	}
+	if errType == gatewayQueueFullCode {
+		errorObject["type"] = "rate_limit_error"
+		errorObject["code"] = gatewayQueueFullCode
+	}
 	c.JSON(status, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
+		"error": errorObject,
 	})
 }
 

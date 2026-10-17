@@ -13,8 +13,8 @@ import (
 func TestBillingErrorDetails_MapsGroupRPMExceededToTooManyRequests(t *testing.T) {
 	status, code, msg, retryAfter := billingErrorDetails(service.ErrGroupRPMExceeded)
 	require.Equal(t, http.StatusTooManyRequests, status)
-	require.Equal(t, "rate_limit_exceeded", code)
-	require.NotEmpty(t, msg)
+	require.Equal(t, gatewayQueueFullCode, code)
+	require.Equal(t, "Too many pending requests, please retry later", msg)
 	require.Greater(t, retryAfter, 0, "RPM exceeded should return positive Retry-After")
 	require.LessOrEqual(t, retryAfter, 60)
 }
@@ -22,10 +22,46 @@ func TestBillingErrorDetails_MapsGroupRPMExceededToTooManyRequests(t *testing.T)
 func TestBillingErrorDetails_MapsUserRPMExceededToTooManyRequests(t *testing.T) {
 	status, code, msg, retryAfter := billingErrorDetails(service.ErrUserRPMExceeded)
 	require.Equal(t, http.StatusTooManyRequests, status)
-	require.Equal(t, "rate_limit_exceeded", code)
-	require.NotEmpty(t, msg)
+	require.Equal(t, gatewayQueueFullCode, code)
+	require.Equal(t, "Too many pending requests, please retry later", msg)
 	require.Greater(t, retryAfter, 0, "RPM exceeded should return positive Retry-After")
 	require.LessOrEqual(t, retryAfter, 60)
+}
+
+func TestGroupRPMExceededUsesQueueFullErrorForGatewayJSON(t *testing.T) {
+	status, code, message, _ := billingErrorDetails(service.ErrGroupRPMExceeded)
+	c, w := newGinContextForEndpoint(t, EndpointChatCompletions)
+	(&GatewayHandler{}).handleStreamingAwareError(c, status, code, message, false)
+
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.JSONEq(t, `{"type":"error","error":{"type":"rate_limit_error","code":"gateway_queue_full","message":"Too many pending requests, please retry later"}}`, w.Body.String())
+}
+
+func TestUserRPMExceededUsesQueueFullErrorForOpenAIJSON(t *testing.T) {
+	status, code, message, _ := billingErrorDetails(service.ErrUserRPMExceeded)
+	c, w := newGinContextForEndpoint(t, EndpointChatCompletions)
+	(&OpenAIGatewayHandler{}).handleStreamingAwareError(c, status, code, message, false)
+
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.JSONEq(t, `{"error":{"type":"rate_limit_error","code":"gateway_queue_full","message":"Too many pending requests, please retry later"}}`, w.Body.String())
+}
+
+func TestGroupRPMExceededUsesQueueFullCodeForResponsesJSON(t *testing.T) {
+	status, code, message, _ := billingErrorDetails(service.ErrGroupRPMExceeded)
+	c, w := newGinContextForEndpoint(t, EndpointResponses)
+	(&GatewayHandler{}).responsesErrorResponse(c, status, code, message)
+
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.JSONEq(t, `{"error":{"code":"gateway_queue_full","message":"Too many pending requests, please retry later"}}`, w.Body.String())
+}
+
+func TestUserRPMExceededUsesQueueFullCodeForChatCompletionsJSON(t *testing.T) {
+	status, code, message, _ := billingErrorDetails(service.ErrUserRPMExceeded)
+	c, w := newGinContextForEndpoint(t, EndpointChatCompletions)
+	(&GatewayHandler{}).chatCompletionsErrorResponse(c, status, code, message)
+
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.JSONEq(t, `{"error":{"type":"rate_limit_error","code":"gateway_queue_full","message":"Too many pending requests, please retry later"}}`, w.Body.String())
 }
 
 func TestBillingErrorDetails_APIKeyRateLimitStillMaps(t *testing.T) {
