@@ -99,9 +99,35 @@ type openAIWSLatencyTurn struct {
 	user  bool
 }
 
-// OpenAIWSLatencySession holds only request classification, never conversation text.
+// Snapshot the authenticated caller so background probes never retain the API
+// key or read request-scoped Gin state after the connection has closed.
+type openAIWSLatencyActor struct {
+	userID    int64
+	apiKeyID  int64
+	username  string
+	userEmail string
+}
+
+func (actor openAIWSLatencyActor) writeEvent(message string, fields map[string]any) {
+	if actor.userID > 0 {
+		fields["user_id"] = actor.userID
+	}
+	if actor.apiKeyID > 0 {
+		fields["api_key_id"] = actor.apiKeyID
+	}
+	if actor.username != "" {
+		fields["username"] = actor.username
+	}
+	if actor.userEmail != "" {
+		fields["user_email"] = actor.userEmail
+	}
+	logger.WriteSinkEvent("info", "openai.ws_latency_switch", message, fields)
+}
+
+// OpenAIWSLatencySession tracks caller identity and request classification.
 type OpenAIWSLatencySession struct {
 	service            *OpenAIGatewayService
+	actor              openAIWSLatencyActor
 	groupID            *int64
 	scope              string
 	sessionHash        string
@@ -109,14 +135,15 @@ type OpenAIWSLatencySession struct {
 	upstreamModel      string
 	connectionID       string
 	requiredCapability OpenAIEndpointCapability
+	requiredTransport  OpenAIUpstreamTransport
 	recovering         bool
 	recoveryConfirmed  bool
 	mu                 sync.Mutex
 	turns              map[int]openAIWSLatencyTurn
 }
 
-func (s *OpenAIGatewayService) NewOpenAIWSLatencySession(ctx context.Context, c *gin.Context, payload []byte, groupID *int64, apiKeyID int64, sessionHash, model, upstreamModel string, requiredCapability OpenAIEndpointCapability) *OpenAIWSLatencySession {
-	if s == nil || s.settingService == nil || !s.settingService.GetOpenAIWSLatencySwitchSettings(ctx).Enabled {
+func (s *OpenAIGatewayService) NewOpenAIWSLatencySession(ctx context.Context, c *gin.Context, payload []byte, groupID *int64, apiKey *APIKey, sessionHash, model, upstreamModel string, requiredCapability OpenAIEndpointCapability) *OpenAIWSLatencySession {
+	if s == nil || apiKey == nil || s.settingService == nil || !s.settingService.GetOpenAIWSLatencySwitchSettings(ctx).Enabled {
 		return nil
 	}
 	if _, ok := s.cache.(OpenAIWSLatencyCache); !ok {
@@ -126,11 +153,34 @@ func (s *OpenAIGatewayService) NewOpenAIWSLatencySession(ctx context.Context, c 
 	if resolveOpenAIWSExecutionLane(c, payload) != "" || (metadata.RequestKind != "" && metadata.RequestKind != openAIWSRequestKindTurn && metadata.RequestKind != openAIWSRequestKindPrewarm) {
 		return nil
 	}
-	scope, _ := resolveOpenAIWSExecutionScope(c, payload, apiKeyID)
+	scope, _ := resolveOpenAIWSExecutionScope(c, payload, apiKey.ID)
 	if scope == "" {
 		return nil
 	}
-	return &OpenAIWSLatencySession{service: s, groupID: groupID, scope: scope, sessionHash: sessionHash, model: model, upstreamModel: upstreamModel, connectionID: uuid.NewString(), requiredCapability: requiredCapability, turns: map[int]openAIWSLatencyTurn{1: {model: model, user: openAIWSLatencyIsUserRequest(payload)}}}
+	return newOpenAIWSLatencySession(s, groupID, apiKey, scope, sessionHash, model, upstreamModel, requiredCapability, OpenAIUpstreamTransportResponsesWebsocketV2Ingress, payload)
+}
+
+// NewOpenAIHTTPResponsesLatencySession tracks HTTP SSE requests by their stable
+// session affinity key. Each HTTP request is a new connection, so the reconnect
+// marker persists the forced retry across requests.
+func (s *OpenAIGatewayService) NewOpenAIHTTPResponsesLatencySession(ctx context.Context, groupID *int64, apiKey *APIKey, sessionHash, model, upstreamModel string, requiredCapability OpenAIEndpointCapability, payload []byte) *OpenAIWSLatencySession {
+	if s == nil || apiKey == nil || apiKey.ID <= 0 || strings.TrimSpace(sessionHash) == "" || s.settingService == nil || !s.settingService.GetOpenAIWSLatencySwitchSettings(ctx).Enabled {
+		return nil
+	}
+	if _, ok := s.cache.(OpenAIWSLatencyCache); !ok {
+		return nil
+	}
+	scope, _ := deriveOpenAISessionHashes(fmt.Sprintf("openai_http_latency:%d:%s", apiKey.ID, strings.TrimSpace(sessionHash)))
+	return newOpenAIWSLatencySession(s, groupID, apiKey, scope, sessionHash, model, upstreamModel, requiredCapability, OpenAIUpstreamTransportHTTPSSE, payload)
+}
+
+func newOpenAIWSLatencySession(s *OpenAIGatewayService, groupID *int64, apiKey *APIKey, scope, sessionHash, model, upstreamModel string, requiredCapability OpenAIEndpointCapability, requiredTransport OpenAIUpstreamTransport, payload []byte) *OpenAIWSLatencySession {
+	actor := openAIWSLatencyActor{userID: apiKey.UserID, apiKeyID: apiKey.ID}
+	if apiKey.User != nil {
+		actor.username = apiKey.User.Username
+		actor.userEmail = apiKey.User.Email
+	}
+	return &OpenAIWSLatencySession{service: s, actor: actor, groupID: groupID, scope: scope, sessionHash: sessionHash, model: model, upstreamModel: upstreamModel, connectionID: uuid.NewString(), requiredCapability: requiredCapability, requiredTransport: requiredTransport, turns: map[int]openAIWSLatencyTurn{1: {model: model, user: openAIWSLatencyIsUserRequest(payload)}}}
 }
 
 func (session *OpenAIWSLatencySession) enabled(ctx context.Context) bool {
@@ -184,6 +234,56 @@ func (session *OpenAIWSLatencySession) Prepare(ctx context.Context, payload []by
 	return nil
 }
 
+// PrepareHTTP requests one client retry before the pending route switch. The
+// retried request must carry complete input so it can be replayed on another
+// account without relying on response state held by the old account.
+func (session *OpenAIWSLatencySession) PrepareHTTP(ctx context.Context, payload []byte) (bool, error) {
+	if !session.enabled(ctx) {
+		return false, nil
+	}
+	state := session.state(ctx)
+	if state.TargetID <= 0 || state.PendingUntil <= time.Now().UnixMilli() || !openAIWSLatencyIsUserRequest(payload) {
+		return false, nil
+	}
+	if state.ReconnectFrom == "" {
+		state, changed := session.service.updateOpenAIWSLatencyState(ctx, session.key(session.model), func(state *openAIWSLatencyState) bool {
+			if state.TargetID <= 0 || state.PendingUntil <= time.Now().UnixMilli() || state.ReconnectFrom != "" {
+				return false
+			}
+			state.ReconnectFrom = session.connectionID
+			return true
+		})
+		if changed {
+			session.clearUpstreamAffinity(ctx)
+			session.actor.writeEvent("openai.ws_latency_switch_reconnect_requested", map[string]any{
+				"from_account_id":   state.AccountID,
+				"target_account_id": state.TargetID,
+				"model":             session.model,
+				"transport":         string(OpenAIUpstreamTransportHTTPSSE),
+			})
+			return true, nil
+		}
+		if state.ReconnectFrom == "" {
+			return false, nil
+		}
+	}
+
+	previous := strings.TrimSpace(gjson.GetBytes(payload, "previous_response_id").String())
+	coverage := AnalyzeToolCallOutputContextCoverageBytes(payload)
+	if previous != "" || (coverage.HasFunctionCallOutput && !coverage.ContextCoversAllCallIDs) {
+		return false, fmt.Errorf("route switch requires complete context without previous_response_id")
+	}
+	input := gjson.GetBytes(payload, "input")
+	if !((input.IsArray() && len(input.Array()) > 0) || (input.Type == gjson.String && strings.TrimSpace(input.String()) != "")) {
+		return false, fmt.Errorf("route switch requires complete request input")
+	}
+	session.recovering = true
+	session.recoveryConfirmed = true
+	session.clearUpstreamAffinity(ctx)
+	slog.Info("openai.ws_latency_reconnect_received", "scope", session.scope, "input_items", len(input.Array()), "has_previous_response_id", false, "has_tool_output", coverage.HasFunctionCallOutput, "tool_context_complete", coverage.ContextCoversAllCallIDs, "context_confirmed", true, "transport", string(OpenAIUpstreamTransportHTTPSSE))
+	return false, nil
+}
+
 func (session *OpenAIWSLatencySession) clearUpstreamAffinity(ctx context.Context) {
 	if store := session.service.getOpenAIWSStateStore(); store != nil {
 		store.DeleteSessionConn(derefGroupID(session.groupID), session.scope)
@@ -207,7 +307,7 @@ func (session *OpenAIWSLatencySession) requestReconnect(ctx context.Context, mod
 		return nil
 	}
 	session.clearUpstreamAffinity(ctx)
-	logger.WriteSinkEvent("info", "openai.ws_latency_switch", "openai.ws_latency_switch_reconnect_requested", map[string]any{
+	session.actor.writeEvent("openai.ws_latency_switch_reconnect_requested", map[string]any{
 		"from_account_id":   state.AccountID,
 		"target_account_id": state.TargetID,
 		"model":             model,
@@ -300,11 +400,12 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 			return true
 		})
 		if completed {
-			logger.WriteSinkEvent("info", "openai.ws_latency_switch", "openai.ws_latency_switch_completed", map[string]any{
+			session.actor.writeEvent("openai.ws_latency_switch_completed", map[string]any{
 				"from_account_id":   fromAccountID,
 				"target_account_id": account.ID,
 				"account_id":        account.ID,
 				"model":             session.model,
+				"transport":         string(session.requiredTransport),
 			})
 		}
 	}
@@ -336,7 +437,7 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 		return true
 	})
 	if changed && state.ProbeID == probeID {
-		slog.Info("openai.ws_latency_probe_started", "scope", session.scope, "account_id", account.ID, "model", classification.model, "consecutive", settings.Consecutive)
+		slog.Info("openai.ws_latency_probe_started", "scope", session.scope, "account_id", account.ID, "model", classification.model, "consecutive", settings.Consecutive, "transport", string(session.requiredTransport))
 		probeCtx := context.WithoutCancel(ctx)
 		upstreamModel := session.upstreamModel
 		if classification.model != session.model {
@@ -346,6 +447,6 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 				upstreamModel = classification.model
 			}
 		}
-		go session.service.probeOpenAIWSLatencyRoutes(probeCtx, session.key(classification.model), session.groupID, account.ID, upstreamModel, session.requiredCapability, probeID)
+		go session.service.probeOpenAIWSLatencyRoutes(probeCtx, session.key(classification.model), session.groupID, account.ID, upstreamModel, session.requiredCapability, session.requiredTransport, probeID, session.actor)
 	}
 }

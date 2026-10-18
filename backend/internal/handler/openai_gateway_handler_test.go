@@ -259,6 +259,35 @@ func TestOpenAIHandleStreamingAwareError_NonStreaming(t *testing.T) {
 	assert.Equal(t, "test error", errorObj["message"])
 }
 
+func TestOpenAIResponsesLatencyRetryClosesHTTP1AndReturnsRetryableStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name          string
+		protoMajor    int
+		wantConnClose string
+	}{
+		{name: "http1", protoMajor: 1, wantConnClose: "close"},
+		{name: "http2", protoMajor: 2, wantConnClose: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			c.Request.ProtoMajor = tc.protoMajor
+
+			handler := &OpenAIGatewayHandler{}
+			handler.respondOpenAIResponsesLatencyRetry(c, false)
+
+			require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+			require.Equal(t, tc.wantConnClose, recorder.Header().Get("Connection"))
+			require.Equal(t, "0", recorder.Header().Get("Retry-After"))
+			require.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
+			require.Contains(t, recorder.Body.String(), "please retry the request")
+			require.True(t, c.IsAborted())
+		})
+	}
+}
+
 func TestReadRequestBodyWithPrealloc(t *testing.T) {
 	payload := `{"model":"gpt-5","input":"hello"}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(payload))

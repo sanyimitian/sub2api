@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type openAIWSLatencyMemoryCache struct {
@@ -64,7 +66,7 @@ func newOpenAIWSLatencyTestSession(t *testing.T, svc *OpenAIGatewayService, thre
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
 	c.Request.Header.Set("thread-id", thread)
 	groupID := int64(1)
-	session := svc.NewOpenAIWSLatencySession(context.Background(), c, payload, &groupID, apiKeyID, "test-session", "gpt-5.1", "gpt-5.1", OpenAIEndpointCapabilityResponses)
+	session := svc.NewOpenAIWSLatencySession(context.Background(), c, payload, &groupID, &APIKey{ID: apiKeyID}, "test-session", "gpt-5.1", "gpt-5.1", OpenAIEndpointCapabilityResponses)
 	require.NotNil(t, session)
 	return session
 }
@@ -129,6 +131,77 @@ func TestOpenAIWSLatencyReconnectPreservesPendingAcrossInstances(t *testing.T) {
 	newSession.Observe(context.Background(), 1, &Account{ID: 22}, &OpenAIForwardResult{}, nil)
 	require.Zero(t, newSession.state(context.Background()).TargetID)
 	require.Equal(t, int64(22), newSession.state(context.Background()).AccountID)
+}
+
+func TestOpenAIHTTPResponsesLatencyRetrySwitchesOnlyWithCompleteContext(t *testing.T) {
+	svc, _ := newOpenAIWSLatencyTestService(t)
+	groupID := int64(1)
+	apiKey := &APIKey{ID: 7, UserID: 42}
+	payload := []byte(`{"model":"gpt-5.1","stream":true,"input":[{"role":"user","content":"complete question"}]}`)
+	newSession := func(body []byte) *OpenAIWSLatencySession {
+		return svc.NewOpenAIHTTPResponsesLatencySession(context.Background(), &groupID, apiKey, "http-session", "gpt-5.1", "gpt-5.1", OpenAIEndpointCapabilityResponses, body)
+	}
+	session := newSession(payload)
+	require.NotNil(t, session)
+	require.Equal(t, OpenAIUpstreamTransportHTTPSSE, session.requiredTransport)
+	seedOpenAIWSLatencyPending(t, session)
+
+	shouldRetry, err := session.PrepareHTTP(context.Background(), payload)
+	require.NoError(t, err)
+	require.True(t, shouldRetry, "the first request after a completed probe must be stopped before upstream forwarding")
+	require.NotEmpty(t, session.state(context.Background()).ReconnectFrom)
+
+	retrySession := newSession(payload)
+	shouldRetry, err = retrySession.PrepareHTTP(context.Background(), payload)
+	require.NoError(t, err)
+	require.False(t, shouldRetry)
+	require.True(t, retrySession.recovering)
+	require.True(t, retrySession.recoveryConfirmed)
+
+	account := Account{ID: 22, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}, Credentials: map[string]any{"api_key": "sk-test"}}
+	svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{account}}
+	excluded := make(map[int64]struct{})
+	selection, decision, err := retrySession.SelectTarget(context.Background(), excluded, OpenAIUpstreamTransportHTTPSSE)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(22), selection.Account.ID)
+	require.Equal(t, "latency_switch", decision.Layer)
+	require.Contains(t, excluded, int64(11))
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+
+	_, updated := svc.updateOpenAIWSLatencyState(context.Background(), session.key(session.model), func(state *openAIWSLatencyState) bool {
+		*state = openAIWSLatencyState{AccountID: 11, TargetID: 22, PendingUntil: time.Now().Add(time.Minute).UnixMilli()}
+		return true
+	})
+	require.True(t, updated)
+	first, err := newSession(payload).PrepareHTTP(context.Background(), payload)
+	require.NoError(t, err)
+	require.True(t, first)
+	invalidRetry := []byte(`{"model":"gpt-5.1","stream":true,"previous_response_id":"resp_old","input":[{"role":"user","content":"follow up"}]}`)
+	_, err = newSession(invalidRetry).PrepareHTTP(context.Background(), invalidRetry)
+	require.ErrorContains(t, err, "without previous_response_id")
+}
+
+func TestOpenAIHTTPResponsesLatencyCountsSlowStreamRequests(t *testing.T) {
+	svc, cache := newOpenAIWSLatencyTestService(t)
+	groupID := int64(1)
+	apiKey := &APIKey{ID: 8, UserID: 43}
+	payload := []byte(`{"model":"gpt-5.1","stream":true,"input":[{"role":"user","content":"question"}]}`)
+	account := &Account{ID: 11}
+	slowMS := 16000
+	var lastSession *OpenAIWSLatencySession
+	for i := 0; i < 3; i++ {
+		lastSession = svc.NewOpenAIHTTPResponsesLatencySession(context.Background(), &groupID, apiKey, "same-http-session", "gpt-5.1", "gpt-5.1", OpenAIEndpointCapabilityResponses, payload)
+		require.NotNil(t, lastSession)
+		lastSession.Observe(context.Background(), 1, account, &OpenAIForwardResult{FirstTokenMs: &slowMS}, nil)
+	}
+	cache.mu.Lock()
+	starts := cache.probeStarts
+	cache.mu.Unlock()
+	require.Equal(t, 1, starts, "the third consecutive slow HTTP SSE response starts one configured probe batch")
+	require.Eventually(t, func() bool { return lastSession.state(context.Background()).ProbeID == "" }, time.Second, time.Millisecond)
 }
 
 func TestOpenAIWSLatencyScopeIsolationExpiryAndDisable(t *testing.T) {
@@ -277,6 +350,49 @@ func TestOpenAIWSLatencyProbeForwardsSyntheticRequestOverWebSocket(t *testing.T)
 	}
 }
 
+type openAIWSLatencyHTTPProbeUpstream struct {
+	HTTPUpstream
+	request *http.Request
+	body    []byte
+}
+
+func (upstream *openAIWSLatencyHTTPProbeUpstream) Do(request *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	upstream.request = request.Clone(request.Context())
+	upstream.body, _ = io.ReadAll(request.Body)
+	_ = request.Body.Close()
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n" +
+				"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_probe\",\"model\":\"gpt-5.1\",\"status\":\"completed\"}}\n\n",
+		)),
+		Request: request,
+	}, nil
+}
+
+func TestOpenAIWSLatencyProbeForwardsHTTPRequestsOverSSE(t *testing.T) {
+	svc, _ := newOpenAIWSLatencyTestService(t)
+	svc.httpUpstream = &openAIWSLatencyHTTPProbeUpstream{}
+	account := &Account{
+		ID: 11, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
+		Concurrency: 1, Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.example.test"},
+		Extra: map[string]any{"responses_websockets_v2_enabled": true},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := svc.forwardOpenAIWSLatencyProbe(ctx, account, "gpt-5.1", OpenAIUpstreamTransportHTTPSSE)
+	require.NoError(t, err)
+	require.True(t, result.ok)
+	require.False(t, result.timedOut)
+	require.NotNil(t, svc.httpUpstream.(*openAIWSLatencyHTTPProbeUpstream).request)
+	require.Equal(t, "/v1/responses", svc.httpUpstream.(*openAIWSLatencyHTTPProbeUpstream).request.URL.Path)
+	require.True(t, gjson.GetBytes(svc.httpUpstream.(*openAIWSLatencyHTTPProbeUpstream).body, "stream").Bool())
+	require.False(t, gjson.GetBytes(svc.httpUpstream.(*openAIWSLatencyHTTPProbeUpstream).body, "store").Bool())
+	require.False(t, gjson.GetBytes(svc.httpUpstream.(*openAIWSLatencyHTTPProbeUpstream).body, "previous_response_id").Exists())
+}
+
 func TestOpenAIWSLatencyProbeBypassesNormalAccountSlots(t *testing.T) {
 	svc, _ := newOpenAIWSLatencyTestService(t)
 	svc.cfg.Security.URLAllowlist.AllowInsecureHTTP = true
@@ -322,18 +438,23 @@ func TestOpenAIWSLatencyProbeBypassesNormalAccountSlots(t *testing.T) {
 }
 
 type openAIWSLatencyProbeTestDialer struct {
-	mu       sync.Mutex
-	calls    int
-	requests int
+	mu              sync.Mutex
+	calls           int
+	requests        int
+	firstTokenDelay func(http.Header) time.Duration
 }
 
-func (dialer *openAIWSLatencyProbeTestDialer) Dial(_ context.Context, _ string, _ http.Header, _ string) (openAIWSClientConn, int, http.Header, error) {
+func (dialer *openAIWSLatencyProbeTestDialer) Dial(_ context.Context, _ string, headers http.Header, _ string) (openAIWSClientConn, int, http.Header, error) {
 	dialer.mu.Lock()
 	dialer.calls++
 	dialer.mu.Unlock()
+	delay := 5 * time.Millisecond
+	if dialer.firstTokenDelay != nil {
+		delay = dialer.firstTokenDelay(headers)
+	}
 	return &openAIWSLatencyProbeCountingConn{
 		openAIWSCaptureConn: &openAIWSCaptureConn{
-			readDelays: []time.Duration{5 * time.Millisecond, 5 * time.Millisecond},
+			readDelays: []time.Duration{delay, 5 * time.Millisecond},
 			events: [][]byte{
 				[]byte(`{"type":"response.output_text.delta","delta":"OK"}`),
 				[]byte(`{"type":"response.completed","response":{"id":"resp_probe","model":"gpt-5.1","status":"completed"}}`),
@@ -389,7 +510,7 @@ func TestOpenAIWSLatencyProbeCountChangesBetweenBatches(t *testing.T) {
 		svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: accounts}
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{latencySwitch: OpenAIWSLatencySwitchSettings{Enabled: true, ProbeCount: count}, expiresAt: time.Now().Add(time.Hour).UnixNano()})
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		svc.probeOpenAIWSLatencyRoutes(ctx, fmt.Sprintf("probe-batch-%d", batch), &groupID, accounts[0].ID, "gpt-5.1", OpenAIEndpointCapabilityResponses, "test-probe")
+		svc.probeOpenAIWSLatencyRoutes(ctx, fmt.Sprintf("probe-batch-%d", batch), &groupID, accounts[0].ID, "gpt-5.1", OpenAIEndpointCapabilityResponses, OpenAIUpstreamTransportResponsesWebsocketV2Ingress, "test-probe", openAIWSLatencyActor{})
 		cancel()
 		want := count
 		if want == 0 {
@@ -401,6 +522,77 @@ func TestOpenAIWSLatencyProbeCountChangesBetweenBatches(t *testing.T) {
 		dialer.mu.Unlock()
 		require.Equal(t, total, requests, "batch %d with configured probe count %d", batch, count)
 	}
+}
+
+func TestOpenAIWSLatencyRecordsAuthenticatedUserAcrossLifecycle(t *testing.T) {
+	svc, _ := newOpenAIWSLatencyTestService(t)
+	sink, cleanup := captureStructuredLog(t)
+	defer cleanup()
+	svc.cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	pool := newOpenAIWSConnPool(svc.cfg)
+	pool.setClientDialerForTest(&openAIWSLatencyProbeTestDialer{
+		firstTokenDelay: func(headers http.Header) time.Duration {
+			if headers.Get("Authorization") == "Bearer sk-slow" {
+				return 500 * time.Millisecond
+			}
+			return 5 * time.Millisecond
+		},
+	})
+	defer pool.Close()
+	svc.openaiWSPool, svc.openaiWSResolver, svc.toolCorrector = pool, NewOpenAIWSProtocolResolver(svc.cfg), NewCodexToolCorrector()
+	svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{
+		{ID: 11, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{1}, Credentials: map[string]any{"api_key": "sk-slow"}, Extra: map[string]any{"responses_websockets_v2_enabled": true}},
+		{ID: 22, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{1}, Credentials: map[string]any{"api_key": "sk-fast"}, Extra: map[string]any{"responses_websockets_v2_enabled": true}},
+	}}
+	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{latencySwitch: OpenAIWSLatencySwitchSettings{Enabled: true, ProbeCount: 2}, expiresAt: time.Now().Add(time.Hour).UnixNano()})
+	ctx := context.Background()
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	c.Request.Header.Set("thread-id", "caller-lifecycle")
+	groupID := int64(1)
+	payload := []byte(`{"input":[{"role":"user","content":"private question"}]}`)
+	apiKey := &APIKey{ID: 7, UserID: 42, Key: "sk-private-caller", User: &User{ID: 42, Username: "caller", Email: "caller@example.com"}}
+	session := svc.NewOpenAIWSLatencySession(ctx, c, payload, &groupID, apiKey, "caller-session", "gpt-5.1", "gpt-5.1", OpenAIEndpointCapabilityResponses)
+	require.NotNil(t, session)
+	// Mutating the auth object must not alter the caller captured by the session.
+	apiKey.User.Username, apiKey.User.Email = "changed", "changed@example.com"
+	_, updated := svc.updateOpenAIWSLatencyState(ctx, session.key(session.model), func(state *openAIWSLatencyState) bool {
+		*state = openAIWSLatencyState{AccountID: 11, ProbeID: "caller-probe"}
+		return true
+	})
+	require.True(t, updated)
+	svc.probeOpenAIWSLatencyRoutes(ctx, session.key(session.model), &groupID, 11, session.model, OpenAIEndpointCapabilityResponses, OpenAIUpstreamTransportResponsesWebsocketV2Ingress, "caller-probe", session.actor)
+	require.Equal(t, int64(22), session.state(ctx).TargetID)
+	var closeErr *OpenAIWSClientCloseError
+	require.ErrorAs(t, session.BeforeRequest(ctx, 2, &Account{ID: 11}, payload, ""), &closeErr)
+	apiKey.User.Username, apiKey.User.Email = "caller", "caller@example.com"
+	reconnected := svc.NewOpenAIWSLatencySession(ctx, c, payload, &groupID, apiKey, "caller-session", "gpt-5.1", "gpt-5.1", OpenAIEndpointCapabilityResponses)
+	require.NoError(t, reconnected.Prepare(ctx, payload))
+	reconnected.Observe(ctx, 1, &Account{ID: 22}, &OpenAIForwardResult{}, nil)
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	var events []string
+	for _, event := range sink.events {
+		if !strings.HasPrefix(event.Message, "openai.ws_latency_switch_") {
+			continue
+		}
+		events = append(events, event.Message)
+		require.Equal(t, int64(42), event.Fields["user_id"], event.Message)
+		require.Equal(t, int64(7), event.Fields["api_key_id"], event.Message)
+		require.Equal(t, "caller", event.Fields["username"], event.Message)
+		require.Equal(t, "caller@example.com", event.Fields["user_email"], event.Message)
+		raw, err := json.Marshal(event.Fields)
+		require.NoError(t, err)
+		require.NotContains(t, string(raw), "sk-private-caller")
+		require.NotContains(t, string(raw), "private question")
+	}
+	require.Equal(t, []string{
+		"openai.ws_latency_switch_probe_completed",
+		"openai.ws_latency_switch_pending",
+		"openai.ws_latency_switch_reconnect_requested",
+		"openai.ws_latency_switch_completed",
+	}, events)
 }
 
 func TestOpenAIWSLatencyProbeLimiterSharesLimitAndDrainsAfterDecrease(t *testing.T) {
@@ -452,7 +644,7 @@ func TestOpenAIWSLatencyNativeIngressStopsBeforeOldUpstreamWrite(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = r
 		groupID := int64(1)
-		session := svc.NewOpenAIWSLatencySession(r.Context(), c, first, &groupID, 1, "test", "gpt-5.1", "gpt-5.1", OpenAIEndpointCapabilityResponses)
+		session := svc.NewOpenAIWSLatencySession(r.Context(), c, first, &groupID, &APIKey{ID: 1}, "test", "gpt-5.1", "gpt-5.1", OpenAIEndpointCapabilityResponses)
 		err = svc.ProxyResponsesWebSocketFromClient(r.Context(), c, conn, account, "sk-test", first, &OpenAIWSIngressHooks{
 			BeforeRequest: func(turn int, payload []byte, model string) error {
 				return session.BeforeRequest(r.Context(), turn, account, payload, model)

@@ -79,6 +79,7 @@ const extraValue = (row: OpsSystemLog, key: string) => {
 
 const fromAccount = (row: OpsSystemLog) => extraValue(row, 'from_account_id') || '-'
 const targetAccount = (row: OpsSystemLog) => extraValue(row, 'target_account_id') || extraValue(row, 'account_id') || '-'
+const triggeringUser = (row: OpsSystemLog) => extraValue(row, 'username') || extraValue(row, 'user_email') || (row.user_id ? `#${row.user_id}` : '-')
 const probeResults = (row: OpsSystemLog): ProbeResultLog[] => {
   const results = row.extra?.probe_results
   return Array.isArray(results) ? results as ProbeResultLog[] : []
@@ -173,11 +174,12 @@ onMounted(fetchRecords)
       </section>
 
       <div class="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
-        <table class="w-full min-w-[860px] text-left text-sm">
+        <table class="w-full min-w-[1020px] text-left text-sm">
           <thead class="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-dark-800 dark:text-gray-400">
             <tr>
               <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.time') }}</th>
               <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.status') }}</th>
+              <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.triggeringUser') }}</th>
               <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.fromAccount') }}</th>
               <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.targetAccount') }}</th>
               <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.model') }}</th>
@@ -186,10 +188,10 @@ onMounted(fetchRecords)
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-dark-800">
             <tr v-if="loading">
-              <td colspan="6" class="px-4 py-10 text-center text-gray-500">{{ t('common.loading') }}</td>
+              <td colspan="7" class="px-4 py-10 text-center text-gray-500">{{ t('common.loading') }}</td>
             </tr>
             <tr v-else-if="records.length === 0">
-              <td colspan="6" class="px-4 py-10 text-center text-gray-500">{{ t('admin.ops.switchRecords.empty') }}</td>
+              <td colspan="7" class="px-4 py-10 text-center text-gray-500">{{ t('admin.ops.switchRecords.empty') }}</td>
             </tr>
             <template v-else>
               <tr v-for="row in records" :key="row.id" class="text-gray-700 dark:text-gray-200">
@@ -202,6 +204,11 @@ onMounted(fetchRecords)
                   >
                     {{ eventLabel(eventType(row)!) }}
                   </span>
+                </td>
+                <td class="px-4 py-3" data-testid="triggering-user">
+                  <div class="font-medium">{{ triggeringUser(row) }}</div>
+                  <div v-if="extraValue(row, 'username') && extraValue(row, 'user_email')" class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ extraValue(row, 'user_email') }}</div>
+                  <div v-if="row.user_id && (extraValue(row, 'username') || extraValue(row, 'user_email'))" class="mt-1 font-mono text-xs text-gray-500 dark:text-gray-400">ID: {{ row.user_id }}</div>
                 </td>
                 <td class="px-4 py-3 font-mono">{{ fromAccount(row) }}</td>
                 <td class="px-4 py-3 font-mono">{{ targetAccount(row) }}</td>

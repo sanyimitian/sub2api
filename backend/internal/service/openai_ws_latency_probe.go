@@ -17,30 +17,28 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
-
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
 type openAIWSLatencyProbeResult struct {
-	probeNumber            int
-	requestedAccountID     int64
-	accountID              int64
-	attemptedAccountIDs    []int64
-	failure                string
-	ms                     int
-	ok                     bool
-	timedOut               bool
+	probeNumber         int
+	requestedAccountID  int64
+	accountID           int64
+	attemptedAccountIDs []int64
+	failure             string
+	ms                  int
+	ok                  bool
+	timedOut            bool
 }
 
 type openAIWSLatencyProbeLogResult struct {
-	ProbeNumber            int     `json:"probe_number"`
-	RequestedAccountID     int64   `json:"requested_account_id"`
-	AccountID              int64   `json:"account_id,omitempty"`
-	AttemptedAccountIDs    []int64 `json:"attempted_account_ids,omitempty"`
-	FirstTokenMS           *int    `json:"first_token_ms,omitempty"`
-	Success                bool    `json:"success"`
-	TimedOut               bool    `json:"timed_out"`
-	Failure                string  `json:"failure,omitempty"`
+	ProbeNumber         int     `json:"probe_number"`
+	RequestedAccountID  int64   `json:"requested_account_id"`
+	AccountID           int64   `json:"account_id,omitempty"`
+	AttemptedAccountIDs []int64 `json:"attempted_account_ids,omitempty"`
+	FirstTokenMS        *int    `json:"first_token_ms,omitempty"`
+	Success             bool    `json:"success"`
+	TimedOut            bool    `json:"timed_out"`
+	Failure             string  `json:"failure,omitempty"`
 }
 
 // The limit is read for each batch, so settings changes apply without rebuilding
@@ -122,7 +120,7 @@ func medianOpenAIWSLatencyMS(samples []int) (int, bool) {
 	return (samples[middle-1] + samples[middle]) / 2, true
 }
 
-func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, key string, groupID *int64, currentID int64, model string, capability OpenAIEndpointCapability, probeID string) {
+func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, key string, groupID *int64, currentID int64, model string, capability OpenAIEndpointCapability, requiredTransport OpenAIUpstreamTransport, probeID string, actor openAIWSLatencyActor) {
 	settings := s.settingService.GetOpenAIWSLatencySwitchSettings(ctx)
 	probeCount := settings.ProbeCount
 	if probeCount < 1 {
@@ -148,10 +146,11 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 			return true
 		})
 		if changed && state.TargetID > 0 {
-			logger.WriteSinkEvent("info", "openai.ws_latency_switch", "openai.ws_latency_switch_pending", map[string]any{
+			actor.writeEvent("openai.ws_latency_switch_pending", map[string]any{
 				"from_account_id":   currentID,
 				"target_account_id": targetID,
 				"model":             model,
+				"transport":         string(requiredTransport),
 			})
 		}
 	}()
@@ -163,7 +162,10 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		return
 	}
 	checker := &defaultOpenAIAccountScheduler{service: s}
-	request := OpenAIAccountScheduleRequest{GroupID: groupID, Platform: PlatformOpenAI, RequestedModel: model, RequiredTransport: OpenAIUpstreamTransportResponsesWebsocketV2Ingress, RequiredCapability: capability, RequirePrivacySet: s.openAIGroupRequiresPrivacySet(ctx, groupID)}
+	if requiredTransport == "" {
+		requiredTransport = OpenAIUpstreamTransportResponsesWebsocketV2Ingress
+	}
+	request := OpenAIAccountScheduleRequest{GroupID: groupID, Platform: PlatformOpenAI, RequestedModel: model, RequiredTransport: requiredTransport, RequiredCapability: capability, RequirePrivacySet: s.openAIGroupRequiresPrivacySet(ctx, groupID)}
 	var current *Account
 	alternatives := make([]*Account, 0, len(accounts))
 	for i := range accounts {
@@ -218,13 +220,13 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 	forwardedAttempts := 0
 	for _, result := range observed {
 		probeLog := openAIWSLatencyProbeLogResult{
-			ProbeNumber:            result.probeNumber,
-			RequestedAccountID:     result.requestedAccountID,
-			AccountID:              result.accountID,
-			AttemptedAccountIDs:    result.attemptedAccountIDs,
-			Success:                result.ok,
-			TimedOut:               result.timedOut,
-			Failure:                result.failure,
+			ProbeNumber:         result.probeNumber,
+			RequestedAccountID:  result.requestedAccountID,
+			AccountID:           result.accountID,
+			AttemptedAccountIDs: result.attemptedAccountIDs,
+			Success:             result.ok,
+			TimedOut:            result.timedOut,
+			Failure:             result.failure,
 		}
 		forwardedAttempts += len(result.attemptedAccountIDs)
 		if result.ok || result.timedOut {
@@ -236,7 +238,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 	sort.Slice(probeLogResults, func(i, j int) bool {
 		return probeLogResults[i].ProbeNumber < probeLogResults[j].ProbeNumber
 	})
-	logger.WriteSinkEvent("info", "openai.ws_latency_switch", "openai.ws_latency_switch_probe_completed", map[string]any{
+	actor.writeEvent("openai.ws_latency_switch_probe_completed", map[string]any{
 		"from_account_id":    currentID,
 		"probe_limit":        probeCount,
 		"probes":             len(observed),
@@ -244,6 +246,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		"probe_results":      probeLogResults,
 		"target_account_id":  targetID,
 		"model":              model,
+		"transport":          string(requiredTransport),
 	})
 }
 
@@ -307,7 +310,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyCandidates(
 		attempted[account.ID] = struct{}{}
 		observed.attemptedAccountIDs = append(observed.attemptedAccountIDs, account.ID)
 		observed.accountID = account.ID
-		attemptResult, forwardErr := s.forwardOpenAIWSLatencyProbe(ctx, fresh, model)
+		attemptResult, forwardErr := s.forwardOpenAIWSLatencyProbe(ctx, fresh, model, request.RequiredTransport)
 		observed.ms, observed.ok, observed.timedOut = attemptResult.ms, attemptResult.ok, attemptResult.timedOut
 		if attemptResult.ok {
 			observed.failure = ""
@@ -337,7 +340,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyCandidates(
 	return observed
 }
 
-func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, account *Account, model string) (openAIWSLatencyProbeResult, error) {
+func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, account *Account, model string, requiredTransport OpenAIUpstreamTransport) (openAIWSLatencyProbeResult, error) {
 	observed := openAIWSLatencyProbeResult{accountID: account.ID}
 	probeCtx, cancel := context.WithTimeout(ctx, openAIWSLatencyProbeTimeout)
 	defer cancel()
@@ -351,7 +354,11 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, 
 	applyOpenAICodexProbeHeaders(request.Header)
 	writer := &openAIWSLatencyProbeWriter{header: make(http.Header), mode: s.openAITTFTMode(ctx), started: time.Now(), firstMS: -1, closed: make(chan bool)}
 	c := &gin.Context{Request: request, Writer: writer}
-	SetOpenAIClientTransport(c, OpenAIClientTransportWS)
+	if requiredTransport == OpenAIUpstreamTransportHTTPSSE {
+		SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+	} else {
+		SetOpenAIClientTransport(c, OpenAIClientTransportWS)
+	}
 	result, forwardErr := s.Forward(probeCtx, c, account, body)
 	if writer.firstMS >= 0 && (forwardErr == nil || errors.Is(probeCtx.Err(), context.DeadlineExceeded)) {
 		observed.ms, observed.ok = writer.firstMS, true

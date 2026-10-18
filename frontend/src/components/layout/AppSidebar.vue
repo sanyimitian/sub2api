@@ -163,6 +163,27 @@
         }}</span>
       </button>
 
+      <!-- Contact Support -->
+      <div v-if="contactInfo" class="group relative mb-2">
+        <button
+          type="button"
+          class="sidebar-link w-full"
+          :class="{ 'sidebar-link-collapsed': sidebarCollapsed }"
+          :aria-label="t('common.contactSupport')"
+          :aria-describedby="contactTooltipId"
+        >
+          <Icon name="chat" class="h-5 w-5 flex-shrink-0" />
+          <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ t('common.contactSupport') }}</span>
+        </button>
+        <div
+          :id="contactTooltipId"
+          role="tooltip"
+          class="invisible absolute bottom-full left-0 z-50 w-64 max-w-[calc(100vw-2rem)] pb-2 opacity-0 transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+        >
+          <div class="select-text whitespace-pre-wrap break-words rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-700 shadow-lg dark:border-dark-700 dark:bg-dark-800 dark:text-dark-200">{{ contactInfo }}</div>
+        </div>
+      </div>
+
       <!-- Collapse Button -->
       <button
         @click="toggleSidebar"
@@ -188,7 +209,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
@@ -251,6 +272,8 @@ const mobileOpen = computed(() => appStore.mobileOpen)
 const isAdmin = computed(() => authStore.isAdmin)
 const sidebarNavRef = ref<HTMLElement | null>(null)
 const isDark = ref(document.documentElement.classList.contains('dark'))
+const contactInfo = computed(() => appStore.contactInfo?.trim() || '')
+const contactTooltipId = useId()
 
 const homePath = computed(() => '/')
 

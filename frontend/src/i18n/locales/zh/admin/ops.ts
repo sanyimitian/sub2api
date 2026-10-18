@@ -13,6 +13,7 @@ export default {
         empty: '此时间范围内暂无切换记录',
         time: '时间',
         status: '状态',
+        triggeringUser: '触发用户',
         fromAccount: '来源账号',
         targetAccount: '目标账号',
         probeResults: '探测结果',

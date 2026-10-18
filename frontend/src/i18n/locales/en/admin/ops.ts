@@ -13,6 +13,7 @@ export default {
         empty: 'No switch records in this time range',
         time: 'Time',
         status: 'Status',
+        triggeringUser: 'Triggering user',
         fromAccount: 'From account',
         targetAccount: 'Target account',
         probeResults: 'Probe results',

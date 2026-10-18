@@ -657,6 +657,34 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	needsResponses := nativeV2 || legacyCompact
 	requiredCapability := openAIResponsesRequiredCapabilityForRequest(imageIntent, needsResponses, requestPlatform)
 
+	var latencySession *service.OpenAIWSLatencySession
+	var latencyObservedAccount *service.Account
+	var latencyObservedResult *service.OpenAIForwardResult
+	var latencyObservedErr error
+	if reqStream && isBareOpenAIResponsesPath(c) && requestPlatform == service.PlatformOpenAI && !imageIntent && !nativeV2 {
+		latencySession = h.gatewayService.NewOpenAIHTTPResponsesLatencySession(
+			c.Request.Context(), apiKey.GroupID, apiKey, sessionHash, reqModel, forwardModel, requiredCapability, body,
+		)
+		if latencySession != nil {
+			shouldRetry, prepareErr := latencySession.PrepareHTTP(c.Request.Context(), body)
+			if prepareErr != nil {
+				reqLog.Warn("openai.ws_latency_http_reconnect_context_rejected", zap.Error(prepareErr))
+				h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", prepareErr.Error(), streamStarted)
+				return
+			}
+			if shouldRetry {
+				reqLog.Info("openai.ws_latency_http_retry_requested", zap.String("transport", "http_sse"))
+				h.respondOpenAIResponsesLatencyRetry(c, streamStarted)
+				return
+			}
+			defer func() {
+				if latencyObservedAccount != nil {
+					latencySession.Observe(context.WithoutCancel(c.Request.Context()), 1, latencyObservedAccount, latencyObservedResult, latencyObservedErr)
+				}
+			}()
+		}
+	}
+
 	// 分组利润控制：请求级装配定价上下文——pricingAt 固定本请求的
 	// D 与计费高峰因子，选号、槽位终检与全部 failover 重入共用同一门与阈值。
 	// 生图意图只影响能力路由与图片计费，不关门：混合 /v1/responses 请求的
@@ -673,20 +701,27 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 		// Select account supporting the requested model
 		reqLog.Debug("openai.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
-			apiKey.GroupID,
-			previousResponseID,
-			sessionHash,
-			forwardModel,
-			failedAccountIDs,
-			service.OpenAIUpstreamTransportAny,
-			requiredCapability,
-			requireCompact,
-			false,
-			!imageIntent,
-			requestPlatform,
-		)
+		var selection *service.AccountSelectionResult
+		var scheduleDecision service.OpenAIAccountScheduleDecision
+		if latencySession != nil {
+			selection, scheduleDecision, err = latencySession.SelectTarget(c.Request.Context(), failedAccountIDs, service.OpenAIUpstreamTransportHTTPSSE)
+		}
+		if err == nil && selection == nil {
+			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+				c.Request.Context(),
+				apiKey.GroupID,
+				previousResponseID,
+				sessionHash,
+				forwardModel,
+				failedAccountIDs,
+				service.OpenAIUpstreamTransportAny,
+				requiredCapability,
+				requireCompact,
+				false,
+				!imageIntent,
+				requestPlatform,
+			)
+		}
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("openai.account_select_aborted_client_disconnected", zap.Error(err))
@@ -797,6 +832,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			}()
 			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
 		}()
+		if latencySession != nil {
+			latencyObservedAccount, latencyObservedResult, latencyObservedErr = account, result, err
+		}
 		var cyberBlockBodyHTTP []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyHTTP = sessionHashBody
@@ -2789,7 +2827,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 
 	var latencySession *service.OpenAIWSLatencySession
 	if requestPlatform == service.PlatformOpenAI && !imageIntent {
-		latencySession = h.gatewayService.NewOpenAIWSLatencySession(ctx, c, firstMessage, apiKey.GroupID, apiKey.ID, sessionHash, reqModel, wsForwardModel, requiredCapability)
+		latencySession = h.gatewayService.NewOpenAIWSLatencySession(ctx, c, firstMessage, apiKey.GroupID, apiKey, sessionHash, reqModel, wsForwardModel, requiredCapability)
 		if prepareErr := latencySession.Prepare(ctx, firstMessage); prepareErr != nil {
 			var closeErr *service.OpenAIWSClientCloseError
 			if errors.As(prepareErr, &closeErr) {
@@ -3943,6 +3981,16 @@ func (h *OpenAIGatewayHandler) openAICompactKeepaliveInterval() time.Duration {
 
 func setOpenAIClientTransportHTTP(c *gin.Context) {
 	service.SetOpenAIClientTransport(c, service.OpenAIClientTransportHTTP)
+}
+
+func (h *OpenAIGatewayHandler) respondOpenAIResponsesLatencyRetry(c *gin.Context, streamStarted bool) {
+	if c != nil && c.Request != nil && c.Request.ProtoMajor == 1 {
+		c.Header("Connection", "close")
+	}
+	c.Header("Retry-After", "0")
+	c.Header("Cache-Control", "no-store")
+	h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "server_error", "Service temporarily unavailable; please retry the request", streamStarted)
+	c.Abort()
 }
 
 func setOpenAIClientTransportWS(c *gin.Context) {
