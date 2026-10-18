@@ -13,6 +13,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
 const (
@@ -205,7 +207,11 @@ func (session *OpenAIWSLatencySession) requestReconnect(ctx context.Context, mod
 		return nil
 	}
 	session.clearUpstreamAffinity(ctx)
-	slog.Info("openai.ws_latency_reconnect_requested", "scope", session.scope, "from_account_id", state.AccountID, "target_account_id", state.TargetID)
+	logger.WriteSinkEvent("info", "openai.ws_latency_switch", "openai.ws_latency_switch_reconnect_requested", map[string]any{
+		"from_account_id":   state.AccountID,
+		"target_account_id": state.TargetID,
+		"model":             model,
+	})
 	return NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "faster upstream available; reconnect with complete context", nil)
 }
 
@@ -284,15 +290,22 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 	}
 	now := time.Now().UnixMilli()
 	if session.recovering && recoveryConfirmed && classification.user && turnErr == nil && result != nil && result.SucceededForScheduling() {
+		fromAccountID := int64(0)
 		_, completed := session.service.updateOpenAIWSLatencyState(ctx, session.key(session.model), func(state *openAIWSLatencyState) bool {
 			if state.TargetID == 0 || state.AccountID == account.ID {
 				return false
 			}
+			fromAccountID = state.AccountID
 			*state = openAIWSLatencyState{AccountID: account.ID, CooldownUntil: now + openAIWSLatencyCooldown.Milliseconds()}
 			return true
 		})
 		if completed {
-			slog.Info("openai.ws_latency_switch_completed", "scope", session.scope, "account_id", account.ID)
+			logger.WriteSinkEvent("info", "openai.ws_latency_switch", "openai.ws_latency_switch_completed", map[string]any{
+				"from_account_id":   fromAccountID,
+				"target_account_id": account.ID,
+				"account_id":        account.ID,
+				"model":             session.model,
+			})
 		}
 	}
 	if !classification.user {

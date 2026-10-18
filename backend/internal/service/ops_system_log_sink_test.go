@@ -60,6 +60,30 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 			want:  true,
 		},
 		{
+			name:  "latency switch lifecycle events",
+			event: &logger.LogEvent{Level: "info", Message: "openai.ws_latency_switch_pending"},
+			want:  true,
+		},
+		{
+			name:  "latency switch reconnect event",
+			event: &logger.LogEvent{Level: "info", Message: "openai.ws_latency_switch_reconnect_requested"},
+			want:  true,
+		},
+		{
+			name:  "latency switch completion event",
+			event: &logger.LogEvent{Level: "info", Message: "openai.ws_latency_switch_completed"},
+			want:  true,
+		},
+		{
+			name: "explicit skip still excludes latency switch events",
+			event: &logger.LogEvent{
+				Level:   "info",
+				Message: "openai.ws_latency_switch_pending",
+				Fields:  map[string]any{logger.OpsSystemLogSkipField: true},
+			},
+			want: false,
+		},
+		{
 			name: "audit component from fields (real zap path)",
 			event: &logger.LogEvent{
 				Level:     "info",

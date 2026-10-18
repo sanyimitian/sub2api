@@ -459,6 +459,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/account-switch-records',
+    name: 'AdminAccountSwitchRecords',
+    component: () => import('@/views/admin/ops/AccountSwitchRecordsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Account Switch Records',
+      titleKey: 'admin.ops.switchRecords.title',
+      descriptionKey: 'admin.ops.switchRecords.description'
+    }
+  },
+  {
     path: '/admin/audit-logs',
     name: 'AdminAuditLogs',
     component: () => import('@/views/admin/AuditLogView.vue'),

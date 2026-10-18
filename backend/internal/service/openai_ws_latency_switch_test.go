@@ -277,26 +277,98 @@ func TestOpenAIWSLatencyProbeForwardsSyntheticRequestOverWebSocket(t *testing.T)
 	}
 }
 
+func TestOpenAIWSLatencyProbeBypassesNormalAccountSlots(t *testing.T) {
+	svc, _ := newOpenAIWSLatencyTestService(t)
+	svc.cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	svc.cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 20
+	svc.cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 20
+	svc.cfg.Gateway.OpenAIWS.QueueLimitPerConn = 8
+	svc.cfg.Gateway.OpenAIWS.DialTimeoutSeconds = 3
+	svc.cfg.Gateway.OpenAIWS.ReadTimeoutSeconds = 3
+	svc.cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
+	groupID := int64(1)
+	account := &Account{ID: 11, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}, Credentials: map[string]any{"api_key": "sk-test"}, Extra: map[string]any{"responses_websockets_v2_enabled": true}}
+	svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{*account}}
+	var acquiredIDs []int64
+	svc.concurrencyService = NewConcurrencyService(schedulerTestConcurrencyCache{
+		acquireResults: map[int64]bool{11: false},
+		acquiredIDs:    &acquiredIDs,
+	})
+	pool := newOpenAIWSConnPool(svc.cfg)
+	dialer := &openAIWSLatencyProbeTestDialer{}
+	pool.setClientDialerForTest(dialer)
+	defer pool.Close()
+	svc.openaiWSPool, svc.openaiWSResolver, svc.toolCorrector = pool, NewOpenAIWSProtocolResolver(svc.cfg), NewCodexToolCorrector()
+	request := OpenAIAccountScheduleRequest{
+		GroupID:            &groupID,
+		Platform:           PlatformOpenAI,
+		RequestedModel:     "gpt-5.1",
+		RequiredTransport:  OpenAIUpstreamTransportResponsesWebsocketV2Ingress,
+		RequiredCapability: OpenAIEndpointCapabilityResponses,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result := svc.probeOpenAIWSLatencyCandidates(ctx, []*Account{account}, 0, "gpt-5.1", request)
+	require.True(t, result.ok)
+	require.Equal(t, int64(11), result.requestedAccountID)
+	require.Equal(t, int64(11), result.accountID)
+	require.Equal(t, []int64{11}, result.attemptedAccountIDs)
+	require.Empty(t, acquiredIDs, "latency probes do not reserve ordinary request slots")
+	dialer.mu.Lock()
+	requests := dialer.requests
+	dialer.mu.Unlock()
+	require.Equal(t, 1, requests)
+}
+
 type openAIWSLatencyProbeTestDialer struct {
-	mu    sync.Mutex
-	calls int
+	mu       sync.Mutex
+	calls    int
+	requests int
 }
 
 func (dialer *openAIWSLatencyProbeTestDialer) Dial(_ context.Context, _ string, _ http.Header, _ string) (openAIWSClientConn, int, http.Header, error) {
 	dialer.mu.Lock()
 	dialer.calls++
 	dialer.mu.Unlock()
-	return &openAIWSCaptureConn{events: [][]byte{
-		[]byte(`{"type":"response.output_text.delta","delta":"OK"}`),
-		[]byte(`{"type":"response.completed","response":{"id":"resp_probe","model":"gpt-5.1","status":"completed"}}`),
-	}}, 0, nil, nil
+	return &openAIWSLatencyProbeCountingConn{
+		openAIWSCaptureConn: &openAIWSCaptureConn{
+			readDelays: []time.Duration{5 * time.Millisecond, 5 * time.Millisecond},
+			events: [][]byte{
+				[]byte(`{"type":"response.output_text.delta","delta":"OK"}`),
+				[]byte(`{"type":"response.completed","response":{"id":"resp_probe","model":"gpt-5.1","status":"completed"}}`),
+			},
+		},
+		dialer: dialer,
+	}, 0, nil, nil
+}
+
+type openAIWSLatencyProbeCountingConn struct {
+	*openAIWSCaptureConn
+	dialer *openAIWSLatencyProbeTestDialer
+}
+
+func (conn *openAIWSLatencyProbeCountingConn) countRequest() {
+	conn.dialer.mu.Lock()
+	conn.dialer.requests++
+	conn.dialer.mu.Unlock()
+}
+
+func (conn *openAIWSLatencyProbeCountingConn) WriteJSON(ctx context.Context, value any) error {
+	conn.countRequest()
+	return conn.openAIWSCaptureConn.WriteJSON(ctx, value)
+}
+
+func (conn *openAIWSLatencyProbeCountingConn) WriteFrame(ctx context.Context, messageType coderws.MessageType, payload []byte) error {
+	conn.countRequest()
+	return conn.openAIWSCaptureConn.WriteFrame(ctx, messageType, payload)
 }
 
 func TestOpenAIWSLatencyProbeCountChangesBetweenBatches(t *testing.T) {
 	svc, _ := newOpenAIWSLatencyTestService(t)
 	svc.cfg.Security.URLAllowlist.AllowInsecureHTTP = true
-	svc.cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
-	svc.cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 1
+	svc.cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 20
+	svc.cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 20
 	svc.cfg.Gateway.OpenAIWS.QueueLimitPerConn = 8
 	svc.cfg.Gateway.OpenAIWS.DialTimeoutSeconds = 3
 	svc.cfg.Gateway.OpenAIWS.ReadTimeoutSeconds = 3
@@ -323,14 +395,11 @@ func TestOpenAIWSLatencyProbeCountChangesBetweenBatches(t *testing.T) {
 		if want == 0 {
 			want = 6
 		}
-		if want > len(accounts) {
-			want = len(accounts)
-		}
 		total += want
 		dialer.mu.Lock()
-		calls := dialer.calls
+		requests := dialer.requests
 		dialer.mu.Unlock()
-		require.Equal(t, total, calls, "batch %d with configured probe count %d", batch, count)
+		require.Equal(t, total, requests, "batch %d with configured probe count %d", batch, count)
 	}
 }
 

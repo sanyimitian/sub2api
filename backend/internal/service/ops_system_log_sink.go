@@ -163,6 +163,12 @@ func (s *OpsSystemLogSink) shouldIndex(event *logger.LogEvent) bool {
 			return false
 		}
 	}
+	if event != nil {
+		switch strings.TrimSpace(event.Message) {
+		case "openai.ws_latency_switch_probe_completed", "openai.ws_latency_switch_pending", "openai.ws_latency_switch_reconnect_requested", "openai.ws_latency_switch_completed":
+			return true
+		}
+	}
 	level := strings.ToLower(strings.TrimSpace(event.Level))
 	switch level {
 	case "warn", "warning", "error", "fatal", "panic", "dpanic":
