@@ -498,6 +498,7 @@ type OpenAIGatewayService struct {
 	openaiOAuth429WindowStartUnixNano   atomic.Int64
 	openaiOAuth429WindowCount           atomic.Int64
 	openaiWSRetryMetrics                openAIWSRetryMetrics
+	openaiWSLatencyProbeLimiter         openAIWSLatencyProbeLimiter
 	responseHeaderFilter                *responseheaders.CompiledHeaderFilter
 	codexSnapshotThrottle               *accountWriteThrottle
 	openAIModelsCache                   openAIModelsCache

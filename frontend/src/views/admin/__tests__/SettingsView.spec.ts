@@ -1508,6 +1508,55 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(payload.openai_ttft_mode).toBe("semantic");
   });
 
+  it("keeps the Codex latency switch and thresholds together and off by default", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const card = wrapper.get('[data-testid="openai-ws-latency-switch-settings"]');
+    const toggle = card.get('[data-testid="openai-ws-latency-switch-enabled"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(false);
+    expect((card.get('[data-testid="openai-ws-latency-switch-consecutive"]').element as HTMLInputElement).value).toBe("3");
+    expect((card.get('[data-testid="openai-ws-latency-switch-slow-ms"]').element as HTMLInputElement).value).toBe("15000");
+    const probeCount = card.get('[data-testid="openai-ws-latency-switch-probe-count"]');
+    expect((probeCount.element as HTMLInputElement).value).toBe("6");
+    expect(probeCount.attributes("min")).toBe("2");
+    expect(probeCount.attributes("max")).toBe("20");
+    await toggle.setValue(true);
+    await card.get('[data-testid="openai-ws-latency-switch-consecutive"]').setValue(5);
+    await card.get('[data-testid="openai-ws-latency-switch-slow-ms"]').setValue(20000);
+    await probeCount.setValue(4);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(payload.openai_ws_latency_switch_enabled).toBe(true);
+    expect(payload.openai_ws_latency_switch_consecutive).toBe(5);
+    expect(payload.openai_ws_latency_switch_slow_ms).toBe(20000);
+    expect(payload.openai_ws_latency_switch_probe_count).toBe(4);
+  });
+
+  it("loads Codex latency settings and preserves thresholds when disabling", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_ws_latency_switch_enabled: true,
+      openai_ws_latency_switch_consecutive: 4,
+      openai_ws_latency_switch_slow_ms: 25000,
+      openai_ws_latency_switch_probe_count: 8,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const card = wrapper.get('[data-testid="openai-ws-latency-switch-settings"]');
+    expect((card.get('[data-testid="openai-ws-latency-switch-probe-count"]').element as HTMLInputElement).value).toBe("8");
+    await card.get('[data-testid="openai-ws-latency-switch-enabled"]').setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(payload.openai_ws_latency_switch_enabled).toBe(false);
+    expect(payload.openai_ws_latency_switch_consecutive).toBe(4);
+    expect(payload.openai_ws_latency_switch_slow_ms).toBe(25000);
+    expect(payload.openai_ws_latency_switch_probe_count).toBe(8);
+  });
+
   it("loads fail-safe-off Ollama Cloud usage refresh settings and saves an explicit opt-in", async () => {
     const wrapper = mountView();
 

@@ -202,6 +202,10 @@ type SystemSettings struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
+	OpenAIWSLatencySwitchEnabled           bool   `json:"openai_ws_latency_switch_enabled"`
+	OpenAIWSLatencySwitchConsecutive       int    `json:"openai_ws_latency_switch_consecutive"`
+	OpenAIWSLatencySwitchSlowMS            int    `json:"openai_ws_latency_switch_slow_ms"`
+	OpenAIWSLatencySwitchProbeCount        int    `json:"openai_ws_latency_switch_probe_count"`
 	OpenAITTFTMode                         string `json:"openai_ttft_mode"`
 	EnableFingerprintUnification           bool   `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              bool   `json:"enable_metadata_passthrough"`

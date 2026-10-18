@@ -629,6 +629,10 @@ export interface SystemSettings {
   allow_ungrouped_key_scheduling: boolean;
 
   // Gateway forwarding behavior
+  openai_ws_latency_switch_enabled: boolean;
+  openai_ws_latency_switch_consecutive: number;
+  openai_ws_latency_switch_slow_ms: number;
+  openai_ws_latency_switch_probe_count: number;
   openai_ttft_mode: string;
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
@@ -959,6 +963,10 @@ export interface UpdateSettingsRequest {
   min_claude_code_version?: string;
   max_claude_code_version?: string;
   allow_ungrouped_key_scheduling?: boolean;
+  openai_ws_latency_switch_enabled?: boolean;
+  openai_ws_latency_switch_consecutive?: number;
+  openai_ws_latency_switch_slow_ms?: number;
+  openai_ws_latency_switch_probe_count?: number;
   openai_ttft_mode?: string;
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;

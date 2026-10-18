@@ -455,6 +455,18 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAITTFTMode != after.OpenAITTFTMode {
 		changed = append(changed, "openai_ttft_mode")
 	}
+	if before.OpenAIWSLatencySwitchEnabled != after.OpenAIWSLatencySwitchEnabled {
+		changed = append(changed, "openai_ws_latency_switch_enabled")
+	}
+	if before.OpenAIWSLatencySwitchConsecutive != after.OpenAIWSLatencySwitchConsecutive {
+		changed = append(changed, "openai_ws_latency_switch_consecutive")
+	}
+	if before.OpenAIWSLatencySwitchSlowMS != after.OpenAIWSLatencySwitchSlowMS {
+		changed = append(changed, "openai_ws_latency_switch_slow_ms")
+	}
+	if before.OpenAIWSLatencySwitchProbeCount != after.OpenAIWSLatencySwitchProbeCount {
+		changed = append(changed, "openai_ws_latency_switch_probe_count")
+	}
 	if before.EnableMetadataPassthrough != after.EnableMetadataPassthrough {
 		changed = append(changed, "enable_metadata_passthrough")
 	}

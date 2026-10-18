@@ -864,6 +864,10 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Gateway forwarding behavior (defaults: fingerprint=true, metadata_passthrough=false,
 	// cch_signing=false, claude_oauth_system_prompt_injection=true)
+	result.OpenAIWSLatencySwitchEnabled = settings[SettingKeyOpenAIWSLatencySwitchEnabled] == "true"
+	result.OpenAIWSLatencySwitchConsecutive = parseOpenAIWSLatencySwitchInt(settings[SettingKeyOpenAIWSLatencySwitchConsecutive], 3, 1, 20)
+	result.OpenAIWSLatencySwitchSlowMS = parseOpenAIWSLatencySwitchInt(settings[SettingKeyOpenAIWSLatencySwitchSlowMS], 15000, 1000, 300000)
+	result.OpenAIWSLatencySwitchProbeCount = parseOpenAIWSLatencySwitchInt(settings[SettingKeyOpenAIWSLatencySwitchProbeCount], defaultOpenAIWSLatencyProbeCount, minOpenAIWSLatencyProbeCount, maxOpenAIWSLatencyProbeCount)
 	result.OpenAITTFTMode = normalizeOpenAITTFTMode(settings[SettingKeyOpenAITTFTMode])
 	if v, ok := settings[SettingKeyEnableFingerprintUnification]; ok && v != "" {
 		result.EnableFingerprintUnification = v == "true"

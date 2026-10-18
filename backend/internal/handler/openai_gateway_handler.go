@@ -2787,25 +2787,40 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	wsPricingCtx, _ := h.gatewayService.WithOpenAIRequestPricingContext(ctx, apiKey.GroupID)
 	ctx = wsPricingCtx
 
+	var latencySession *service.OpenAIWSLatencySession
+	if requestPlatform == service.PlatformOpenAI && !imageIntent {
+		latencySession = h.gatewayService.NewOpenAIWSLatencySession(ctx, c, firstMessage, apiKey.GroupID, apiKey.ID, sessionHash, reqModel, wsForwardModel, requiredCapability)
+		if prepareErr := latencySession.Prepare(ctx, firstMessage); prepareErr != nil {
+			var closeErr *service.OpenAIWSClientCloseError
+			if errors.As(prepareErr, &closeErr) {
+				closeOpenAIClientWS(wsConn, closeErr.StatusCode(), closeErr.Reason())
+			}
+			return
+		}
+	}
+
 	for {
 		if ctx.Err() != nil {
 			return
 		}
 		reqLog.Debug("openai.websocket_account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			ctx,
-			apiKey.GroupID,
-			previousResponseID,
-			sessionHash,
-			wsForwardModel,
-			failedAccountIDs,
-			requiredTransport,
-			requiredCapability,
-			false,
-			previousResponseCanMove,
-			!imageIntent,
-			requestPlatform,
-		)
+		selection, scheduleDecision, err := latencySession.SelectTarget(ctx, failedAccountIDs, requiredTransport)
+		if err == nil && selection == nil {
+			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+				ctx,
+				apiKey.GroupID,
+				previousResponseID,
+				sessionHash,
+				wsForwardModel,
+				failedAccountIDs,
+				requiredTransport,
+				requiredCapability,
+				false,
+				previousResponseCanMove,
+				!imageIntent,
+				requestPlatform,
+			)
+		}
 		if err != nil {
 			reqLog.Warn("openai.websocket_account_select_failed",
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
@@ -2969,6 +2984,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			ReasoningEffortMappings:     reasoningEffortMappings,
 			TurnStarted:                 recordTurnStart,
 			BeforeRequest: func(turn int, payload []byte, originalModel string) error {
+				if err := latencySession.BeforeRequest(ctx, turn, account, payload, originalModel); err != nil {
+					return err
+				}
 				c.Set(securityAuditWSTurnContextKey, turn)
 				service.BeginOpsStreamTurn(c, turn)
 				setCyberTurnBody(turn, payload)
@@ -3092,6 +3110,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					clearCyberPolicyAttemptState(c, !cyberBlockPendingAfterFailover)
 				}()
 				releaseTurnSlots()
+				latencySession.Observe(ctx, turn, account, result, turnErr)
 				turnRequestedModel := reqModel
 				turnUpstreamModel := ""
 				if result != nil && turn > 1 {

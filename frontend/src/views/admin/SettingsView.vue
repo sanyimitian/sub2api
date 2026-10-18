@@ -5377,6 +5377,31 @@
                 </p>
               </div>
 
+              <div class="space-y-4 border-b border-gray-100 pb-5 dark:border-dark-700" data-testid="openai-ws-latency-switch-settings">
+                <div class="flex items-center justify-between gap-5">
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitch") }}</label>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchHint") }}</p>
+                  </div>
+                  <Toggle v-model="form.openai_ws_latency_switch_enabled" data-testid="openai-ws-latency-switch-enabled" />
+                </div>
+                <div class="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label for="openai-ws-latency-switch-consecutive" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchConsecutive") }}</label>
+                    <input id="openai-ws-latency-switch-consecutive" v-model.number="form.openai_ws_latency_switch_consecutive" type="number" min="1" max="20" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-consecutive" />
+                  </div>
+                  <div>
+                    <label for="openai-ws-latency-switch-slow-ms" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchSlowMS") }}</label>
+                    <input id="openai-ws-latency-switch-slow-ms" v-model.number="form.openai_ws_latency_switch_slow_ms" type="number" min="1000" max="300000" step="1000" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-slow-ms" />
+                  </div>
+                  <div>
+                    <label for="openai-ws-latency-switch-probe-count" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCount") }}</label>
+                    <input id="openai-ws-latency-switch-probe-count" v-model.number="form.openai_ws_latency_switch_probe_count" type="number" min="2" max="20" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-probe-count" />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCountHint") }}</p>
+                  </div>
+                </div>
+              </div>
+
               <!-- Fingerprint Unification -->
               <div class="flex items-center justify-between">
                 <div>
@@ -10030,6 +10055,10 @@ const form = reactive<SettingsForm>({
   openai_advanced_scheduler_weight_previous_response: "",
   openai_advanced_scheduler_weight_session_sticky: "",
   // Gateway forwarding behavior
+  openai_ws_latency_switch_enabled: false,
+  openai_ws_latency_switch_consecutive: 3,
+  openai_ws_latency_switch_slow_ms: 15000,
+  openai_ws_latency_switch_probe_count: 6,
   openai_ttft_mode: "semantic",
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
@@ -11676,6 +11705,10 @@ async function saveSettings() {
       min_claude_code_version: form.min_claude_code_version,
       max_claude_code_version: form.max_claude_code_version,
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
+      openai_ws_latency_switch_enabled: form.openai_ws_latency_switch_enabled,
+      openai_ws_latency_switch_consecutive: Number(form.openai_ws_latency_switch_consecutive),
+      openai_ws_latency_switch_slow_ms: Number(form.openai_ws_latency_switch_slow_ms),
+      openai_ws_latency_switch_probe_count: Number(form.openai_ws_latency_switch_probe_count),
       openai_ttft_mode:
         form.openai_ttft_mode === "visible" ? "visible" : "semantic",
       enable_fingerprint_unification: form.enable_fingerprint_unification,

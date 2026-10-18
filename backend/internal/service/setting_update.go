@@ -474,6 +474,30 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if strings.TrimSpace(settings.OpenAITTFTMode) != "" && strings.ToLower(strings.TrimSpace(settings.OpenAITTFTMode)) != OpenAITTFTModeSemantic && strings.ToLower(strings.TrimSpace(settings.OpenAITTFTMode)) != OpenAITTFTModeVisible {
 		return nil, fmt.Errorf("%s must be one of: %s/%s", SettingKeyOpenAITTFTMode, OpenAITTFTModeSemantic, OpenAITTFTModeVisible)
 	}
+	consecutive, slowMS := settings.OpenAIWSLatencySwitchConsecutive, settings.OpenAIWSLatencySwitchSlowMS
+	if consecutive == 0 {
+		consecutive = 3
+	}
+	if slowMS == 0 {
+		slowMS = 15000
+	}
+	if consecutive < 1 || consecutive > 20 {
+		return nil, fmt.Errorf("%s must be between 1 and 20", SettingKeyOpenAIWSLatencySwitchConsecutive)
+	}
+	if slowMS < 1000 || slowMS > 300000 {
+		return nil, fmt.Errorf("%s must be between 1000 and 300000", SettingKeyOpenAIWSLatencySwitchSlowMS)
+	}
+	probeCount := settings.OpenAIWSLatencySwitchProbeCount
+	if probeCount == 0 {
+		probeCount = defaultOpenAIWSLatencyProbeCount
+	}
+	if probeCount < minOpenAIWSLatencyProbeCount || probeCount > maxOpenAIWSLatencyProbeCount {
+		return nil, fmt.Errorf("%s must be between %d and %d", SettingKeyOpenAIWSLatencySwitchProbeCount, minOpenAIWSLatencyProbeCount, maxOpenAIWSLatencyProbeCount)
+	}
+	updates[SettingKeyOpenAIWSLatencySwitchEnabled] = strconv.FormatBool(settings.OpenAIWSLatencySwitchEnabled)
+	updates[SettingKeyOpenAIWSLatencySwitchConsecutive] = strconv.Itoa(consecutive)
+	updates[SettingKeyOpenAIWSLatencySwitchSlowMS] = strconv.Itoa(slowMS)
+	updates[SettingKeyOpenAIWSLatencySwitchProbeCount] = strconv.Itoa(probeCount)
 	updates[SettingKeyOpenAITTFTMode] = mode
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
@@ -719,6 +743,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	})
 	gatewayForwardingSF.Forget("gateway_forwarding")
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
+		latencySwitch:                    openAIWSLatencySwitchSettingsFromValues(settings.OpenAIWSLatencySwitchEnabled, settings.OpenAIWSLatencySwitchConsecutive, settings.OpenAIWSLatencySwitchSlowMS, settings.OpenAIWSLatencySwitchProbeCount),
 		openAITTFTMode:                   normalizeOpenAITTFTMode(settings.OpenAITTFTMode),
 		fingerprintUnification:           settings.EnableFingerprintUnification,
 		metadataPassthrough:              settings.EnableMetadataPassthrough,

@@ -54,6 +54,7 @@ const backendModeDBTimeout = 5 * time.Second
 
 // cachedGatewayForwardingSettings 缓存网关转发行为设置（进程内缓存，60s TTL）
 type cachedGatewayForwardingSettings struct {
+	latencySwitch                    OpenAIWSLatencySwitchSettings
 	openAITTFTMode                   string
 	fingerprintUnification           bool
 	metadataPassthrough              bool
@@ -900,6 +901,10 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayForwardingDBTimeout)
 		defer cancel()
 		values, err := s.settingRepo.GetMultiple(dbCtx, []string{
+			SettingKeyOpenAIWSLatencySwitchEnabled,
+			SettingKeyOpenAIWSLatencySwitchConsecutive,
+			SettingKeyOpenAIWSLatencySwitchSlowMS,
+			SettingKeyOpenAIWSLatencySwitchProbeCount,
 			SettingKeyOpenAITTFTMode,
 			SettingKeyEnableFingerprintUnification,
 			SettingKeyEnableMetadataPassthrough,
@@ -949,6 +954,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			clientDatelineNormalization = v == "true"
 		}
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
+			latencySwitch:                    OpenAIWSLatencySwitchSettings{Enabled: values[SettingKeyOpenAIWSLatencySwitchEnabled] == "true", Consecutive: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchConsecutive], 3, 1, 20), SlowMS: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchSlowMS], 15000, 1000, 300000), ProbeCount: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchProbeCount], defaultOpenAIWSLatencyProbeCount, minOpenAIWSLatencyProbeCount, maxOpenAIWSLatencyProbeCount)},
 			openAITTFTMode:                   ttftMode,
 			fingerprintUnification:           fp,
 			metadataPassthrough:              mp,

@@ -674,6 +674,10 @@ const (
 	SettingKeyBackendModeEnabled = "backend_mode_enabled"
 
 	// Gateway Forwarding Behavior
+	SettingKeyOpenAIWSLatencySwitchEnabled     = "openai_ws_latency_switch_enabled"
+	SettingKeyOpenAIWSLatencySwitchConsecutive = "openai_ws_latency_switch_consecutive"
+	SettingKeyOpenAIWSLatencySwitchSlowMS      = "openai_ws_latency_switch_slow_ms"
+	SettingKeyOpenAIWSLatencySwitchProbeCount  = "openai_ws_latency_switch_probe_count"
 	// SettingKeyOpenAITTFTMode 控制 first_token_ms 的统计口径。
 	SettingKeyOpenAITTFTMode = "openai_ttft_mode"
 	OpenAITTFTModeSemantic   = "semantic"
