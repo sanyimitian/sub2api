@@ -249,34 +249,30 @@
               <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
               <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
               <span class="text-gray-400 dark:text-gray-500" :title="t('usage.outputTpsHint')">{{ t('usage.outputTps') }}</span>
-              <span data-testid="output-tps" class="font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatUsageOutputRate(row) }}</span>
-              <template v-if="row.request_timings">
-                <span class="text-gray-400 dark:text-gray-500">{{ requestTimingLabel('upstream_response_wait_ms') }}</span>
-                <span class="inline-flex items-center gap-1 font-medium tabular-nums text-gray-700 dark:text-gray-300">
-                  <span data-testid="upstream-response-wait">{{ formatDuration(row.request_timings.upstream_response_wait_ms) }}</span>
-                  <HelpTooltip v-if="requestTimingDetails(row.request_timings).length" width-class="w-72">
-                    <template #trigger>
-                      <button
-                        type="button"
-                        class="inline-flex h-4 w-4 items-center justify-center rounded text-gray-400 transition-colors hover:text-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
-                        :aria-label="t('usage.timingDetails')"
-                      >
-                        <Icon name="infoCircle" size="xs" />
-                      </button>
-                    </template>
-                    <div class="space-y-1">
-                      <div
-                        v-for="detail in requestTimingDetails(row.request_timings)"
-                        :key="detail.label"
-                        class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3"
-                      >
-                        <span class="text-gray-300">{{ detail.label }}</span>
-                        <span class="font-medium tabular-nums text-white">{{ detail.value }}</span>
-                      </div>
+              <span data-testid="output-tps" class="inline-flex items-center gap-1 font-medium tabular-nums text-gray-700 dark:text-gray-300">
+                {{ formatUsageOutputRate(row) }}
+                <HelpTooltip v-if="row.request_timings && requestTimingDetails(row.request_timings).length" width-class="w-72">
+                  <template #trigger>
+                    <button
+                      type="button"
+                      class="inline-flex h-4 w-4 items-center justify-center rounded text-gray-400 transition-colors hover:text-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+                      :aria-label="t('usage.timingDetails')"
+                    >
+                      <Icon name="infoCircle" size="xs" />
+                    </button>
+                  </template>
+                  <div class="space-y-1">
+                    <div
+                      v-for="detail in requestTimingDetails(row.request_timings)"
+                      :key="detail.label"
+                      class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3"
+                    >
+                      <span class="text-gray-300">{{ detail.label }}</span>
+                      <span class="font-medium tabular-nums text-white">{{ detail.value }}</span>
                     </div>
-                  </HelpTooltip>
-                </span>
-              </template>
+                  </div>
+                </HelpTooltip>
+              </span>
             </div>
           </div>
         </template>
@@ -757,7 +753,6 @@ const requestTimingDetails = (timings: AdminUsageLog['request_timings']) => {
 
   const details: { label: string; value: string }[] = []
   for (const [key, value] of Object.entries(timings)) {
-    if (key === 'upstream_response_wait_ms') continue
     if (typeof value === 'number') {
       details.push({ label: requestTimingLabel(key), value: formatDuration(value) })
     }

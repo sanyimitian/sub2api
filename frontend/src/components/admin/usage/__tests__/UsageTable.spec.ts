@@ -186,7 +186,7 @@ describe('admin UsageTable tooltip', () => {
     } as DOMRect)
   })
 
-  it('shows upstream first-byte wait and reveals other timings on hover', async () => {
+  it('keeps upstream first-byte wait and other timings inside the hover details', async () => {
     const wrapper = mount(UsageTable, {
       props: {
         data: [{
@@ -214,8 +214,10 @@ describe('admin UsageTable tooltip', () => {
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true } },
     })
 
-    expect(wrapper.get('[data-testid="upstream-response-wait"]').text()).toBe('9.34s')
+    expect(wrapper.get('[data-testid="output-tps"]').text()).toBe('50.0 tok/s')
     expect(wrapper.text()).not.toContain('Account queue')
+    expect(wrapper.text()).not.toContain('Upstream first-byte wait')
+    expect(wrapper.text()).not.toContain('9.34s')
     expect(wrapper.get('[aria-label="Request timing details"]').exists()).toBe(true)
 
     await wrapper.findComponent(HelpTooltip).trigger('mouseenter')
@@ -225,6 +227,8 @@ describe('admin UsageTable tooltip', () => {
     expect(tooltip?.textContent).toContain('Account queue')
     expect(tooltip?.textContent).toContain('Connection acquisition (includes dial)')
     expect(tooltip?.textContent).toContain('Request write')
+    expect(tooltip?.textContent).toContain('Upstream first-byte wait')
+    expect(tooltip?.textContent).toContain('9.34s')
     expect(tooltip?.textContent).toContain('Reused')
     wrapper.unmount()
   })
