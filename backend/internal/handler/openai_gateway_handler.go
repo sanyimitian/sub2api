@@ -256,10 +256,13 @@ func usageRecordContext(parent context.Context, base context.Context) context.Co
 	if requestID, _ := parent.Value(ctxkey.RequestID).(string); strings.TrimSpace(requestID) != "" {
 		base = context.WithValue(base, ctxkey.RequestID, strings.TrimSpace(requestID))
 	}
+	if recorder := service.RequestTimingRecorderFromContext(parent); recorder != nil {
+		base = service.WithRequestTimingRecorder(base, recorder)
+	}
 	return base
 }
 
-// wrapUsageRecordTaskContext 包装计费任务：复制请求级 context 值，并接管请求的在途余额预留引用。
+// wrapUsageRecordTaskContext 包装计费任务：复制请求 ID 和计时 recorder，并接管请求的在途余额预留引用。
 // 返回的 abandon 在任务未被执行（被丢弃）时必须调用以归还预留引用；任务执行结束时（含 panic）
 // 自动归还，此时余额缓存已在计费路径中同步扣减。
 func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecordTask) (service.UsageRecordTask, func()) {
