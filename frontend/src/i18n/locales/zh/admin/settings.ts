@@ -507,6 +507,8 @@ export default {
         latencySwitchSlowMS: '首字慢阈值（毫秒）',
         latencySwitchProbeCount: '探测路数（2–20）',
         latencySwitchProbeCountHint: '默认 6 路，包含当前路由作为对比基准。实际路数受可用账号与并发限制；修改后从下一批探测生效。',
+        latencySwitchWaitSeconds: '等待用户下次连接时间',
+        latencySwitchWaitSecondsHint: '单位为秒，范围 1–3600 秒，默认 300 秒（5 分钟）。更改后从下一轮探测生效。',
         openaiTTFTMode: 'OpenAI Responses 首 token 统计口径',
         openaiTTFTModeSemantic: '历史兼容（语义事件）',
         openaiTTFTModeVisible: '真实可见输出',

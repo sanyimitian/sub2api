@@ -4,6 +4,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -17,6 +18,7 @@ func TestUpdateSettingsWSLatencyPartialSavePreservesThresholds(t *testing.T) {
 		service.SettingKeyOpenAIWSLatencySwitchConsecutive: "5",
 		service.SettingKeyOpenAIWSLatencySwitchSlowMS:      "20000",
 		service.SettingKeyOpenAIWSLatencySwitchProbeCount:  "8",
+		service.SettingKeyOpenAIWSLatencySwitchWaitSeconds: "300",
 	})
 	rec := doUpdateSettings(t, h, map[string]any{"openai_ws_latency_switch_enabled": true}, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -24,8 +26,22 @@ func TestUpdateSettingsWSLatencyPartialSavePreservesThresholds(t *testing.T) {
 	require.Equal(t, "5", repo.values[service.SettingKeyOpenAIWSLatencySwitchConsecutive])
 	require.Equal(t, "20000", repo.values[service.SettingKeyOpenAIWSLatencySwitchSlowMS])
 	require.Equal(t, "8", repo.values[service.SettingKeyOpenAIWSLatencySwitchProbeCount])
+	require.Equal(t, "300", repo.values[service.SettingKeyOpenAIWSLatencySwitchWaitSeconds])
 	require.Contains(t, rec.Body.String(), `"openai_ws_latency_switch_consecutive":5`)
 	require.Contains(t, rec.Body.String(), `"openai_ws_latency_switch_probe_count":8`)
+	require.Contains(t, rec.Body.String(), `"openai_ws_latency_switch_wait_seconds":300`)
+}
+
+func TestUpdateSettingsWSLatencyWaitSecondsPersists(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, nil)
+	for _, seconds := range []int{1, 300, 3600} {
+		rec := doUpdateSettings(t, h, map[string]any{"openai_ws_latency_switch_wait_seconds": seconds}, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		settings, err := h.settingService.GetAllSettings(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, seconds, settings.OpenAIWSLatencySwitchWaitSeconds)
+		require.Equal(t, fmt.Sprint(seconds), repo.values[service.SettingKeyOpenAIWSLatencySwitchWaitSeconds])
+	}
 }
 
 func TestUpdateSettingsWSLatencyProbeCountPersists(t *testing.T) {
@@ -49,6 +65,8 @@ func TestUpdateSettingsWSLatencyRejectsExplicitInvalidNumbers(t *testing.T) {
 		{"openai_ws_latency_switch_probe_count": 0},
 		{"openai_ws_latency_switch_probe_count": 1},
 		{"openai_ws_latency_switch_probe_count": 21},
+		{"openai_ws_latency_switch_wait_seconds": 0},
+		{"openai_ws_latency_switch_wait_seconds": 3601},
 	} {
 		h, _ := newStepUpSwitchTestHandler(t, nil)
 		rec := doUpdateSettings(t, h, fields, nil)

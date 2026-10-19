@@ -514,6 +514,8 @@ export default {
         latencySwitchSlowMS: "Slow first-token threshold (ms)",
         latencySwitchProbeCount: "Probe routes (2-20)",
         latencySwitchProbeCountHint: "Defaults to 6, including the current route as a baseline. Available accounts and concurrency may reduce the actual count. Changes apply to the next probe batch.",
+        latencySwitchWaitSeconds: "Wait for the user's next connection",
+        latencySwitchWaitSecondsHint: "Seconds, 1-3600. Defaults to 300 seconds (5 minutes). Changes apply to the next probe batch.",
         openaiTTFTMode: 'OpenAI Responses first-token metric',
         openaiTTFTModeSemantic: 'Legacy-compatible (semantic event)',
         openaiTTFTModeVisible: 'Actual visible output',

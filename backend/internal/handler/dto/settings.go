@@ -206,6 +206,7 @@ type SystemSettings struct {
 	OpenAIWSLatencySwitchConsecutive       int    `json:"openai_ws_latency_switch_consecutive"`
 	OpenAIWSLatencySwitchSlowMS            int    `json:"openai_ws_latency_switch_slow_ms"`
 	OpenAIWSLatencySwitchProbeCount        int    `json:"openai_ws_latency_switch_probe_count"`
+	OpenAIWSLatencySwitchWaitSeconds       int    `json:"openai_ws_latency_switch_wait_seconds"`
 	OpenAITTFTMode                         string `json:"openai_ttft_mode"`
 	EnableFingerprintUnification           bool   `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              bool   `json:"enable_metadata_passthrough"`

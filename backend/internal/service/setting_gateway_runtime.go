@@ -905,6 +905,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyOpenAIWSLatencySwitchConsecutive,
 			SettingKeyOpenAIWSLatencySwitchSlowMS,
 			SettingKeyOpenAIWSLatencySwitchProbeCount,
+			SettingKeyOpenAIWSLatencySwitchWaitSeconds,
 			SettingKeyOpenAITTFTMode,
 			SettingKeyEnableFingerprintUnification,
 			SettingKeyEnableMetadataPassthrough,
@@ -954,7 +955,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			clientDatelineNormalization = v == "true"
 		}
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
-			latencySwitch:                    OpenAIWSLatencySwitchSettings{Enabled: values[SettingKeyOpenAIWSLatencySwitchEnabled] == "true", Consecutive: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchConsecutive], 3, 1, 20), SlowMS: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchSlowMS], 15000, 1000, 300000), ProbeCount: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchProbeCount], defaultOpenAIWSLatencyProbeCount, minOpenAIWSLatencyProbeCount, maxOpenAIWSLatencyProbeCount)},
+			latencySwitch:                    OpenAIWSLatencySwitchSettings{Enabled: values[SettingKeyOpenAIWSLatencySwitchEnabled] == "true", Consecutive: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchConsecutive], 3, 1, 20), SlowMS: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchSlowMS], 15000, 1000, 300000), ProbeCount: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchProbeCount], defaultOpenAIWSLatencyProbeCount, minOpenAIWSLatencyProbeCount, maxOpenAIWSLatencyProbeCount), WaitSeconds: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchWaitSeconds], DefaultOpenAIWSLatencySwitchWaitSeconds, MinOpenAIWSLatencySwitchWaitSeconds, MaxOpenAIWSLatencySwitchWaitSeconds)},
 			openAITTFTMode:                   ttftMode,
 			fingerprintUnification:           fp,
 			metadataPassthrough:              mp,

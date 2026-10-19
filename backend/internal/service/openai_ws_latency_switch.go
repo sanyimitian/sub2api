@@ -19,7 +19,6 @@ import (
 
 const (
 	openAIWSLatencyStateTTL     = 2 * time.Hour
-	openAIWSLatencyPendingTTL   = 2 * time.Minute
 	openAIWSLatencyCooldown     = 5 * time.Minute
 	openAIWSLatencyProbeTimeout = 15 * time.Second
 )

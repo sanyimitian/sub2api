@@ -247,6 +247,7 @@ type UpdateSettingsRequest struct {
 	OpenAIWSLatencySwitchConsecutive       *int    `json:"openai_ws_latency_switch_consecutive"`
 	OpenAIWSLatencySwitchSlowMS            *int    `json:"openai_ws_latency_switch_slow_ms"`
 	OpenAIWSLatencySwitchProbeCount        *int    `json:"openai_ws_latency_switch_probe_count"`
+	OpenAIWSLatencySwitchWaitSeconds       *int    `json:"openai_ws_latency_switch_wait_seconds"`
 	OpenAITTFTMode                         *string `json:"openai_ttft_mode"`
 	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
@@ -517,6 +518,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if req.OpenAIWSLatencySwitchProbeCount != nil && (*req.OpenAIWSLatencySwitchProbeCount < 2 || *req.OpenAIWSLatencySwitchProbeCount > 20) {
 		response.BadRequest(c, "openai_ws_latency_switch_probe_count must be between 2 and 20")
+		return
+	}
+	if req.OpenAIWSLatencySwitchWaitSeconds != nil && (*req.OpenAIWSLatencySwitchWaitSeconds < service.MinOpenAIWSLatencySwitchWaitSeconds || *req.OpenAIWSLatencySwitchWaitSeconds > service.MaxOpenAIWSLatencySwitchWaitSeconds) {
+		response.BadRequest(c, "openai_ws_latency_switch_wait_seconds must be between 1 and 3600")
 		return
 	}
 	auditReq := settingsAuditRequest(req)
@@ -1753,6 +1758,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpenAIWSLatencySwitchProbeCount
 		}(),
+		OpenAIWSLatencySwitchWaitSeconds: func() int {
+			if req.OpenAIWSLatencySwitchWaitSeconds != nil {
+				return *req.OpenAIWSLatencySwitchWaitSeconds
+			}
+			return previousSettings.OpenAIWSLatencySwitchWaitSeconds
+		}(),
 		OpenAITTFTMode: func() string {
 			if req.OpenAITTFTMode != nil {
 				return *req.OpenAITTFTMode
@@ -2401,6 +2412,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIWSLatencySwitchConsecutive:                       updatedSettings.OpenAIWSLatencySwitchConsecutive,
 		OpenAIWSLatencySwitchSlowMS:                            updatedSettings.OpenAIWSLatencySwitchSlowMS,
 		OpenAIWSLatencySwitchProbeCount:                        updatedSettings.OpenAIWSLatencySwitchProbeCount,
+		OpenAIWSLatencySwitchWaitSeconds:                       updatedSettings.OpenAIWSLatencySwitchWaitSeconds,
 		OpenAITTFTMode:                                         updatedSettings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,

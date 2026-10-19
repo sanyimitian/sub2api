@@ -5399,6 +5399,11 @@
                     <input id="openai-ws-latency-switch-probe-count" v-model.number="form.openai_ws_latency_switch_probe_count" type="number" min="2" max="20" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-probe-count" />
                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCountHint") }}</p>
                   </div>
+                  <div>
+                    <label for="openai-ws-latency-switch-wait-seconds" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchWaitSeconds") }}</label>
+                    <input id="openai-ws-latency-switch-wait-seconds" v-model.number="form.openai_ws_latency_switch_wait_seconds" type="number" min="1" max="3600" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-wait-seconds" />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchWaitSecondsHint") }}</p>
+                  </div>
                 </div>
               </div>
 
@@ -10059,6 +10064,7 @@ const form = reactive<SettingsForm>({
   openai_ws_latency_switch_consecutive: 3,
   openai_ws_latency_switch_slow_ms: 15000,
   openai_ws_latency_switch_probe_count: 6,
+  openai_ws_latency_switch_wait_seconds: 300,
   openai_ttft_mode: "semantic",
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
@@ -11709,6 +11715,7 @@ async function saveSettings() {
       openai_ws_latency_switch_consecutive: Number(form.openai_ws_latency_switch_consecutive),
       openai_ws_latency_switch_slow_ms: Number(form.openai_ws_latency_switch_slow_ms),
       openai_ws_latency_switch_probe_count: Number(form.openai_ws_latency_switch_probe_count),
+      openai_ws_latency_switch_wait_seconds: Number(form.openai_ws_latency_switch_wait_seconds),
       openai_ttft_mode:
         form.openai_ttft_mode === "visible" ? "visible" : "semantic",
       enable_fingerprint_unification: form.enable_fingerprint_unification,

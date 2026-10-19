@@ -465,6 +465,11 @@ const baseSettingsResponse = {
   min_claude_code_version: "",
   max_claude_code_version: "",
   allow_ungrouped_key_scheduling: false,
+  openai_ws_latency_switch_enabled: false,
+  openai_ws_latency_switch_consecutive: 3,
+  openai_ws_latency_switch_slow_ms: 15000,
+  openai_ws_latency_switch_probe_count: 6,
+  openai_ws_latency_switch_wait_seconds: 300,
   openai_ttft_mode: "semantic",
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
@@ -1521,10 +1526,15 @@ describe("admin SettingsView payment visible method controls", () => {
     expect((probeCount.element as HTMLInputElement).value).toBe("6");
     expect(probeCount.attributes("min")).toBe("2");
     expect(probeCount.attributes("max")).toBe("20");
+    const waitSeconds = card.get('[data-testid="openai-ws-latency-switch-wait-seconds"]');
+    expect((waitSeconds.element as HTMLInputElement).value).toBe("300");
+    expect(waitSeconds.attributes("min")).toBe("1");
+    expect(waitSeconds.attributes("max")).toBe("3600");
     await toggle.setValue(true);
     await card.get('[data-testid="openai-ws-latency-switch-consecutive"]').setValue(5);
     await card.get('[data-testid="openai-ws-latency-switch-slow-ms"]').setValue(20000);
     await probeCount.setValue(4);
+    await waitSeconds.setValue(600);
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
     const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
@@ -1532,6 +1542,7 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(payload.openai_ws_latency_switch_consecutive).toBe(5);
     expect(payload.openai_ws_latency_switch_slow_ms).toBe(20000);
     expect(payload.openai_ws_latency_switch_probe_count).toBe(4);
+    expect(payload.openai_ws_latency_switch_wait_seconds).toBe(600);
   });
 
   it("loads Codex latency settings and preserves thresholds when disabling", async () => {
@@ -1541,12 +1552,14 @@ describe("admin SettingsView payment visible method controls", () => {
       openai_ws_latency_switch_consecutive: 4,
       openai_ws_latency_switch_slow_ms: 25000,
       openai_ws_latency_switch_probe_count: 8,
+      openai_ws_latency_switch_wait_seconds: 480,
     });
     const wrapper = mountView();
     await flushPromises();
     await openGatewayTab(wrapper);
     const card = wrapper.get('[data-testid="openai-ws-latency-switch-settings"]');
     expect((card.get('[data-testid="openai-ws-latency-switch-probe-count"]').element as HTMLInputElement).value).toBe("8");
+    expect((card.get('[data-testid="openai-ws-latency-switch-wait-seconds"]').element as HTMLInputElement).value).toBe("480");
     await card.get('[data-testid="openai-ws-latency-switch-enabled"]').setValue(false);
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
@@ -1555,6 +1568,7 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(payload.openai_ws_latency_switch_consecutive).toBe(4);
     expect(payload.openai_ws_latency_switch_slow_ms).toBe(25000);
     expect(payload.openai_ws_latency_switch_probe_count).toBe(8);
+    expect(payload.openai_ws_latency_switch_wait_seconds).toBe(480);
   });
 
   it("loads fail-safe-off Ollama Cloud usage refresh settings and saves an explicit opt-in", async () => {

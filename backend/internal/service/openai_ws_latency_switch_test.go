@@ -544,7 +544,7 @@ func TestOpenAIWSLatencyRecordsAuthenticatedUserAcrossLifecycle(t *testing.T) {
 		{ID: 11, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{1}, Credentials: map[string]any{"api_key": "sk-slow"}, Extra: map[string]any{"responses_websockets_v2_enabled": true}},
 		{ID: 22, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{1}, Credentials: map[string]any{"api_key": "sk-fast"}, Extra: map[string]any{"responses_websockets_v2_enabled": true}},
 	}}
-	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{latencySwitch: OpenAIWSLatencySwitchSettings{Enabled: true, ProbeCount: 2}, expiresAt: time.Now().Add(time.Hour).UnixNano()})
+	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{latencySwitch: OpenAIWSLatencySwitchSettings{Enabled: true, ProbeCount: 2, WaitSeconds: 73}, expiresAt: time.Now().Add(time.Hour).UnixNano()})
 	ctx := context.Background()
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
@@ -563,6 +563,9 @@ func TestOpenAIWSLatencyRecordsAuthenticatedUserAcrossLifecycle(t *testing.T) {
 	require.True(t, updated)
 	svc.probeOpenAIWSLatencyRoutes(ctx, session.key(session.model), &groupID, 11, session.model, OpenAIEndpointCapabilityResponses, OpenAIUpstreamTransportResponsesWebsocketV2Ingress, "caller-probe", session.actor)
 	require.Equal(t, int64(22), session.state(ctx).TargetID)
+	remaining := time.Until(time.UnixMilli(session.state(ctx).PendingUntil))
+	require.Greater(t, remaining, 72*time.Second)
+	require.LessOrEqual(t, remaining, 73*time.Second)
 	var closeErr *OpenAIWSClientCloseError
 	require.ErrorAs(t, session.BeforeRequest(ctx, 2, &Account{ID: 11}, payload, ""), &closeErr)
 	apiKey.User.Username, apiKey.User.Email = "caller", "caller@example.com"

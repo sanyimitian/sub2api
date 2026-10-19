@@ -868,6 +868,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIWSLatencySwitchConsecutive = parseOpenAIWSLatencySwitchInt(settings[SettingKeyOpenAIWSLatencySwitchConsecutive], 3, 1, 20)
 	result.OpenAIWSLatencySwitchSlowMS = parseOpenAIWSLatencySwitchInt(settings[SettingKeyOpenAIWSLatencySwitchSlowMS], 15000, 1000, 300000)
 	result.OpenAIWSLatencySwitchProbeCount = parseOpenAIWSLatencySwitchInt(settings[SettingKeyOpenAIWSLatencySwitchProbeCount], defaultOpenAIWSLatencyProbeCount, minOpenAIWSLatencyProbeCount, maxOpenAIWSLatencyProbeCount)
+	result.OpenAIWSLatencySwitchWaitSeconds = parseOpenAIWSLatencySwitchInt(settings[SettingKeyOpenAIWSLatencySwitchWaitSeconds], DefaultOpenAIWSLatencySwitchWaitSeconds, MinOpenAIWSLatencySwitchWaitSeconds, MaxOpenAIWSLatencySwitchWaitSeconds)
 	result.OpenAITTFTMode = normalizeOpenAITTFTMode(settings[SettingKeyOpenAITTFTMode])
 	if v, ok := settings[SettingKeyEnableFingerprintUnification]; ok && v != "" {
 		result.EnableFingerprintUnification = v == "true"

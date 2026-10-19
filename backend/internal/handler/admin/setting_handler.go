@@ -293,6 +293,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIWSLatencySwitchConsecutive:                       settings.OpenAIWSLatencySwitchConsecutive,
 		OpenAIWSLatencySwitchSlowMS:                            settings.OpenAIWSLatencySwitchSlowMS,
 		OpenAIWSLatencySwitchProbeCount:                        settings.OpenAIWSLatencySwitchProbeCount,
+		OpenAIWSLatencySwitchWaitSeconds:                       settings.OpenAIWSLatencySwitchWaitSeconds,
 		OpenAITTFTMode:                                         settings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           settings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,

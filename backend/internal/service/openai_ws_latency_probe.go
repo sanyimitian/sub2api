@@ -141,7 +141,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 			}
 			state.ProbeID, state.ProbeUntil = "", 0
 			if targetID > 0 {
-				state.TargetID, state.PendingUntil = targetID, time.Now().Add(openAIWSLatencyPendingTTL).UnixMilli()
+				state.TargetID, state.PendingUntil = targetID, time.Now().Add(time.Duration(settings.WaitSeconds)*time.Second).UnixMilli()
 			}
 			return true
 		})
