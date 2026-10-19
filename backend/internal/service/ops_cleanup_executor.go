@@ -131,6 +131,43 @@ WHERE id IN (SELECT id FROM batch)
 	return total, nil
 }
 
+func deleteOldOpenAIWSLatencySwitchLogs(ctx context.Context, db *sql.DB, cutoff time.Time, batchSize int) (int64, error) {
+	if db == nil {
+		return 0, nil
+	}
+	if batchSize <= 0 {
+		batchSize = opsCleanupBatchSize
+	}
+	query := fmt.Sprintf(`
+WITH batch AS (
+  SELECT id FROM ops_system_logs
+  WHERE message LIKE 'openai.ws_latency_switch_%%' AND created_at < $1
+  ORDER BY id
+  LIMIT $2
+)
+DELETE FROM ops_system_logs
+WHERE id IN (SELECT id FROM batch)
+`)
+	var total int64
+	for {
+		result, err := db.ExecContext(ctx, query, cutoff, batchSize)
+		if err != nil {
+			if isMissingRelationError(err) {
+				return total, nil
+			}
+			return total, err
+		}
+		deleted, err := result.RowsAffected()
+		if err != nil {
+			return total, err
+		}
+		total += deleted
+		if deleted == 0 {
+			return total, nil
+		}
+	}
+}
+
 // truncateOpsTable 用 TRUNCATE TABLE 清空指定表，先 SELECT COUNT(*) 取得清空前行数用于 heartbeat。
 func truncateOpsTable(ctx context.Context, db *sql.DB, table string) (int64, error) {
 	if db == nil {

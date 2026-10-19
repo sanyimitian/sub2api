@@ -634,6 +634,7 @@ export interface SystemSettings {
   openai_ws_latency_switch_slow_ms: number;
   openai_ws_latency_switch_probe_count: number;
   openai_ws_latency_switch_wait_seconds: number;
+  openai_ws_latency_probe_reuse_seconds: number;
   openai_ttft_mode: string;
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
@@ -969,6 +970,7 @@ export interface UpdateSettingsRequest {
   openai_ws_latency_switch_slow_ms?: number;
   openai_ws_latency_switch_probe_count?: number;
   openai_ws_latency_switch_wait_seconds?: number;
+  openai_ws_latency_probe_reuse_seconds?: number;
   openai_ttft_mode?: string;
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;

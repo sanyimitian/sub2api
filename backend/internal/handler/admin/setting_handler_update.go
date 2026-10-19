@@ -248,6 +248,7 @@ type UpdateSettingsRequest struct {
 	OpenAIWSLatencySwitchSlowMS            *int    `json:"openai_ws_latency_switch_slow_ms"`
 	OpenAIWSLatencySwitchProbeCount        *int    `json:"openai_ws_latency_switch_probe_count"`
 	OpenAIWSLatencySwitchWaitSeconds       *int    `json:"openai_ws_latency_switch_wait_seconds"`
+	OpenAIWSLatencyProbeReuseSeconds       *int    `json:"openai_ws_latency_probe_reuse_seconds"`
 	OpenAITTFTMode                         *string `json:"openai_ttft_mode"`
 	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
@@ -522,6 +523,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if req.OpenAIWSLatencySwitchWaitSeconds != nil && (*req.OpenAIWSLatencySwitchWaitSeconds < service.MinOpenAIWSLatencySwitchWaitSeconds || *req.OpenAIWSLatencySwitchWaitSeconds > service.MaxOpenAIWSLatencySwitchWaitSeconds) {
 		response.BadRequest(c, "openai_ws_latency_switch_wait_seconds must be between 1 and 3600")
+		return
+	}
+	if req.OpenAIWSLatencyProbeReuseSeconds != nil && (*req.OpenAIWSLatencyProbeReuseSeconds < service.MinOpenAIWSLatencyProbeReuseSeconds || *req.OpenAIWSLatencyProbeReuseSeconds > service.MaxOpenAIWSLatencyProbeReuseSeconds) {
+		response.BadRequest(c, "openai_ws_latency_probe_reuse_seconds must be between 1 and 3600")
 		return
 	}
 	auditReq := settingsAuditRequest(req)
@@ -1764,6 +1769,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpenAIWSLatencySwitchWaitSeconds
 		}(),
+		OpenAIWSLatencyProbeReuseSeconds: func() int {
+			if req.OpenAIWSLatencyProbeReuseSeconds != nil {
+				return *req.OpenAIWSLatencyProbeReuseSeconds
+			}
+			return previousSettings.OpenAIWSLatencyProbeReuseSeconds
+		}(),
 		OpenAITTFTMode: func() string {
 			if req.OpenAITTFTMode != nil {
 				return *req.OpenAITTFTMode
@@ -2413,6 +2424,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIWSLatencySwitchSlowMS:                            updatedSettings.OpenAIWSLatencySwitchSlowMS,
 		OpenAIWSLatencySwitchProbeCount:                        updatedSettings.OpenAIWSLatencySwitchProbeCount,
 		OpenAIWSLatencySwitchWaitSeconds:                       updatedSettings.OpenAIWSLatencySwitchWaitSeconds,
+		OpenAIWSLatencyProbeReuseSeconds:                       updatedSettings.OpenAIWSLatencyProbeReuseSeconds,
 		OpenAITTFTMode:                                         updatedSettings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 )
 
@@ -106,7 +107,7 @@ func isOpenAIWSLatencyFastCandidate(result openAIWSLatencyProbeResult, currentID
 	return result.ok && result.accountID != 0 && result.accountID != currentID && result.ms >= 0 && result.ms < openAIWSLatencyFastCandidateMS
 }
 
-func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, key string, groupID *int64, currentID int64, model string, capability OpenAIEndpointCapability, requiredTransport OpenAIUpstreamTransport, probeID string, actor openAIWSLatencyActor) {
+func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, key string, groupID *int64, currentID int64, poolModel, model string, capability OpenAIEndpointCapability, requiredTransport OpenAIUpstreamTransport, probeID string, actor openAIWSLatencyActor) {
 	settings := s.settingService.GetOpenAIWSLatencySwitchSettings(ctx)
 	probeCount := settings.ProbeCount
 	if probeCount < 1 {
@@ -114,11 +115,11 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 	}
 	ctx, cancel := context.WithTimeout(ctx, openAIWSLatencyProbeWindow(probeCount)-5*time.Second)
 	defer cancel()
+	poolKey := openAIWSLatencyCandidatePoolKey(groupID, poolModel, requiredTransport)
 	var targetID int64
-	defer func() {
-		if !s.settingService.GetOpenAIWSLatencySwitchSettings(ctx).Enabled {
-			targetID = 0
-		}
+	var candidateLeaseID string
+	pendingRecorded := false
+	setPending := func(target int64, leaseID string) bool {
 		updateCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 		defer stop()
 		state, changed := s.updateOpenAIWSLatencyState(updateCtx, key, func(state *openAIWSLatencyState) bool {
@@ -126,22 +127,94 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 				return false
 			}
 			state.ProbeID, state.ProbeUntil = "", 0
-			if targetID > 0 {
-				state.TargetID, state.PendingUntil = targetID, time.Now().Add(time.Duration(settings.WaitSeconds)*time.Second).UnixMilli()
-			}
+			state.TargetID = target
+			state.PendingUntil = time.Now().Add(time.Duration(settings.WaitSeconds) * time.Second).UnixMilli()
+			state.CandidateLeaseID = leaseID
 			return true
 		})
-		if changed && state.TargetID > 0 {
+		if changed {
+			targetID = target
+			candidateLeaseID = leaseID
+			return state.TargetID == target
+		}
+		return false
+	}
+	defer func() {
+		updateCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		defer stop()
+		if !pendingRecorded && targetID > 0 && s.settingService.GetOpenAIWSLatencySwitchSettings(updateCtx).Enabled {
 			actor.writeEvent("openai.ws_latency_switch_pending", map[string]any{
 				"from_account_id":   currentID,
 				"target_account_id": targetID,
 				"model":             model,
 				"transport":         string(requiredTransport),
 			})
+			pendingRecorded = true
 		}
+		if targetID == 0 {
+			s.updateOpenAIWSLatencyState(updateCtx, key, func(state *openAIWSLatencyState) bool {
+				if state.ProbeID != probeID || state.AccountID != currentID {
+					return false
+				}
+				state.ProbeID, state.ProbeUntil = "", 0
+				return true
+			})
+		}
+		s.releaseOpenAIWSLatencyProbe(updateCtx, poolKey, probeID)
 	}()
 	if !settings.Enabled {
 		return
+	}
+	leaseID := uuid.NewString()
+	if candidate, ok := s.reserveOpenAIWSLatencyCandidate(ctx, poolKey, currentID, leaseID, settings.WaitSeconds); ok {
+		if setPending(candidate.AccountID, leaseID) {
+			actor.writeEvent("openai.ws_latency_switch_pending", map[string]any{
+				"from_account_id": currentID, "target_account_id": candidate.AccountID,
+				"model": model, "transport": string(requiredTransport), "reused_probe_result": true,
+			})
+			pendingRecorded = true
+		} else {
+			s.releaseOpenAIWSLatencyCandidate(context.WithoutCancel(ctx), poolKey, leaseID, candidate.AccountID, false)
+		}
+		return
+	}
+	claimed := false
+	for !claimed && ctx.Err() == nil {
+		pool := s.getOpenAIWSLatencyCandidatePool(ctx, poolKey)
+		now := time.Now().UnixMilli()
+		validCandidates := false
+		for _, candidate := range pool.Candidates {
+			if candidate.ExpiresAt > now && candidate.AccountID != currentID {
+				validCandidates = true
+				break
+			}
+		}
+		if !validCandidates && pool.ProbeUntil <= now {
+			claimed = s.claimOpenAIWSLatencyProbe(ctx, poolKey, probeID, openAIWSLatencyProbeWindow(probeCount))
+			if claimed {
+				break
+			}
+		}
+		if !validCandidates && pool.ProbeUntil <= now && len(pool.Candidates) > 0 {
+			return
+		}
+		if candidate, ok := s.reserveOpenAIWSLatencyCandidate(ctx, poolKey, currentID, leaseID, settings.WaitSeconds); ok {
+			if setPending(candidate.AccountID, leaseID) {
+				actor.writeEvent("openai.ws_latency_switch_pending", map[string]any{
+					"from_account_id": currentID, "target_account_id": candidate.AccountID,
+					"model": model, "transport": string(requiredTransport), "reused_probe_result": true,
+				})
+				pendingRecorded = true
+			} else {
+				s.releaseOpenAIWSLatencyCandidate(context.WithoutCancel(ctx), poolKey, leaseID, candidate.AccountID, false)
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
 	accounts, err := s.listSchedulableAccounts(ctx, groupID, PlatformOpenAI)
 	if err != nil || s.checkChannelPricingRestriction(ctx, groupID, model) {
@@ -205,11 +278,21 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		for i := 0; i < probeCount; i++ {
 			result := <-results
 			observed = append(observed, result)
-			if isOpenAIWSLatencyFastCandidate(result, currentID) {
+			if !fastCandidateSelected && isOpenAIWSLatencyFastCandidate(result, currentID) {
 				targetID = result.accountID
 				fastCandidateSelected = true
-				cancelRound()
-				break
+				candidateLeaseID = uuid.NewString()
+				candidate, reserved := s.addOpenAIWSLatencyCandidates(ctx, poolKey, observed, settings.ProbeReuseSeconds, targetID, candidateLeaseID, settings.WaitSeconds)
+				if reserved {
+					if !setPending(candidate.AccountID, candidateLeaseID) {
+						s.releaseOpenAIWSLatencyCandidate(context.WithoutCancel(ctx), poolKey, candidateLeaseID, candidate.AccountID, false)
+						targetID, candidateLeaseID = 0, ""
+						fastCandidateSelected = false
+					}
+				} else {
+					targetID, candidateLeaseID = 0, ""
+					fastCandidateSelected = false
+				}
 			}
 		}
 		cancelRound()
@@ -217,14 +300,24 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		close(results)
 		notWaitedProbes := 0
 		for result := range results {
-			if fastCandidateSelected {
-				notWaitedProbes++
-			} else {
-				observed = append(observed, result)
-			}
+			observed = append(observed, result)
 		}
-		if targetID == 0 {
+		if fastCandidateSelected && targetID > 0 {
+			_, _ = s.addOpenAIWSLatencyCandidates(ctx, poolKey, observed, settings.ProbeReuseSeconds, 0, "", settings.WaitSeconds)
+		} else {
 			targetID = chooseOpenAIWSLatencyTarget(observed, currentID)
+			if targetID > 0 {
+				candidateLeaseID = uuid.NewString()
+				candidate, reserved := s.addOpenAIWSLatencyCandidates(ctx, poolKey, observed, settings.ProbeReuseSeconds, targetID, candidateLeaseID, settings.WaitSeconds)
+				if !reserved || !setPending(candidate.AccountID, candidateLeaseID) {
+					if reserved {
+						s.releaseOpenAIWSLatencyCandidate(context.WithoutCancel(ctx), poolKey, candidateLeaseID, candidate.AccountID, false)
+					}
+					targetID, candidateLeaseID = 0, ""
+				}
+			} else {
+				_, _ = s.addOpenAIWSLatencyCandidates(ctx, poolKey, observed, settings.ProbeReuseSeconds, 0, "", settings.WaitSeconds)
+			}
 		}
 		probeLogResults := make([]openAIWSLatencyProbeLogResult, 0, len(observed))
 		forwardedAttempts := 0
@@ -261,7 +354,15 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 			"model":              model,
 			"transport":          string(requiredTransport),
 		})
-		if targetID > 0 || ctx.Err() != nil {
+		if targetID > 0 {
+			actor.writeEvent("openai.ws_latency_switch_pending", map[string]any{
+				"from_account_id": currentID, "target_account_id": targetID,
+				"model": model, "transport": string(requiredTransport),
+			})
+			pendingRecorded = true
+			return
+		}
+		if ctx.Err() != nil {
 			return
 		}
 	}

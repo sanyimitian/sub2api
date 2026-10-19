@@ -51,6 +51,13 @@ func (h *OpsHandler) ListSystemLogs(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
+	query := strings.TrimSpace(c.Query("q"))
+	if strings.Contains(query, "openai.ws_latency_switch_") {
+		cutoff := time.Now().Add(-24 * time.Hour)
+		if start.Before(cutoff) {
+			start = cutoff
+		}
+	}
 
 	filter := &service.OpsSystemLogFilter{
 		Page:            page,
@@ -64,7 +71,7 @@ func (h *OpsHandler) ListSystemLogs(c *gin.Context) {
 		ClientRequestID: strings.TrimSpace(c.Query("client_request_id")),
 		Platform:        strings.TrimSpace(c.Query("platform")),
 		Model:           strings.TrimSpace(c.Query("model")),
-		Query:           strings.TrimSpace(c.Query("q")),
+		Query:           query,
 	}
 	if v := strings.TrimSpace(c.Query("user_id")); v != "" {
 		id, parseErr := strconv.ParseInt(v, 10, 64)

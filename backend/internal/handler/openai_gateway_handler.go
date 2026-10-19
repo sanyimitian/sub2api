@@ -3989,7 +3989,7 @@ func (h *OpenAIGatewayHandler) respondOpenAIResponsesLatencyRetry(c *gin.Context
 	}
 	c.Header("Retry-After", "0")
 	c.Header("Cache-Control", "no-store")
-	h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "server_error", "Service temporarily unavailable; please retry the request", streamStarted)
+	h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "server_error", service.OpenAIWSLatencySwitchErrorCode, "Request terminated", streamStarted, false)
 	c.Abort()
 }
 

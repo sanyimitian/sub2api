@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -139,6 +140,27 @@ func TestOpsSystemLogHandler_ListSuccess(t *testing.T) {
 	}
 	if resp.Code != 0 {
 		t.Fatalf("unexpected response code: %+v", resp)
+	}
+}
+
+func TestOpsSystemLogHandler_LimitsSwitchRecordsToLast24Hours(t *testing.T) {
+	repo := &opsSystemLogCaptureRepo{}
+	svc := service.NewOpsService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewOpsHandler(svc)
+	r := newOpsSystemLogTestRouter(h, false)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/logs?time_range=30d&q=openai.ws_latency_switch_", nil)
+	before := time.Now().Add(-24*time.Hour - time.Second)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", w.Code)
+	}
+	if repo.listFilter == nil || repo.listFilter.StartTime == nil {
+		t.Fatal("expected the switch-record query to set a start time")
+	}
+	if repo.listFilter.StartTime.Before(before) {
+		t.Fatalf("start time %s is older than the 24-hour retention cutoff", repo.listFilter.StartTime)
 	}
 }
 

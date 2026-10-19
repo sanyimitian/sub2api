@@ -7,7 +7,7 @@ import Select from '@/components/common/Select.vue'
 import { opsAPI, type OpsSystemLog } from '@/api/admin/ops'
 import { useAppStore } from '@/stores'
 
-type TimeRange = '5m' | '30m' | '1h' | '6h' | '24h' | '7d' | '30d'
+type TimeRange = '5m' | '30m' | '1h' | '6h' | '24h'
 type SwitchEvent = 'probe' | 'pending' | 'reconnect' | 'completed'
 
 interface ProbeResultLog {
@@ -27,7 +27,7 @@ const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
-const timeRange = ref<TimeRange>('30d')
+const timeRange = ref<TimeRange>('1h')
 const modelFilter = ref('')
 const expandedGroups = ref(new Set<string>())
 
@@ -44,9 +44,7 @@ const timeRangeOptions = computed(() => [
   { value: '30m', label: '30m' },
   { value: '1h', label: '1h' },
   { value: '6h', label: '6h' },
-  { value: '24h', label: '24h' },
-  { value: '7d', label: '7d' },
-  { value: '30d', label: '30d' }
+  { value: '24h', label: '24h' }
 ])
 
 const eventStyles: Record<SwitchEvent, string> = {

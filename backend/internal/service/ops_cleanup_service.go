@@ -22,6 +22,7 @@ const (
 
 	opsCleanupLeaderLockKeyDefault = "ops:cleanup:leader"
 	opsCleanupLeaderLockTTLDefault = 30 * time.Minute
+	opsSwitchRecordsCleanupLockKey = "ops:cleanup:openai-ws-latency-switch-records"
 )
 
 var opsCleanupCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
@@ -166,6 +167,9 @@ func (s *OpsCleanupService) applyScheduleLocked(ctx context.Context) error {
 	c := cron.New(cron.WithParser(opsCleanupCronParser), cron.WithLocation(loc))
 	if _, err := c.AddFunc(schedule, func() { s.runScheduled() }); err != nil {
 		return fmt.Errorf("invalid schedule %q: %w", schedule, err)
+	}
+	if _, err := c.AddFunc("*/5 * * * *", func() { s.runOpenAIWSLatencySwitchRecordsCleanup() }); err != nil {
+		return fmt.Errorf("schedule switch record cleanup: %w", err)
 	}
 	c.Start()
 	s.cron = c
@@ -316,6 +320,29 @@ func (s *OpsCleanupService) runScheduled() {
 	)
 }
 
+func (s *OpsCleanupService) runOpenAIWSLatencySwitchRecordsCleanup() {
+	if s == nil || s.db == nil || s.opsRepo == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	release, ok := s.tryAcquireLeaderLockWithKey(ctx, opsSwitchRecordsCleanupLockKey)
+	if !ok {
+		return
+	}
+	if release != nil {
+		defer release()
+	}
+	deleted, err := deleteOldOpenAIWSLatencySwitchLogs(ctx, s.db, time.Now().UTC().Add(-24*time.Hour), opsCleanupBatchSize)
+	if err != nil {
+		logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] latency switch record cleanup failed: %v", err)
+		return
+	}
+	if deleted > 0 {
+		logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] deleted %d expired latency switch records", deleted)
+	}
+}
+
 func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDeletedCounts, error) {
 	out := opsCleanupDeletedCounts{}
 	if s == nil || s.db == nil || s.cfg == nil {
@@ -361,6 +388,10 @@ func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDelet
 }
 
 func (s *OpsCleanupService) tryAcquireLeaderLock(ctx context.Context) (func(), bool) {
+	return s.tryAcquireLeaderLockWithKey(ctx, opsCleanupLeaderLockKeyDefault)
+}
+
+func (s *OpsCleanupService) tryAcquireLeaderLockWithKey(ctx context.Context, key string) (func(), bool) {
 	if s == nil {
 		return nil, false
 	}
@@ -369,7 +400,6 @@ func (s *OpsCleanupService) tryAcquireLeaderLock(ctx context.Context) (func(), b
 		return nil, true
 	}
 
-	key := opsCleanupLeaderLockKeyDefault
 	ttl := opsCleanupLeaderLockTTLDefault
 
 	// Prefer Redis leader lock when available, but avoid stampeding the DB when Redis is flaky by

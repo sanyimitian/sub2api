@@ -5404,6 +5404,11 @@
                     <input id="openai-ws-latency-switch-wait-seconds" v-model.number="form.openai_ws_latency_switch_wait_seconds" type="number" min="1" max="3600" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-wait-seconds" />
                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchWaitSecondsHint") }}</p>
                   </div>
+                  <div>
+                    <label for="openai-ws-latency-probe-reuse-seconds" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeReuseSeconds") }}</label>
+                    <input id="openai-ws-latency-probe-reuse-seconds" v-model.number="form.openai_ws_latency_probe_reuse_seconds" type="number" min="1" max="3600" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-probe-reuse-seconds" />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeReuseSecondsHint") }}</p>
+                  </div>
                 </div>
               </div>
 
@@ -10065,6 +10070,7 @@ const form = reactive<SettingsForm>({
   openai_ws_latency_switch_slow_ms: 15000,
   openai_ws_latency_switch_probe_count: 6,
   openai_ws_latency_switch_wait_seconds: 300,
+  openai_ws_latency_probe_reuse_seconds: 600,
   openai_ttft_mode: "semantic",
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,

@@ -279,10 +279,12 @@ func TestOpenAIResponsesLatencyRetryClosesHTTP1AndReturnsRetryableStatus(t *test
 			handler.respondOpenAIResponsesLatencyRetry(c, false)
 
 			require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+			require.Equal(t, service.OpenAIWSLatencySwitchErrorCode, gjson.Get(recorder.Body.String(), "error.code").String())
+			require.Equal(t, "Request terminated", gjson.Get(recorder.Body.String(), "error.message").String())
 			require.Equal(t, tc.wantConnClose, recorder.Header().Get("Connection"))
 			require.Equal(t, "0", recorder.Header().Get("Retry-After"))
 			require.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
-			require.Contains(t, recorder.Body.String(), "please retry the request")
+			require.NotContains(t, gjson.Get(recorder.Body.String(), "error.message").String(), "switch")
 			require.True(t, c.IsAborted())
 		})
 	}

@@ -42,7 +42,7 @@ func (cache *openAIWSLatencyMemoryCache) CompareAndSwapOpenAIWSLatencyState(_ co
 	var oldState, newState openAIWSLatencyState
 	_ = json.Unmarshal(expected, &oldState)
 	_ = json.Unmarshal(next, &newState)
-	if oldState.ProbeID == "" && newState.ProbeID != "" {
+	if !strings.HasPrefix(key, "candidate_pool:") && oldState.ProbeID == "" && newState.ProbeID != "" {
 		cache.probeStarts++
 	}
 	cache.states[key] = bytes.Clone(next)
@@ -116,7 +116,8 @@ func TestOpenAIWSLatencyReconnectPreservesPendingAcrossInstances(t *testing.T) {
 	err := old.BeforeRequest(context.Background(), 2, &Account{ID: 11}, payload, "")
 	var closeErr *OpenAIWSClientCloseError
 	require.ErrorAs(t, err, &closeErr)
-	require.Equal(t, coderws.StatusTryAgainLater, closeErr.StatusCode())
+	require.Equal(t, OpenAIWSLatencySwitchCloseCode, closeErr.StatusCode())
+	require.Equal(t, "Request terminated", closeErr.Reason())
 	require.NotEmpty(t, old.state(context.Background()).ReconnectFrom)
 	otherService := &OpenAIGatewayService{cfg: svc.cfg, cache: svc.cache, settingService: svc.settingService}
 	newSession := newOpenAIWSLatencyTestSession(t, otherService, "reconnect", 1, payload)
@@ -518,7 +519,14 @@ func TestOpenAIWSLatencyProbeCountChangesBetweenBatches(t *testing.T) {
 		svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: accounts}
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{latencySwitch: OpenAIWSLatencySwitchSettings{Enabled: true, ProbeCount: count}, expiresAt: time.Now().Add(time.Hour).UnixNano()})
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		svc.probeOpenAIWSLatencyRoutes(ctx, fmt.Sprintf("probe-batch-%d", batch), &groupID, accounts[0].ID, "gpt-5.1", OpenAIEndpointCapabilityResponses, OpenAIUpstreamTransportResponsesWebsocketV2Ingress, "test-probe", openAIWSLatencyActor{})
+		model := fmt.Sprintf("gpt-5.1-%d", batch)
+		stateKey := fmt.Sprintf("probe-batch-%d", batch)
+		_, updated := svc.updateOpenAIWSLatencyState(ctx, stateKey, func(state *openAIWSLatencyState) bool {
+			*state = openAIWSLatencyState{AccountID: accounts[0].ID, ProbeID: "test-probe", ProbeUntil: time.Now().Add(time.Minute).UnixMilli()}
+			return true
+		})
+		require.True(t, updated)
+		svc.probeOpenAIWSLatencyRoutes(ctx, stateKey, &groupID, accounts[0].ID, model, model, OpenAIEndpointCapabilityResponses, OpenAIUpstreamTransportResponsesWebsocketV2Ingress, "test-probe", openAIWSLatencyActor{})
 		cancel()
 		want := count
 		if want == 0 {
@@ -530,6 +538,47 @@ func TestOpenAIWSLatencyProbeCountChangesBetweenBatches(t *testing.T) {
 		dialer.mu.Unlock()
 		require.Equal(t, total, requests, "batch %d with configured probe count %d", batch, count)
 	}
+}
+
+func TestOpenAIWSLatencySharesInFlightProbeAndReservesCandidatesOnce(t *testing.T) {
+	svc, cache := newOpenAIWSLatencyTestService(t)
+	ctx := context.Background()
+	groupID := int64(1)
+	poolKey := openAIWSLatencyCandidatePoolKey(&groupID, "gpt-5.1", OpenAIUpstreamTransportResponsesWebsocketV2Ingress)
+	probeWindow := time.Minute
+
+	require.True(t, svc.claimOpenAIWSLatencyProbe(ctx, poolKey, "first-probe", probeWindow))
+	require.False(t, svc.claimOpenAIWSLatencyProbe(ctx, poolKey, "second-probe", probeWindow), "a concurrent trigger must join the active probe batch")
+
+	results := []openAIWSLatencyProbeResult{
+		{accountID: 22, ms: 1200, ok: true},
+		{accountID: 33, ms: 2400, ok: true},
+	}
+	_, _ = svc.addOpenAIWSLatencyCandidates(ctx, poolKey, results, 600, 0, "", 300)
+	pool := svc.getOpenAIWSLatencyCandidatePool(ctx, poolKey)
+	require.Equal(t, "first-probe", pool.ProbeID, "joined requests wait for the same probe batch to publish its results")
+	require.Len(t, pool.Candidates, 2)
+	require.Greater(t, pool.Candidates[0].ExpiresAt, time.Now().UnixMilli())
+
+	first, ok := svc.reserveOpenAIWSLatencyCandidate(ctx, poolKey, 11, "lease-one", 300)
+	require.True(t, ok)
+	second, ok := svc.reserveOpenAIWSLatencyCandidate(ctx, poolKey, 11, "lease-two", 300)
+	require.True(t, ok)
+	require.NotEqual(t, first.AccountID, second.AccountID, "parallel switches must reserve different candidates")
+	_, ok = svc.reserveOpenAIWSLatencyCandidate(ctx, poolKey, 11, "lease-three", 300)
+	require.False(t, ok, "a candidate already leased to another switch cannot be claimed twice")
+
+	svc.releaseOpenAIWSLatencyCandidate(ctx, poolKey, "lease-one", first.AccountID, false)
+	retried, ok := svc.reserveOpenAIWSLatencyCandidate(ctx, poolKey, 11, "lease-three", 300)
+	require.True(t, ok)
+	require.Equal(t, first.AccountID, retried.AccountID, "an unsuccessful switch releases its candidate for reuse")
+	svc.releaseOpenAIWSLatencyCandidate(ctx, poolKey, "lease-three", retried.AccountID, true)
+
+	pool = svc.getOpenAIWSLatencyCandidatePool(ctx, poolKey)
+	require.Len(t, pool.Candidates, 1, "a successful switch consumes exactly one candidate")
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	require.Equal(t, 0, cache.probeStarts, "candidate-pool coordination is separate from per-dialogue state")
 }
 
 func TestOpenAIWSLatencyRecordsAuthenticatedUserAcrossLifecycle(t *testing.T) {
@@ -569,7 +618,7 @@ func TestOpenAIWSLatencyRecordsAuthenticatedUserAcrossLifecycle(t *testing.T) {
 		return true
 	})
 	require.True(t, updated)
-	svc.probeOpenAIWSLatencyRoutes(ctx, session.key(session.model), &groupID, 11, session.model, OpenAIEndpointCapabilityResponses, OpenAIUpstreamTransportResponsesWebsocketV2Ingress, "caller-probe", session.actor)
+	svc.probeOpenAIWSLatencyRoutes(ctx, session.key(session.model), &groupID, 11, session.model, session.model, OpenAIEndpointCapabilityResponses, OpenAIUpstreamTransportResponsesWebsocketV2Ingress, "caller-probe", session.actor)
 	require.Equal(t, int64(22), session.state(ctx).TargetID)
 	remaining := time.Until(time.UnixMilli(session.state(ctx).PendingUntil))
 	require.Greater(t, remaining, 72*time.Second)
@@ -685,7 +734,7 @@ func TestOpenAIWSLatencyNativeIngressStopsBeforeOldUpstreamWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, conn.Write(ctx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1","previous_response_id":"resp_A","input":[{"role":"user","content":"blocked question"}]}`)))
 	_, _, err = conn.Read(ctx)
-	require.Equal(t, coderws.StatusTryAgainLater, coderws.CloseStatus(err))
+	require.Equal(t, OpenAIWSLatencySwitchCloseCode, coderws.CloseStatus(err))
 	require.Error(t, <-serverErr)
 	require.Len(t, upstream.writes, 1, "the blocked question must never be written to A")
 }

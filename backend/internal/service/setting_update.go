@@ -501,11 +501,19 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if waitSeconds < MinOpenAIWSLatencySwitchWaitSeconds || waitSeconds > MaxOpenAIWSLatencySwitchWaitSeconds {
 		return nil, fmt.Errorf("%s must be between %d and %d", SettingKeyOpenAIWSLatencySwitchWaitSeconds, MinOpenAIWSLatencySwitchWaitSeconds, MaxOpenAIWSLatencySwitchWaitSeconds)
 	}
+	probeReuseSeconds := settings.OpenAIWSLatencyProbeReuseSeconds
+	if probeReuseSeconds == 0 {
+		probeReuseSeconds = DefaultOpenAIWSLatencyProbeReuseSeconds
+	}
+	if probeReuseSeconds < MinOpenAIWSLatencyProbeReuseSeconds || probeReuseSeconds > MaxOpenAIWSLatencyProbeReuseSeconds {
+		return nil, fmt.Errorf("%s must be between %d and %d", SettingKeyOpenAIWSLatencyProbeReuseSeconds, MinOpenAIWSLatencyProbeReuseSeconds, MaxOpenAIWSLatencyProbeReuseSeconds)
+	}
 	updates[SettingKeyOpenAIWSLatencySwitchEnabled] = strconv.FormatBool(settings.OpenAIWSLatencySwitchEnabled)
 	updates[SettingKeyOpenAIWSLatencySwitchConsecutive] = strconv.Itoa(consecutive)
 	updates[SettingKeyOpenAIWSLatencySwitchSlowMS] = strconv.Itoa(slowMS)
 	updates[SettingKeyOpenAIWSLatencySwitchProbeCount] = strconv.Itoa(probeCount)
 	updates[SettingKeyOpenAIWSLatencySwitchWaitSeconds] = strconv.Itoa(waitSeconds)
+	updates[SettingKeyOpenAIWSLatencyProbeReuseSeconds] = strconv.Itoa(probeReuseSeconds)
 	updates[SettingKeyOpenAITTFTMode] = mode
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
@@ -751,7 +759,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	})
 	gatewayForwardingSF.Forget("gateway_forwarding")
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
-		latencySwitch:                    openAIWSLatencySwitchSettingsFromValues(settings.OpenAIWSLatencySwitchEnabled, settings.OpenAIWSLatencySwitchConsecutive, settings.OpenAIWSLatencySwitchSlowMS, settings.OpenAIWSLatencySwitchProbeCount, settings.OpenAIWSLatencySwitchWaitSeconds),
+		latencySwitch:                    openAIWSLatencySwitchSettingsFromValues(settings.OpenAIWSLatencySwitchEnabled, settings.OpenAIWSLatencySwitchConsecutive, settings.OpenAIWSLatencySwitchSlowMS, settings.OpenAIWSLatencySwitchProbeCount, settings.OpenAIWSLatencySwitchWaitSeconds, settings.OpenAIWSLatencyProbeReuseSeconds),
 		openAITTFTMode:                   normalizeOpenAITTFTMode(settings.OpenAITTFTMode),
 		fingerprintUnification:           settings.EnableFingerprintUnification,
 		metadataPassthrough:              settings.EnableMetadataPassthrough,

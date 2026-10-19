@@ -18,9 +18,11 @@ import (
 )
 
 const (
-	openAIWSLatencyStateTTL     = 2 * time.Hour
-	openAIWSLatencyCooldown     = 5 * time.Minute
-	openAIWSLatencyProbeTimeout = 15 * time.Second
+	openAIWSLatencyStateTTL                           = 2 * time.Hour
+	openAIWSLatencyCooldown                           = 5 * time.Minute
+	openAIWSLatencyProbeTimeout                       = 15 * time.Second
+	OpenAIWSLatencySwitchCloseCode coderws.StatusCode = 4001
+	OpenAIWSLatencySwitchErrorCode                    = "sub2api_latency_switch"
 )
 
 // Kept optional so gateway cache doubles do not need to implement this feature.
@@ -31,14 +33,29 @@ type OpenAIWSLatencyCache interface {
 }
 
 type openAIWSLatencyState struct {
-	AccountID     int64  `json:"account_id"`
-	SlowCount     int    `json:"slow_count"`
-	ProbeID       string `json:"probe_id,omitempty"`
-	ProbeUntil    int64  `json:"probe_until,omitempty"`
-	TargetID      int64  `json:"target_id,omitempty"`
-	PendingUntil  int64  `json:"pending_until,omitempty"`
-	ReconnectFrom string `json:"reconnect_from,omitempty"`
-	CooldownUntil int64  `json:"cooldown_until,omitempty"`
+	AccountID        int64  `json:"account_id"`
+	SlowCount        int    `json:"slow_count"`
+	ProbeID          string `json:"probe_id,omitempty"`
+	ProbeUntil       int64  `json:"probe_until,omitempty"`
+	TargetID         int64  `json:"target_id,omitempty"`
+	PendingUntil     int64  `json:"pending_until,omitempty"`
+	ReconnectFrom    string `json:"reconnect_from,omitempty"`
+	CooldownUntil    int64  `json:"cooldown_until,omitempty"`
+	CandidateLeaseID string `json:"candidate_lease_id,omitempty"`
+}
+
+type openAIWSLatencyReusableCandidate struct {
+	AccountID    int64  `json:"account_id"`
+	FirstTokenMS int    `json:"first_token_ms"`
+	ExpiresAt    int64  `json:"expires_at"`
+	LeaseID      string `json:"lease_id,omitempty"`
+	LeaseUntil   int64  `json:"lease_until,omitempty"`
+}
+
+type openAIWSLatencyCandidatePool struct {
+	ProbeID    string                             `json:"probe_id,omitempty"`
+	ProbeUntil int64                              `json:"probe_until,omitempty"`
+	Candidates []openAIWSLatencyReusableCandidate `json:"candidates,omitempty"`
 }
 
 func (s *OpenAIGatewayService) updateOpenAIWSLatencyState(ctx context.Context, key string, mutate func(*openAIWSLatencyState) bool) (openAIWSLatencyState, bool) {
@@ -73,6 +90,192 @@ func (s *OpenAIGatewayService) updateOpenAIWSLatencyState(ctx context.Context, k
 		}
 	}
 	return openAIWSLatencyState{}, false
+}
+
+func openAIWSLatencyCandidatePoolKey(groupID *int64, model string, transport OpenAIUpstreamTransport) string {
+	seed := fmt.Sprintf("openai_ws_latency_pool:%d:%s:%s", derefGroupID(groupID), strings.TrimSpace(model), transport)
+	key, _ := deriveOpenAISessionHashes(seed)
+	return "candidate_pool:" + key
+}
+
+func (s *OpenAIGatewayService) updateOpenAIWSLatencyCandidatePool(ctx context.Context, key string, mutate func(*openAIWSLatencyCandidatePool) bool) (openAIWSLatencyCandidatePool, bool) {
+	cache, ok := s.cache.(OpenAIWSLatencyCache)
+	if !ok || key == "" {
+		return openAIWSLatencyCandidatePool{}, false
+	}
+	cacheCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
+	for attempt := 0; attempt < 8; attempt++ {
+		raw, err := cache.GetOpenAIWSLatencyState(cacheCtx, key)
+		if err != nil {
+			return openAIWSLatencyCandidatePool{}, false
+		}
+		var pool openAIWSLatencyCandidatePool
+		if len(raw) > 0 && json.Unmarshal(raw, &pool) != nil {
+			return openAIWSLatencyCandidatePool{}, false
+		}
+		if !mutate(&pool) {
+			return pool, false
+		}
+		next, err := json.Marshal(pool)
+		if err != nil {
+			return pool, false
+		}
+		updated, err := cache.CompareAndSwapOpenAIWSLatencyState(cacheCtx, key, raw, next, openAIWSLatencyStateTTL)
+		if err != nil {
+			return pool, false
+		}
+		if updated {
+			return pool, true
+		}
+	}
+	return openAIWSLatencyCandidatePool{}, false
+}
+
+func (s *OpenAIGatewayService) getOpenAIWSLatencyCandidatePool(ctx context.Context, key string) openAIWSLatencyCandidatePool {
+	cache, ok := s.cache.(OpenAIWSLatencyCache)
+	if !ok || key == "" {
+		return openAIWSLatencyCandidatePool{}
+	}
+	cacheCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
+	raw, err := cache.GetOpenAIWSLatencyState(cacheCtx, key)
+	if err != nil || len(raw) == 0 {
+		return openAIWSLatencyCandidatePool{}
+	}
+	var pool openAIWSLatencyCandidatePool
+	if json.Unmarshal(raw, &pool) != nil {
+		return openAIWSLatencyCandidatePool{}
+	}
+	return pool
+}
+
+func pruneOpenAIWSLatencyCandidates(pool *openAIWSLatencyCandidatePool, now int64) {
+	kept := pool.Candidates[:0]
+	for _, candidate := range pool.Candidates {
+		if candidate.ExpiresAt > now {
+			kept = append(kept, candidate)
+		}
+	}
+	pool.Candidates = kept
+}
+
+func (s *OpenAIGatewayService) reserveOpenAIWSLatencyCandidate(ctx context.Context, poolKey string, currentAccountID int64, leaseID string, leaseSeconds int) (openAIWSLatencyReusableCandidate, bool) {
+	var selected openAIWSLatencyReusableCandidate
+	_, updated := s.updateOpenAIWSLatencyCandidatePool(ctx, poolKey, func(pool *openAIWSLatencyCandidatePool) bool {
+		now := time.Now().UnixMilli()
+		pruneOpenAIWSLatencyCandidates(pool, now)
+		selectedIndex := -1
+		for i, candidate := range pool.Candidates {
+			if candidate.AccountID == currentAccountID || candidate.FirstTokenMS < 0 || candidate.FirstTokenMS >= openAIWSLatencyCandidateMaxFirstTokenMS || (candidate.LeaseID != "" && candidate.LeaseUntil > now) {
+				continue
+			}
+			if selectedIndex < 0 || candidate.FirstTokenMS < pool.Candidates[selectedIndex].FirstTokenMS {
+				selectedIndex = i
+			}
+		}
+		if selectedIndex < 0 {
+			return len(pool.Candidates) > 0
+		}
+		selected = pool.Candidates[selectedIndex]
+		selected.LeaseID = leaseID
+		selected.LeaseUntil = now + (time.Duration(leaseSeconds) * time.Second).Milliseconds()
+		pool.Candidates[selectedIndex] = selected
+		return true
+	})
+	return selected, updated && selected.AccountID > 0
+}
+
+func (s *OpenAIGatewayService) addOpenAIWSLatencyCandidates(ctx context.Context, poolKey string, results []openAIWSLatencyProbeResult, reuseSeconds int, leaseAccountID int64, leaseID string, leaseSeconds int) (openAIWSLatencyReusableCandidate, bool) {
+	var leased openAIWSLatencyReusableCandidate
+	_, updated := s.updateOpenAIWSLatencyCandidatePool(ctx, poolKey, func(pool *openAIWSLatencyCandidatePool) bool {
+		now := time.Now().UnixMilli()
+		pruneOpenAIWSLatencyCandidates(pool, now)
+		for _, result := range results {
+			if !result.ok || result.accountID <= 0 || result.ms < 0 || result.ms >= openAIWSLatencyCandidateMaxFirstTokenMS {
+				continue
+			}
+			candidate := openAIWSLatencyReusableCandidate{AccountID: result.accountID, FirstTokenMS: result.ms, ExpiresAt: now + (time.Duration(reuseSeconds) * time.Second).Milliseconds()}
+			found := false
+			for i := range pool.Candidates {
+				if pool.Candidates[i].AccountID != candidate.AccountID {
+					continue
+				}
+				found = true
+				candidate.LeaseID = pool.Candidates[i].LeaseID
+				candidate.LeaseUntil = pool.Candidates[i].LeaseUntil
+				if candidate.LeaseID != "" && candidate.LeaseUntil > now {
+					candidate.FirstTokenMS = pool.Candidates[i].FirstTokenMS
+					candidate.ExpiresAt = pool.Candidates[i].ExpiresAt
+				} else {
+					pool.Candidates[i] = candidate
+				}
+				break
+			}
+			if !found {
+				pool.Candidates = append(pool.Candidates, candidate)
+			}
+		}
+		for i := range pool.Candidates {
+			if pool.Candidates[i].AccountID != leaseAccountID || leaseAccountID <= 0 || (pool.Candidates[i].LeaseID != "" && pool.Candidates[i].LeaseUntil > now) {
+				continue
+			}
+			pool.Candidates[i].LeaseID = leaseID
+			pool.Candidates[i].LeaseUntil = now + (time.Duration(leaseSeconds) * time.Second).Milliseconds()
+			leased = pool.Candidates[i]
+			break
+		}
+		return true
+	})
+	return leased, updated && leased.AccountID > 0
+}
+
+func (s *OpenAIGatewayService) releaseOpenAIWSLatencyCandidate(ctx context.Context, poolKey, leaseID string, accountID int64, consume bool) {
+	if leaseID == "" || accountID <= 0 {
+		return
+	}
+	_, _ = s.updateOpenAIWSLatencyCandidatePool(ctx, poolKey, func(pool *openAIWSLatencyCandidatePool) bool {
+		for i := range pool.Candidates {
+			candidate := &pool.Candidates[i]
+			if candidate.AccountID != accountID || candidate.LeaseID != leaseID {
+				continue
+			}
+			if consume {
+				pool.Candidates = append(pool.Candidates[:i], pool.Candidates[i+1:]...)
+			} else {
+				candidate.LeaseID = ""
+				candidate.LeaseUntil = 0
+			}
+			return true
+		}
+		return false
+	})
+}
+
+func (s *OpenAIGatewayService) claimOpenAIWSLatencyProbe(ctx context.Context, poolKey, probeID string, probeWindow time.Duration) bool {
+	claimed := false
+	_, updated := s.updateOpenAIWSLatencyCandidatePool(ctx, poolKey, func(pool *openAIWSLatencyCandidatePool) bool {
+		now := time.Now().UnixMilli()
+		pruneOpenAIWSLatencyCandidates(pool, now)
+		if pool.ProbeUntil > now || len(pool.Candidates) > 0 {
+			return len(pool.Candidates) > 0 && pool.ProbeUntil <= now
+		}
+		pool.ProbeID = probeID
+		pool.ProbeUntil = now + probeWindow.Milliseconds()
+		claimed = true
+		return true
+	})
+	return claimed && updated
+}
+
+func (s *OpenAIGatewayService) releaseOpenAIWSLatencyProbe(ctx context.Context, poolKey, probeID string) {
+	_, _ = s.updateOpenAIWSLatencyCandidatePool(ctx, poolKey, func(pool *openAIWSLatencyCandidatePool) bool {
+		if pool.ProbeID != probeID {
+			return false
+		}
+		pool.ProbeID, pool.ProbeUntil = "", 0
+		return true
+	})
 }
 
 // A request ending in a tool result continues the in-flight user turn. Only a
@@ -315,7 +518,7 @@ func (session *OpenAIWSLatencySession) requestReconnect(ctx context.Context, mod
 		"target_account_id": state.TargetID,
 		"model":             model,
 	})
-	return NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "faster upstream available; reconnect with complete context", nil)
+	return NewOpenAIWSClientCloseError(OpenAIWSLatencySwitchCloseCode, "Request terminated", nil)
 }
 
 func (session *OpenAIWSLatencySession) BeforeRequest(ctx context.Context, turn int, account *Account, payload []byte, model string) error {
@@ -394,15 +597,18 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 	now := time.Now().UnixMilli()
 	if session.recovering && recoveryConfirmed && classification.user && turnErr == nil && result != nil && result.SucceededForScheduling() {
 		fromAccountID := int64(0)
+		leaseID := ""
 		_, completed := session.service.updateOpenAIWSLatencyState(ctx, session.key(session.model), func(state *openAIWSLatencyState) bool {
 			if state.TargetID == 0 || state.AccountID == account.ID {
 				return false
 			}
 			fromAccountID = state.AccountID
+			leaseID = state.CandidateLeaseID
 			*state = openAIWSLatencyState{AccountID: account.ID, CooldownUntil: now + openAIWSLatencyCooldown.Milliseconds()}
 			return true
 		})
 		if completed {
+			session.service.releaseOpenAIWSLatencyCandidate(ctx, openAIWSLatencyCandidatePoolKey(session.groupID, session.model, session.requiredTransport), leaseID, account.ID, true)
 			session.actor.writeEvent("openai.ws_latency_switch_completed", map[string]any{
 				"from_account_id":   fromAccountID,
 				"target_account_id": account.ID,
@@ -426,6 +632,7 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 			return false
 		}
 		state.TargetID, state.PendingUntil, state.ReconnectFrom = 0, 0, ""
+		state.CandidateLeaseID = ""
 		state.ProbeID, state.ProbeUntil = "", 0
 		if !slow {
 			state.SlowCount = 0
@@ -450,6 +657,6 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 				upstreamModel = classification.model
 			}
 		}
-		go session.service.probeOpenAIWSLatencyRoutes(probeCtx, session.key(classification.model), session.groupID, account.ID, upstreamModel, session.requiredCapability, session.requiredTransport, probeID, session.actor)
+		go session.service.probeOpenAIWSLatencyRoutes(probeCtx, session.key(classification.model), session.groupID, account.ID, classification.model, upstreamModel, session.requiredCapability, session.requiredTransport, probeID, session.actor)
 	}
 }

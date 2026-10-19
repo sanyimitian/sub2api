@@ -15,6 +15,24 @@ vi.mock('vue-i18n', async (importOriginal) => ({
 }))
 
 describe('AccountSwitchRecordsView triggering user', () => {
+  it('defaults to the most recent hour and requests no wider history by default', async () => {
+    listSystemLogs.mockResolvedValue({ items: [], total: 0 })
+
+    const wrapper = mount(AccountSwitchRecordsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          Pagination: true,
+          Select: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(listSystemLogs).toHaveBeenCalledWith(expect.objectContaining({ time_range: '1h' }))
+    wrapper.unmount()
+  })
+
   it('shows caller identity and handles records with partial or missing user information', async () => {
     const callers = [
       { user_id: 42, extra: { username: 'caller', user_email: 'caller@example.com' } },

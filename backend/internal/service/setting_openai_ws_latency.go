@@ -12,14 +12,18 @@ const (
 	DefaultOpenAIWSLatencySwitchWaitSeconds = 300
 	MinOpenAIWSLatencySwitchWaitSeconds     = 1
 	MaxOpenAIWSLatencySwitchWaitSeconds     = 3600
+	DefaultOpenAIWSLatencyProbeReuseSeconds = 600
+	MinOpenAIWSLatencyProbeReuseSeconds     = 1
+	MaxOpenAIWSLatencyProbeReuseSeconds     = 3600
 )
 
 type OpenAIWSLatencySwitchSettings struct {
-	Enabled     bool
-	Consecutive int
-	SlowMS      int
-	ProbeCount  int
-	WaitSeconds int
+	Enabled           bool
+	Consecutive       int
+	SlowMS            int
+	ProbeCount        int
+	WaitSeconds       int
+	ProbeReuseSeconds int
 }
 
 func parseOpenAIWSLatencySwitchInt(raw string, fallback, min, max int) int {
@@ -30,24 +34,25 @@ func parseOpenAIWSLatencySwitchInt(raw string, fallback, min, max int) int {
 	return n
 }
 
-func openAIWSLatencySwitchSettingsFromValues(enabled bool, consecutive, slowMS, probeCount, waitSeconds int) OpenAIWSLatencySwitchSettings {
+func openAIWSLatencySwitchSettingsFromValues(enabled bool, consecutive, slowMS, probeCount, waitSeconds, probeReuseSeconds int) OpenAIWSLatencySwitchSettings {
 	return OpenAIWSLatencySwitchSettings{
-		Enabled:     enabled,
-		Consecutive: parseOpenAIWSLatencySwitchInt(strconv.Itoa(consecutive), 3, 1, 20),
-		SlowMS:      parseOpenAIWSLatencySwitchInt(strconv.Itoa(slowMS), 15000, 1000, 300000),
-		ProbeCount:  parseOpenAIWSLatencySwitchInt(strconv.Itoa(probeCount), defaultOpenAIWSLatencyProbeCount, minOpenAIWSLatencyProbeCount, maxOpenAIWSLatencyProbeCount),
-		WaitSeconds: parseOpenAIWSLatencySwitchInt(strconv.Itoa(waitSeconds), DefaultOpenAIWSLatencySwitchWaitSeconds, MinOpenAIWSLatencySwitchWaitSeconds, MaxOpenAIWSLatencySwitchWaitSeconds),
+		Enabled:           enabled,
+		Consecutive:       parseOpenAIWSLatencySwitchInt(strconv.Itoa(consecutive), 3, 1, 20),
+		SlowMS:            parseOpenAIWSLatencySwitchInt(strconv.Itoa(slowMS), 15000, 1000, 300000),
+		ProbeCount:        parseOpenAIWSLatencySwitchInt(strconv.Itoa(probeCount), defaultOpenAIWSLatencyProbeCount, minOpenAIWSLatencyProbeCount, maxOpenAIWSLatencyProbeCount),
+		WaitSeconds:       parseOpenAIWSLatencySwitchInt(strconv.Itoa(waitSeconds), DefaultOpenAIWSLatencySwitchWaitSeconds, MinOpenAIWSLatencySwitchWaitSeconds, MaxOpenAIWSLatencySwitchWaitSeconds),
+		ProbeReuseSeconds: parseOpenAIWSLatencySwitchInt(strconv.Itoa(probeReuseSeconds), DefaultOpenAIWSLatencyProbeReuseSeconds, MinOpenAIWSLatencyProbeReuseSeconds, MaxOpenAIWSLatencyProbeReuseSeconds),
 	}
 }
 
 func (s *SettingService) GetOpenAIWSLatencySwitchSettings(ctx context.Context) OpenAIWSLatencySwitchSettings {
-	defaults := openAIWSLatencySwitchSettingsFromValues(false, 0, 0, 0, 0)
+	defaults := openAIWSLatencySwitchSettingsFromValues(false, 0, 0, 0, 0, 0)
 	if s == nil || s.settingRepo == nil {
 		return defaults
 	}
 	s.getGatewayForwardingSettingsCached(ctx)
 	if cached, ok := gatewayForwardingCache.Load().(*cachedGatewayForwardingSettings); ok && cached != nil {
-		return openAIWSLatencySwitchSettingsFromValues(cached.latencySwitch.Enabled, cached.latencySwitch.Consecutive, cached.latencySwitch.SlowMS, cached.latencySwitch.ProbeCount, cached.latencySwitch.WaitSeconds)
+		return openAIWSLatencySwitchSettingsFromValues(cached.latencySwitch.Enabled, cached.latencySwitch.Consecutive, cached.latencySwitch.SlowMS, cached.latencySwitch.ProbeCount, cached.latencySwitch.WaitSeconds, cached.latencySwitch.ProbeReuseSeconds)
 	}
 	return defaults
 }

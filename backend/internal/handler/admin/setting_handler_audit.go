@@ -470,6 +470,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAIWSLatencySwitchWaitSeconds != after.OpenAIWSLatencySwitchWaitSeconds {
 		changed = append(changed, "openai_ws_latency_switch_wait_seconds")
 	}
+	if before.OpenAIWSLatencyProbeReuseSeconds != after.OpenAIWSLatencyProbeReuseSeconds {
+		changed = append(changed, "openai_ws_latency_probe_reuse_seconds")
+	}
 	if before.EnableMetadataPassthrough != after.EnableMetadataPassthrough {
 		changed = append(changed, "enable_metadata_passthrough")
 	}
