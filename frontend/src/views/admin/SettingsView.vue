@@ -11722,6 +11722,7 @@ async function saveSettings() {
       openai_ws_latency_switch_slow_ms: Number(form.openai_ws_latency_switch_slow_ms),
       openai_ws_latency_switch_probe_count: Number(form.openai_ws_latency_switch_probe_count),
       openai_ws_latency_switch_wait_seconds: Number(form.openai_ws_latency_switch_wait_seconds),
+      openai_ws_latency_probe_reuse_seconds: Number(form.openai_ws_latency_probe_reuse_seconds),
       openai_ttft_mode:
         form.openai_ttft_mode === "visible" ? "visible" : "semantic",
       enable_fingerprint_unification: form.enable_fingerprint_unification,

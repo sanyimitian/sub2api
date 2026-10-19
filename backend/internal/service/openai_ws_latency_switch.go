@@ -22,7 +22,7 @@ const (
 	openAIWSLatencyCooldown                           = 5 * time.Minute
 	openAIWSLatencyProbeTimeout                       = 15 * time.Second
 	OpenAIWSLatencySwitchCloseCode coderws.StatusCode = 4001
-	OpenAIWSLatencySwitchErrorCode                    = "sub2api_latency_switch"
+	OpenAIWSLatencySwitchErrorCode                    = "sub2api_latency"
 )
 
 // Kept optional so gateway cache doubles do not need to implement this feature.

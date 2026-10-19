@@ -278,7 +278,7 @@ func TestOpenAIResponsesLatencyRetryClosesHTTP1AndReturnsRetryableStatus(t *test
 			handler := &OpenAIGatewayHandler{}
 			handler.respondOpenAIResponsesLatencyRetry(c, false)
 
-			require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+			require.Equal(t, 529, recorder.Code)
 			require.Equal(t, service.OpenAIWSLatencySwitchErrorCode, gjson.Get(recorder.Body.String(), "error.code").String())
 			require.Equal(t, "Request terminated", gjson.Get(recorder.Body.String(), "error.message").String())
 			require.Equal(t, tc.wantConnClose, recorder.Header().Get("Connection"))

@@ -43,6 +43,7 @@ func TestOpenAIWSLatencySettingsDefaultsAndValidation(t *testing.T) {
 	svc.refreshCachedSettings(roundTrip)
 	require.Equal(t, 8, svc.GetOpenAIWSLatencySwitchSettings(context.Background()).ProbeCount)
 	require.Equal(t, 480, svc.GetOpenAIWSLatencySwitchSettings(context.Background()).WaitSeconds)
+	require.Equal(t, 720, svc.GetOpenAIWSLatencySwitchSettings(context.Background()).ProbeReuseSeconds)
 	defaults.OpenAIWSLatencySwitchConsecutive = 21
 	_, err = svc.buildSystemSettingsUpdates(context.Background(), defaults)
 	require.ErrorContains(t, err, SettingKeyOpenAIWSLatencySwitchConsecutive)

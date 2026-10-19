@@ -470,6 +470,7 @@ const baseSettingsResponse = {
   openai_ws_latency_switch_slow_ms: 15000,
   openai_ws_latency_switch_probe_count: 6,
   openai_ws_latency_switch_wait_seconds: 300,
+  openai_ws_latency_probe_reuse_seconds: 600,
   openai_ttft_mode: "semantic",
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
@@ -1527,6 +1528,7 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(probeCount.attributes("min")).toBe("2");
     expect(probeCount.attributes("max")).toBe("20");
     const waitSeconds = card.get('[data-testid="openai-ws-latency-switch-wait-seconds"]');
+    const probeReuseSeconds = wrapper.get('[data-testid="openai-ws-latency-probe-reuse-seconds"]');
     expect((waitSeconds.element as HTMLInputElement).value).toBe("300");
     expect(waitSeconds.attributes("min")).toBe("1");
     expect(waitSeconds.attributes("max")).toBe("3600");
@@ -1535,6 +1537,7 @@ describe("admin SettingsView payment visible method controls", () => {
     await card.get('[data-testid="openai-ws-latency-switch-slow-ms"]').setValue(20000);
     await probeCount.setValue(4);
     await waitSeconds.setValue(600);
+    await probeReuseSeconds.setValue(900);
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
     const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
@@ -1543,6 +1546,7 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(payload.openai_ws_latency_switch_slow_ms).toBe(20000);
     expect(payload.openai_ws_latency_switch_probe_count).toBe(4);
     expect(payload.openai_ws_latency_switch_wait_seconds).toBe(600);
+    expect(payload.openai_ws_latency_probe_reuse_seconds).toBe(900);
   });
 
   it("loads Codex latency settings and preserves thresholds when disabling", async () => {
