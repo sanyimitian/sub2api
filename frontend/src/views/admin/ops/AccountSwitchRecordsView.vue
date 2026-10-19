@@ -22,13 +22,22 @@ interface ProbeResultLog {
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const records = ref<OpsSystemLog[]>([])
+const allRecords = ref<OpsSystemLog[]>([])
 const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 const timeRange = ref<TimeRange>('30d')
 const modelFilter = ref('')
+const expandedGroups = ref(new Set<string>())
+
+interface SwitchRecordGroup {
+  id: string
+  events: OpsSystemLog[]
+  latest: OpsSystemLog
+  fromAccount: string
+  targetAccount: string
+}
 
 const timeRangeOptions = computed(() => [
   { value: '5m', label: '5m' },
@@ -106,18 +115,68 @@ const formatTime = (value: string) => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
+const groups = computed<SwitchRecordGroup[]>(() => {
+  const grouped = new Map<string, OpsSystemLog[]>()
+  for (const row of allRecords.value) {
+    const conversationID = extraValue(row, 'conversation_id')
+    const key = conversationID ? `conversation:${conversationID}` : `legacy:${row.id}`
+    const rows = grouped.get(key) || []
+    rows.push(row)
+    grouped.set(key, rows)
+  }
+
+  return [...grouped.entries()].map(([id, events]) => {
+    events.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    const newestValue = (field: (row: OpsSystemLog) => string) => [...events].reverse().map(field).find((value) => value && value !== '-') || '-'
+    return {
+      id,
+      events,
+      latest: events[events.length - 1]!,
+      fromAccount: newestValue(fromAccount),
+      targetAccount: newestValue(targetAccount)
+    }
+  }).sort((a, b) => new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime())
+})
+
+const pagedGroups = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return groups.value.slice(start, start + pageSize.value)
+})
+
+const toggleGroup = (id: string) => {
+  const next = new Set(expandedGroups.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedGroups.value = next
+}
+
+const groupStatus = (group: SwitchRecordGroup) => {
+  const status = eventType(group.latest)
+  return status ? eventLabel(status) : '-'
+}
+
 const fetchRecords = async () => {
   loading.value = true
   try {
-    const response = await opsAPI.listSystemLogs({
-      page: page.value,
-      page_size: pageSize.value,
-      time_range: timeRange.value,
-      q: 'openai.ws_latency_switch_',
-      model: modelFilter.value.trim() || undefined
-    })
-    records.value = (response.items || []).filter((row) => eventType(row) !== null)
-    total.value = response.total || 0
+    const pageSize = 200
+    const rows: OpsSystemLog[] = []
+    let currentPage = 1
+    let responseTotal = 0
+    do {
+      const response = await opsAPI.listSystemLogs({
+        page: currentPage,
+        page_size: pageSize,
+        time_range: timeRange.value,
+        q: 'openai.ws_latency_switch_',
+        model: modelFilter.value.trim() || undefined
+      })
+      rows.push(...(response.items || []).filter((row) => eventType(row) !== null))
+      responseTotal = response.total || 0
+      currentPage++
+    } while (rows.length < responseTotal && currentPage <= Math.ceil(responseTotal / pageSize))
+    allRecords.value = rows
+    total.value = groups.value.length
+    expandedGroups.value = new Set()
   } catch (error: any) {
     console.error('[AccountSwitchRecordsView] Failed to fetch records', error)
     appStore.showError(error?.response?.data?.detail || t('admin.ops.switchRecords.loadFailed'))
@@ -133,13 +192,11 @@ const applyFilters = () => {
 
 const changePage = (nextPage: number) => {
   page.value = nextPage
-  fetchRecords()
 }
 
 const changePageSize = (nextPageSize: number) => {
   pageSize.value = nextPageSize
   page.value = 1
-  fetchRecords()
 }
 
 onMounted(fetchRecords)
@@ -195,33 +252,47 @@ onMounted(fetchRecords)
             <tr v-if="loading">
               <td colspan="7" class="px-4 py-10 text-center text-gray-500">{{ t('common.loading') }}</td>
             </tr>
-            <tr v-else-if="records.length === 0">
+            <tr v-else-if="groups.length === 0">
               <td colspan="7" class="px-4 py-10 text-center text-gray-500">{{ t('admin.ops.switchRecords.empty') }}</td>
             </tr>
             <template v-else>
-              <tr v-for="row in records" :key="row.id" class="text-gray-700 dark:text-gray-200">
-                <td class="whitespace-nowrap px-4 py-3">{{ formatTime(row.created_at) }}</td>
+              <template v-for="group in pagedGroups" :key="group.id">
+              <tr class="text-gray-700 dark:text-gray-200">
+                <td class="whitespace-nowrap px-4 py-3">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                    data-testid="toggle-switch-group"
+                    :aria-expanded="expandedGroups.has(group.id)"
+                    :aria-label="`${expandedGroups.has(group.id) ? t('admin.ops.switchRecords.collapse') : t('admin.ops.switchRecords.expand')} ${triggeringUser(group.latest)}`"
+                    @click="toggleGroup(group.id)"
+                  >
+                    <span aria-hidden="true" class="w-4 shrink-0 text-center">{{ expandedGroups.has(group.id) ? '▾' : '▸' }}</span>
+                    {{ formatTime(group.latest.created_at) }}
+                  </button>
+                </td>
                 <td class="px-4 py-3">
                   <span
-                    v-if="eventType(row)"
+                    v-if="eventType(group.latest)"
                     class="inline-flex rounded-md px-2 py-1 text-xs font-medium"
-                    :class="eventStyles[eventType(row)!]"
+                    :class="eventStyles[eventType(group.latest)!]"
                   >
-                    {{ eventLabel(eventType(row)!) }}<span v-if="eventType(row) === 'probe' && probeRound(row)"> · {{ probeRound(row) }}</span>
+                    {{ groupStatus(group) }}<span v-if="eventType(group.latest) === 'probe' && probeRound(group.latest)"> · {{ probeRound(group.latest) }}</span>
                   </span>
+                  <span class="ml-2 text-xs text-gray-500">{{ t('admin.ops.switchRecords.eventCount', { count: group.events.length }) }}</span>
                 </td>
                 <td class="px-4 py-3" data-testid="triggering-user">
-                  <div class="font-medium">{{ triggeringUser(row) }}</div>
-                  <div v-if="extraValue(row, 'username') && extraValue(row, 'user_email')" class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ extraValue(row, 'user_email') }}</div>
-                  <div v-if="row.user_id && (extraValue(row, 'username') || extraValue(row, 'user_email'))" class="mt-1 font-mono text-xs text-gray-500 dark:text-gray-400">ID: {{ row.user_id }}</div>
+                  <div class="font-medium">{{ triggeringUser(group.latest) }}</div>
+                  <div v-if="extraValue(group.latest, 'username') && extraValue(group.latest, 'user_email')" class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ extraValue(group.latest, 'user_email') }}</div>
+                  <div v-if="group.latest.user_id && (extraValue(group.latest, 'username') || extraValue(group.latest, 'user_email'))" class="mt-1 font-mono text-xs text-gray-500 dark:text-gray-400">ID: {{ group.latest.user_id }}</div>
                 </td>
-                <td class="px-4 py-3 font-mono">{{ fromAccount(row) }}</td>
-                <td class="px-4 py-3 font-mono">{{ targetAccount(row) }}</td>
-                <td class="px-4 py-3">{{ row.model || '-' }}</td>
+                <td class="px-4 py-3 font-mono">{{ group.fromAccount }}</td>
+                <td class="px-4 py-3 font-mono">{{ group.targetAccount }}</td>
+                <td class="px-4 py-3">{{ group.latest.model || '-' }}</td>
                 <td class="px-4 py-3">
-                  <div v-if="probeResults(row).length" class="space-y-1">
+                  <div v-if="probeResults(group.latest).length" class="space-y-1">
                     <div
-                      v-for="(result, index) in probeResults(row)"
+                      v-for="(result, index) in probeResults(group.latest)"
                       :key="result.probe_number ?? index"
                       class="whitespace-nowrap text-xs"
                     >
@@ -235,6 +306,23 @@ onMounted(fetchRecords)
                   <span v-else class="text-gray-400">-</span>
                 </td>
               </tr>
+              <tr v-if="expandedGroups.has(group.id)" class="bg-gray-50 text-gray-700 dark:bg-dark-800/50 dark:text-gray-200">
+                <td colspan="7" class="px-4 py-3">
+                  <ol class="space-y-2">
+                    <li v-for="event in group.events" :key="event.id" class="grid gap-2 text-xs sm:grid-cols-[150px_150px_minmax(0,1fr)]">
+                      <time class="text-gray-500 dark:text-gray-400">{{ formatTime(event.created_at) }}</time>
+                      <span>{{ eventType(event) ? eventLabel(eventType(event)!) : '-' }}</span>
+                      <div v-if="probeResults(event).length" class="space-y-1">
+                        <div v-for="(result, index) in probeResults(event)" :key="result.probe_number ?? index">
+                          <span class="font-mono">{{ t('admin.ops.switchRecords.probeNumber') }} #{{ result.probe_number ?? index + 1 }}: {{ attemptedAccounts(result) }}</span>
+                          <span class="ml-2 text-gray-500 dark:text-gray-400">{{ result.first_token_ms == null ? '-' : `${result.first_token_ms} ms` }} · {{ probeStatus(result) }}</span>
+                        </div>
+                      </div>
+                    </li>
+                  </ol>
+                </td>
+              </tr>
+              </template>
             </template>
           </tbody>
         </table>

@@ -54,4 +54,36 @@ describe('AccountSwitchRecordsView triggering user', () => {
     expect(users[3]!.text()).toBe('-')
     wrapper.unmount()
   })
+
+  it('groups events from the same conversation, starts collapsed, and shows the latest status', async () => {
+    listSystemLogs.mockResolvedValue({
+      items: [
+        { id: 4, created_at: '2026-10-19T00:04:00Z', message: 'openai.ws_latency_switch_completed', model: 'gpt-5', user_id: 42, extra: { conversation_id: 'opaque-session', target_account_id: 22, username: 'caller' } },
+        { id: 3, created_at: '2026-10-19T00:03:00Z', message: 'openai.ws_latency_switch_reconnect_requested', model: 'gpt-5', user_id: 42, extra: { conversation_id: 'opaque-session', target_account_id: 22, username: 'caller' } },
+        { id: 2, created_at: '2026-10-19T00:02:00Z', message: 'openai.ws_latency_switch_pending', model: 'gpt-5', user_id: 42, extra: { conversation_id: 'opaque-session', target_account_id: 22, username: 'caller' } },
+        { id: 1, created_at: '2026-10-19T00:01:00Z', message: 'openai.ws_latency_switch_probe_completed', model: 'gpt-5', user_id: 42, extra: { conversation_id: 'opaque-session', from_account_id: 11, probe_results: [] } },
+      ],
+      total: 4,
+    })
+
+    const wrapper = mount(AccountSwitchRecordsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          Pagination: true,
+          Select: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-testid="triggering-user"]')).toHaveLength(1)
+    expect(wrapper.text()).toContain('admin.ops.switchRecords.completed')
+    expect(wrapper.findAll('tbody > tr')).toHaveLength(1)
+    await wrapper.get('[data-testid="toggle-switch-group"]').trigger('click')
+    expect(wrapper.findAll('tbody > tr')).toHaveLength(2)
+    expect(wrapper.text()).toContain('admin.ops.switchRecords.pending')
+    expect(wrapper.text()).toContain('admin.ops.switchRecords.reconnectRequested')
+    wrapper.unmount()
+  })
 })

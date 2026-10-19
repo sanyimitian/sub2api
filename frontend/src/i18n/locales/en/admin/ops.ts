@@ -4,7 +4,7 @@ export default {
       description: 'Operational monitoring and troubleshooting',
       switchRecords: {
         title: 'Latency Account Switch Records',
-        description: 'Probe candidates and latency alongside pending switches, client reconnects, and completed switches.',
+        description: 'Review latency probes and switch events by conversation, with the latest status shown for each group.',
         timeRange: 'Time range',
         model: 'Model',
         modelPlaceholder: 'Filter by model',
@@ -17,6 +17,9 @@ export default {
         fromAccount: 'From account',
         targetAccount: 'Target account',
         probeResults: 'Probe results',
+        eventCount: '{count} events',
+        expand: 'Expand records',
+        collapse: 'Collapse records',
         probeNumber: 'Probe',
         probeCompleted: 'Probe completed',
         probeRound: 'Round {current}/{total}',

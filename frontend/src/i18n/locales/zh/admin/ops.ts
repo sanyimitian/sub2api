@@ -4,7 +4,7 @@ export default {
       description: '运维监控与排障',
       switchRecords: {
         title: '首字慢账号切换记录',
-        description: '查看自动路由探测账号及延迟，以及待切换、客户端重连和切换完成事件。',
+        description: '按对话查看首字慢探测与切换流程，默认显示每组最新状态。',
         timeRange: '时间范围',
         model: '模型',
         modelPlaceholder: '按模型筛选',
@@ -17,6 +17,9 @@ export default {
         fromAccount: '来源账号',
         targetAccount: '目标账号',
         probeResults: '探测结果',
+        eventCount: '{count} 条记录',
+        expand: '展开记录',
+        collapse: '收起记录',
         probeNumber: '探测',
         probeCompleted: '探测完成',
         probeRound: '第 {current}/{total} 轮',

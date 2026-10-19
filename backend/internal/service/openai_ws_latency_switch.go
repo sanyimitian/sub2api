@@ -105,9 +105,13 @@ type openAIWSLatencyActor struct {
 	apiKeyID  int64
 	username  string
 	userEmail string
+	sessionID string
 }
 
 func (actor openAIWSLatencyActor) writeEvent(message string, fields map[string]any) {
+	if actor.sessionID != "" {
+		fields["conversation_id"] = actor.sessionID
+	}
 	if actor.userID > 0 {
 		fields["user_id"] = actor.userID
 	}
@@ -174,7 +178,7 @@ func (s *OpenAIGatewayService) NewOpenAIHTTPResponsesLatencySession(ctx context.
 }
 
 func newOpenAIWSLatencySession(s *OpenAIGatewayService, groupID *int64, apiKey *APIKey, scope, sessionHash, model, upstreamModel string, requiredCapability OpenAIEndpointCapability, requiredTransport OpenAIUpstreamTransport, payload []byte) *OpenAIWSLatencySession {
-	actor := openAIWSLatencyActor{userID: apiKey.UserID, apiKeyID: apiKey.ID}
+	actor := openAIWSLatencyActor{userID: apiKey.UserID, apiKeyID: apiKey.ID, sessionID: scope}
 	if apiKey.User != nil {
 		actor.username = apiKey.User.Username
 		actor.userEmail = apiKey.User.Email

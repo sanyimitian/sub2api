@@ -589,6 +589,7 @@ func TestOpenAIWSLatencyRecordsAuthenticatedUserAcrossLifecycle(t *testing.T) {
 			continue
 		}
 		events = append(events, event.Message)
+		require.NotEmpty(t, event.Fields["conversation_id"], event.Message)
 		require.Equal(t, int64(42), event.Fields["user_id"], event.Message)
 		require.Equal(t, int64(7), event.Fields["api_key_id"], event.Message)
 		require.Equal(t, "caller", event.Fields["username"], event.Message)
