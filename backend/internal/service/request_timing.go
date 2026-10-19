@@ -27,7 +27,10 @@ type RequestTimingRecorder struct {
 }
 
 func NewRequestTimingRecorder() *RequestTimingRecorder {
-	return &RequestTimingRecorder{}
+	queueWaitMs := int64(0)
+	return &RequestTimingRecorder{
+		snapshot: RequestTimingSnapshot{AccountQueueWaitMs: &queueWaitMs},
+	}
 }
 
 func WithRequestTimingRecorder(ctx context.Context, recorder *RequestTimingRecorder) context.Context {

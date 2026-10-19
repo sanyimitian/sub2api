@@ -21,3 +21,10 @@ func TestRequestTimingRecorderAccumulatesQueueWaitAndCopiesSnapshots(t *testing.
 		t.Fatalf("snapshot mutation changed recorder state: %#v", second)
 	}
 }
+
+func TestRequestTimingRecorderStartsWithZeroAccountQueueWait(t *testing.T) {
+	timings := NewRequestTimingRecorder().Snapshot()
+	if timings == nil || timings.AccountQueueWaitMs == nil || *timings.AccountQueueWaitMs != 0 {
+		t.Fatalf("expected a zero account queue wait, got %#v", timings)
+	}
+}
