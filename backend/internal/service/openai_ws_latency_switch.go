@@ -430,13 +430,13 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 		state.SlowCount++
 		if state.SlowCount >= settings.Consecutive {
 			state.SlowCount = 0
-			state.ProbeID, state.ProbeUntil = probeID, now+(openAIWSLatencyProbeTimeout+5*time.Second).Milliseconds()
+			state.ProbeID, state.ProbeUntil = probeID, now+openAIWSLatencyProbeWindow(settings.ProbeCount).Milliseconds()
 			state.CooldownUntil = now + openAIWSLatencyCooldown.Milliseconds()
 		}
 		return true
 	})
 	if changed && state.ProbeID == probeID {
-		slog.Info("openai.ws_latency_probe_started", "scope", session.scope, "account_id", account.ID, "model", classification.model, "consecutive", settings.Consecutive, "transport", string(session.requiredTransport))
+		slog.Info("openai.ws_latency_probe_started", "scope", session.scope, "account_id", account.ID, "model", classification.model, "consecutive", settings.Consecutive, "probe_count", settings.ProbeCount, "max_probe_rounds", openAIWSLatencyMaxProbeRounds, "transport", string(session.requiredTransport))
 		probeCtx := context.WithoutCancel(ctx)
 		upstreamModel := session.upstreamModel
 		if classification.model != session.model {

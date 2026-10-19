@@ -243,20 +243,28 @@ func TestOpenAIWSLatencyToolAndPrewarmRecovery(t *testing.T) {
 	require.False(t, openAIWSLatencyIsUserRequest(missingTool))
 }
 
-func TestOpenAIWSLatencyTargetRequiresMeaningfulImprovement(t *testing.T) {
+func TestOpenAIWSLatencyTargetRequiresOnlyCandidateUnderTenSeconds(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		results []openAIWSLatencyProbeResult
 		want    int64
 	}{
-		{"faster", []openAIWSLatencyProbeResult{{accountID: 1, ms: 5000, ok: true}, {accountID: 2, ms: 1500, ok: true}}, 2},
-		{"jitter", []openAIWSLatencyProbeResult{{accountID: 1, ms: 1000, ok: true}, {accountID: 2, ms: 900, ok: true}}, 0},
-		{"no baseline", []openAIWSLatencyProbeResult{{accountID: 2, ms: 100, ok: true}}, 0},
-		{"failed candidate", []openAIWSLatencyProbeResult{{accountID: 1, ms: 5000, ok: true}, {accountID: 2, ms: 100}}, 0},
-		{"baseline timeout", []openAIWSLatencyProbeResult{{accountID: 1, ms: 15000, timedOut: true}, {accountID: 2, ms: 1500, ok: true}}, 2},
+		{"under ten seconds without relative improvement", []openAIWSLatencyProbeResult{{accountID: 1, ms: 5000, ok: true}, {accountID: 2, ms: 4900, ok: true}}, 2},
+		{"candidate at ten seconds", []openAIWSLatencyProbeResult{{accountID: 2, ms: 10_000, ok: true}}, 0},
+		{"candidate over ten seconds", []openAIWSLatencyProbeResult{{accountID: 2, ms: 10_001, ok: true}}, 0},
+		{"current route is never a target", []openAIWSLatencyProbeResult{{accountID: 1, ms: 100, ok: true}}, 0},
+		{"failed candidate", []openAIWSLatencyProbeResult{{accountID: 2, ms: 100, ok: false}}, 0},
+		{"fastest qualifying candidate", []openAIWSLatencyProbeResult{{accountID: 2, ms: 9000, ok: true}, {accountID: 3, ms: 1000, ok: true}}, 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, chooseOpenAIWSLatencyTarget(tc.results, 1)) })
 	}
+}
+
+func TestOpenAIWSLatencyFastCandidateCanBeSelectedImmediately(t *testing.T) {
+	require.True(t, isOpenAIWSLatencyFastCandidate(openAIWSLatencyProbeResult{accountID: 2, ms: 4_999, ok: true}, 1))
+	require.False(t, isOpenAIWSLatencyFastCandidate(openAIWSLatencyProbeResult{accountID: 2, ms: 5_000, ok: true}, 1))
+	require.False(t, isOpenAIWSLatencyFastCandidate(openAIWSLatencyProbeResult{accountID: 1, ms: 1_000, ok: true}, 1))
+	require.False(t, isOpenAIWSLatencyFastCandidate(openAIWSLatencyProbeResult{accountID: 2, ms: 1_000}, 1))
 }
 
 func TestOpenAIWSLatencySelectTargetRechecksEligibilityAndExcludesOldRoute(t *testing.T) {

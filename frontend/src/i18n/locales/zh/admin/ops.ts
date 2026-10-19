@@ -19,6 +19,7 @@ export default {
         probeResults: '探测结果',
         probeNumber: '探测',
         probeCompleted: '探测完成',
+        probeRound: '第 {current}/{total} 轮',
         probeSuccess: '成功',
         probeTimedOut: '超时',
         probeFailed: '失败或未执行',

@@ -19,6 +19,7 @@ export default {
         probeResults: 'Probe results',
         probeNumber: 'Probe',
         probeCompleted: 'Probe completed',
+        probeRound: 'Round {current}/{total}',
         probeSuccess: 'Success',
         probeTimedOut: 'Timed out',
         probeFailed: 'Failed or skipped',

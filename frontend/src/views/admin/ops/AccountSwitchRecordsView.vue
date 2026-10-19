@@ -84,6 +84,11 @@ const probeResults = (row: OpsSystemLog): ProbeResultLog[] => {
   const results = row.extra?.probe_results
   return Array.isArray(results) ? results as ProbeResultLog[] : []
 }
+const probeRound = (row: OpsSystemLog) => {
+  const current = Number(extraValue(row, 'probe_round'))
+  const total = Number(extraValue(row, 'max_probe_rounds'))
+  return current > 0 && total > 0 ? t('admin.ops.switchRecords.probeRound', { current, total }) : ''
+}
 const attemptedAccounts = (result: ProbeResultLog) => {
   if (result.attempted_account_ids?.length) {
     return result.attempted_account_ids.map((id) => `#${id}`).join(' -> ')
@@ -202,7 +207,7 @@ onMounted(fetchRecords)
                     class="inline-flex rounded-md px-2 py-1 text-xs font-medium"
                     :class="eventStyles[eventType(row)!]"
                   >
-                    {{ eventLabel(eventType(row)!) }}
+                    {{ eventLabel(eventType(row)!) }}<span v-if="eventType(row) === 'probe' && probeRound(row)"> · {{ probeRound(row) }}</span>
                   </span>
                 </td>
                 <td class="px-4 py-3" data-testid="triggering-user">
