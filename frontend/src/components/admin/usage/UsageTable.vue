@@ -260,7 +260,6 @@
                         type="button"
                         class="inline-flex h-4 w-4 items-center justify-center rounded text-gray-400 transition-colors hover:text-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
                         :aria-label="t('usage.timingDetails')"
-                        :title="t('usage.timingDetails')"
                       >
                         <Icon name="infoCircle" size="xs" />
                       </button>
