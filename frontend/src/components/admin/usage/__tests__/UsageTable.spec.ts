@@ -18,6 +18,7 @@ import { nextTick } from 'vue'
 
 import en from '@/i18n/locales/en/admin/resources'
 import zh from '@/i18n/locales/zh/admin/resources'
+import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import UsageTable from '../UsageTable.vue'
 
 let locale: 'en' | 'zh' = 'en'
@@ -34,6 +35,17 @@ const localizedMessages: Record<'en' | 'zh', Record<string, string>> = {
 
 const messages: Record<string, string> = {
   'usage.outputTps': 'Output TPS',
+  'usage.timingDetails': 'Request timing details',
+  'usage.timingAccountQueueWaitMs': 'Account queue',
+  'usage.timingUpstreamConnectionWaitMs': 'Connection acquisition (includes dial)',
+  'usage.timingUpstreamDNSMs': 'DNS',
+  'usage.timingUpstreamConnectMs': 'TCP connect',
+  'usage.timingUpstreamTLSMs': 'TLS handshake',
+  'usage.timingUpstreamRequestWriteMs': 'Request write',
+  'usage.timingUpstreamResponseWaitMs': 'Upstream first-byte wait',
+  'usage.timingConnectionReuse': 'Connection',
+  'usage.timingReused': 'Reused',
+  'usage.timingNewConnection': 'New',
   'admin.usage.userDeletedBadge': 'Deleted',
   'usage.costDetails': 'Cost Breakdown',
   'admin.usage.inputCost': 'Input Cost',
@@ -172,6 +184,49 @@ describe('admin UsageTable tooltip', () => {
       height: 20,
       toJSON: () => ({}),
     } as DOMRect)
+  })
+
+  it('shows upstream first-byte wait and reveals other timings on hover', async () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{
+          ...baseImageRow,
+          request_id: 'req-timings',
+          image_count: 0,
+          billing_mode: 'token',
+          output_tokens: 1000,
+          duration_ms: 20_000,
+          first_token_ms: 10_000,
+          request_timings: {
+            account_queue_wait_ms: 0,
+            upstream_connection_wait_ms: 3,
+            upstream_dns_ms: 1,
+            upstream_connect_ms: 2,
+            upstream_tls_ms: 0,
+            upstream_request_write_ms: 7,
+            upstream_response_wait_ms: 9340,
+            upstream_connection_reused: true,
+          },
+        }],
+        loading: false,
+        columns: [{ key: 'latency', label: 'Latency' }],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true } },
+    })
+
+    expect(wrapper.get('[data-testid="upstream-response-wait"]').text()).toBe('9.34s')
+    expect(wrapper.text()).not.toContain('Account queue')
+    expect(wrapper.get('[aria-label="Request timing details"]').exists()).toBe(true)
+
+    await wrapper.findComponent(HelpTooltip).trigger('mouseenter')
+    await nextTick()
+
+    const tooltip = document.body.querySelector('[role="tooltip"]')
+    expect(tooltip?.textContent).toContain('Account queue')
+    expect(tooltip?.textContent).toContain('Connection acquisition (includes dial)')
+    expect(tooltip?.textContent).toContain('Request write')
+    expect(tooltip?.textContent).toContain('Reused')
+    wrapper.unmount()
   })
 
   it.each([

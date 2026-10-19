@@ -251,14 +251,32 @@
               <span class="text-gray-400 dark:text-gray-500" :title="t('usage.outputTpsHint')">{{ t('usage.outputTps') }}</span>
               <span data-testid="output-tps" class="font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatUsageOutputRate(row) }}</span>
               <template v-if="row.request_timings">
-                <template v-for="(value, key) in row.request_timings" :key="key">
-                  <template v-if="typeof value === 'number'">
-                    <span class="text-gray-400 dark:text-gray-500">{{ requestTimingLabel(String(key)) }}</span>
-                    <span class="font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatDuration(value) }}</span>
-                  </template>
-                </template>
-                <span v-if="row.request_timings.upstream_connection_reused != null" class="text-gray-400 dark:text-gray-500">{{ t('usage.timingConnectionReuse') }}</span>
-                <span v-if="row.request_timings.upstream_connection_reused != null" class="font-medium text-gray-700 dark:text-gray-300">{{ row.request_timings.upstream_connection_reused ? t('usage.timingReused') : t('usage.timingNewConnection') }}</span>
+                <span class="text-gray-400 dark:text-gray-500">{{ requestTimingLabel('upstream_response_wait_ms') }}</span>
+                <span class="inline-flex items-center gap-1 font-medium tabular-nums text-gray-700 dark:text-gray-300">
+                  <span data-testid="upstream-response-wait">{{ formatDuration(row.request_timings.upstream_response_wait_ms) }}</span>
+                  <HelpTooltip v-if="requestTimingDetails(row.request_timings).length" width-class="w-72">
+                    <template #trigger>
+                      <button
+                        type="button"
+                        class="inline-flex h-4 w-4 items-center justify-center rounded text-gray-400 transition-colors hover:text-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+                        :aria-label="t('usage.timingDetails')"
+                        :title="t('usage.timingDetails')"
+                      >
+                        <Icon name="infoCircle" size="xs" />
+                      </button>
+                    </template>
+                    <div class="space-y-1">
+                      <div
+                        v-for="detail in requestTimingDetails(row.request_timings)"
+                        :key="detail.label"
+                        class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3"
+                      >
+                        <span class="text-gray-300">{{ detail.label }}</span>
+                        <span class="font-medium tabular-nums text-white">{{ detail.value }}</span>
+                      </div>
+                    </div>
+                  </HelpTooltip>
+                </span>
               </template>
             </div>
           </div>
@@ -594,6 +612,7 @@ function accountBilled(row: { total_cost?: number | null; account_stats_cost?: n
 
 import DataTable from '@/components/common/DataTable.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import IpGeoCell from '@/components/common/IpGeoCell.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { fetchBatch, getEntry } from '@/utils/ipGeoLookup'
@@ -733,6 +752,27 @@ const requestTimingLabels: Record<string, string> = {
 }
 
 const requestTimingLabel = (key: string): string => t(requestTimingLabels[key] ?? key)
+
+const requestTimingDetails = (timings: AdminUsageLog['request_timings']) => {
+  if (!timings) return []
+
+  const details: { label: string; value: string }[] = []
+  for (const [key, value] of Object.entries(timings)) {
+    if (key === 'upstream_response_wait_ms') continue
+    if (typeof value === 'number') {
+      details.push({ label: requestTimingLabel(key), value: formatDuration(value) })
+    }
+  }
+
+  if (timings.upstream_connection_reused != null) {
+    details.push({
+      label: t('usage.timingConnectionReuse'),
+      value: timings.upstream_connection_reused ? t('usage.timingReused') : t('usage.timingNewConnection'),
+    })
+  }
+
+  return details
+}
 
 const getRequestTypeBadgeClass = (row: AdminUsageLog): string => {
   const requestType = resolveUsageRequestType(row)
