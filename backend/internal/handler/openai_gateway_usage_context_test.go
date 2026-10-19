@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -11,7 +12,7 @@ import (
 
 func TestSubmitUsageRecordTaskCopiesRequestContext(t *testing.T) {
 	recorder := service.NewRequestTimingRecorder()
-	recorder.AddAccountQueueWait(123)
+	recorder.AddAccountQueueWait(123 * time.Millisecond)
 	parent := service.WithRequestTimingRecorder(context.Background(), recorder)
 	parent = context.WithValue(parent, ctxkey.ClientRequestID, "client-request-123")
 	parent = context.WithValue(parent, ctxkey.RequestID, "request-456")
@@ -35,7 +36,7 @@ func TestSubmitUsageRecordTaskCopiesRequestContext(t *testing.T) {
 
 func TestOpenAISubmitUsageRecordTaskCopiesRequestContext(t *testing.T) {
 	recorder := service.NewRequestTimingRecorder()
-	recorder.AddAccountQueueWait(456)
+	recorder.AddAccountQueueWait(456 * time.Millisecond)
 	parent := service.WithRequestTimingRecorder(context.Background(), recorder)
 	parent = context.WithValue(parent, ctxkey.ClientRequestID, "openai-client-request-123")
 	parent = context.WithValue(parent, ctxkey.RequestID, "openai-request-456")
