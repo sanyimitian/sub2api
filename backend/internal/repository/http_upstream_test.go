@@ -51,6 +51,32 @@ func TestHTTPUpstreamDoCanDisableRedirectsPerRequest(t *testing.T) {
 	require.Zero(t, redirectedCalls.Load())
 }
 
+func TestDoUpstreamRequestRecordsStageTimings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(40 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	recorder := service.NewRequestTimingRecorder()
+	ctx := service.WithRequestTimingRecorder(t.Context(), recorder)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+
+	resp, err := doUpstreamRequest(server.Client(), req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	timings := recorder.Snapshot()
+	require.NotNil(t, timings)
+	require.NotNil(t, timings.UpstreamConnectionWaitMs)
+	require.NotNil(t, timings.UpstreamRequestWriteMs)
+	require.NotNil(t, timings.UpstreamResponseWaitMs)
+	require.GreaterOrEqual(t, *timings.UpstreamResponseWaitMs, int64(20))
+	require.NotNil(t, timings.UpstreamConnectionReused)
+	require.False(t, *timings.UpstreamConnectionReused)
+}
+
 func TestHTTPUpstreamDoWithTLSPlainHTTPUsesConfiguredHTTPProxy(t *testing.T) {
 	var upstreamCalls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

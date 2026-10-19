@@ -1194,6 +1194,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		)
 	}
 	usageLog := &UsageLog{
+		RequestTimings:           RequestTimingRecorderFromContext(ctx).Snapshot(),
 		UserID:                   user.ID,
 		APIKeyID:                 apiKey.ID,
 		AccountID:                account.ID,

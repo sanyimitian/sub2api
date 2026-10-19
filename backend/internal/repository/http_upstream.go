@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"strings"
@@ -300,6 +301,10 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 // caller's context (which may be detached for billing or reused for retries).
 func doUpstreamRequest(client *http.Client, req *http.Request) (*http.Response, error) {
 	ctx, cancel := context.WithCancel(req.Context())
+	if recorder := service.RequestTimingRecorderFromContext(ctx); recorder != nil {
+		recorder.BeginUpstreamAttempt()
+		ctx = withRequestTimingTrace(ctx, recorder)
+	}
 	resp, err := servertiming.Do(client, req.WithContext(ctx))
 	if err != nil {
 		cancel()
@@ -308,6 +313,104 @@ func doUpstreamRequest(client *http.Client, req *http.Request) (*http.Response, 
 	decompressResponseBody(resp)
 	resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
 	return resp, nil
+}
+
+func withRequestTimingTrace(ctx context.Context, recorder *service.RequestTimingRecorder) context.Context {
+	var mu sync.Mutex
+	var getConnStarted time.Time
+	var gotConnAt time.Time
+	var dnsStarted time.Time
+	connectStarted := make(map[string]time.Time)
+	var connectSucceeded bool
+	var tlsStarted time.Time
+	var requestWrittenAt time.Time
+
+	trace := &httptrace.ClientTrace{
+		GetConn: func(string) {
+			mu.Lock()
+			getConnStarted = time.Now()
+			mu.Unlock()
+		},
+		GotConn: func(info httptrace.GotConnInfo) {
+			now := time.Now()
+			mu.Lock()
+			started := getConnStarted
+			gotConnAt = now
+			mu.Unlock()
+			if !started.IsZero() {
+				recorder.SetUpstreamConnectionWait(now.Sub(started))
+			}
+			recorder.SetUpstreamConnectionReused(info.Reused)
+		},
+		DNSStart: func(httptrace.DNSStartInfo) {
+			mu.Lock()
+			dnsStarted = time.Now()
+			mu.Unlock()
+		},
+		DNSDone: func(httptrace.DNSDoneInfo) {
+			now := time.Now()
+			mu.Lock()
+			started := dnsStarted
+			mu.Unlock()
+			if !started.IsZero() {
+				recorder.SetUpstreamDNS(now.Sub(started))
+			}
+		},
+		ConnectStart: func(network, addr string) {
+			mu.Lock()
+			connectStarted[network+"\x00"+addr] = time.Now()
+			mu.Unlock()
+		},
+		ConnectDone: func(network, addr string, err error) {
+			now := time.Now()
+			mu.Lock()
+			key := network + "\x00" + addr
+			started := connectStarted[key]
+			delete(connectStarted, key)
+			shouldRecord := !started.IsZero() && (err == nil || !connectSucceeded)
+			if err == nil {
+				connectSucceeded = true
+			}
+			mu.Unlock()
+			if shouldRecord {
+				recorder.SetUpstreamConnect(now.Sub(started))
+			}
+		},
+		TLSHandshakeStart: func() {
+			mu.Lock()
+			tlsStarted = time.Now()
+			mu.Unlock()
+		},
+		TLSHandshakeDone: func(tls.ConnectionState, error) {
+			now := time.Now()
+			mu.Lock()
+			started := tlsStarted
+			mu.Unlock()
+			if !started.IsZero() {
+				recorder.SetUpstreamTLS(now.Sub(started))
+			}
+		},
+		WroteRequest: func(httptrace.WroteRequestInfo) {
+			now := time.Now()
+			mu.Lock()
+			requestWrittenAt = now
+			connectedAt := gotConnAt
+			mu.Unlock()
+			if !connectedAt.IsZero() {
+				recorder.SetUpstreamRequestWrite(now.Sub(connectedAt))
+			}
+		},
+		GotFirstResponseByte: func() {
+			now := time.Now()
+			mu.Lock()
+			writtenAt := requestWrittenAt
+			mu.Unlock()
+			if !writtenAt.IsZero() {
+				recorder.SetUpstreamResponseWait(now.Sub(writtenAt))
+			}
+		},
+	}
+	return httptrace.WithClientTrace(ctx, trace)
 }
 
 type cancelOnCloseBody struct {

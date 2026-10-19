@@ -102,6 +102,7 @@ func ApplyLegacyRequestFields(requestType RequestType, fallbackStream bool, fall
 }
 
 type UsageLog struct {
+	RequestTimings *RequestTimingSnapshot `json:"request_timings,omitempty" gorm:"column:request_timings;type:jsonb"`
 	ID        int64
 	UserID    int64
 	APIKeyID  int64

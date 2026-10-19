@@ -1076,6 +1076,8 @@ func (state *opsCaptureWriterState) shouldCapture() bool {
 // - Streaming errors after the response has started (SSE) may still need explicit logging.
 func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		timingRecorder := service.NewRequestTimingRecorder()
+		c.Request = c.Request.WithContext(service.WithRequestTimingRecorder(c.Request.Context(), timingRecorder))
 		originalWriter := c.Writer
 		w := acquireOpsCaptureWriter(originalWriter)
 		w.setContext(c)
@@ -1188,6 +1190,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, normalizedType, parsed.Message, parsed.Code, status)
 
 		entry := &service.OpsInsertErrorLogInput{
+			RequestTimings: timingRecorder.Snapshot(),
 			RequestID:       requestID,
 			ClientRequestID: clientRequestID,
 
@@ -1286,6 +1289,9 @@ func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatu
 	}
 
 	entry := &service.OpsInsertErrorLogInput{StatusCode: finalStatus}
+	if c.Request != nil {
+		entry.RequestTimings = service.RequestTimingRecorderFromContext(c.Request.Context()).Snapshot()
+	}
 	applyOpsUpstreamFieldsFromContext(c, entry)
 	if len(entry.UpstreamErrors) > 0 {
 		visibleEvents := make([]*service.OpsUpstreamErrorEvent, 0, len(entry.UpstreamErrors))

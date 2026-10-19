@@ -250,6 +250,16 @@
               <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
               <span class="text-gray-400 dark:text-gray-500" :title="t('usage.outputTpsHint')">{{ t('usage.outputTps') }}</span>
               <span data-testid="output-tps" class="font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatUsageOutputRate(row) }}</span>
+              <template v-if="row.request_timings">
+                <template v-for="(value, key) in row.request_timings" :key="key">
+                  <template v-if="typeof value === 'number'">
+                    <span class="text-gray-400 dark:text-gray-500">{{ requestTimingLabel(String(key)) }}</span>
+                    <span class="font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatDuration(value) }}</span>
+                  </template>
+                </template>
+                <span v-if="row.request_timings.upstream_connection_reused != null" class="text-gray-400 dark:text-gray-500">{{ t('usage.timingConnectionReuse') }}</span>
+                <span v-if="row.request_timings.upstream_connection_reused != null" class="font-medium text-gray-700 dark:text-gray-300">{{ row.request_timings.upstream_connection_reused ? t('usage.timingReused') : t('usage.timingNewConnection') }}</span>
+              </template>
             </div>
           </div>
         </template>
@@ -711,6 +721,18 @@ const getRequestTypeLabel = (row: AdminUsageLog): string => {
   if (requestType === 'sync') return t('usage.sync')
   return t('usage.unknown')
 }
+
+const requestTimingLabels: Record<string, string> = {
+  account_queue_wait_ms: 'usage.timingAccountQueueWaitMs',
+  upstream_connection_wait_ms: 'usage.timingUpstreamConnectionWaitMs',
+  upstream_dns_ms: 'usage.timingUpstreamDNSMs',
+  upstream_connect_ms: 'usage.timingUpstreamConnectMs',
+  upstream_tls_ms: 'usage.timingUpstreamTLSMs',
+  upstream_request_write_ms: 'usage.timingUpstreamRequestWriteMs',
+  upstream_response_wait_ms: 'usage.timingUpstreamResponseWaitMs'
+}
+
+const requestTimingLabel = (key: string): string => t(requestTimingLabels[key] ?? key)
 
 const getRequestTypeBadgeClass = (row: AdminUsageLog): string => {
   const requestType = resolveUsageRequestType(row)

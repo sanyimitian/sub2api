@@ -125,6 +125,16 @@
 
       </div>
 
+      <div v-if="requestTimingRows.length" class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900">
+        <h3 class="text-sm font-bold text-gray-900 dark:text-white">{{ t('admin.ops.errorDetail.timingBreakdown') }}</h3>
+        <div class="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+          <div v-for="row in requestTimingRows" :key="row.label" class="flex min-w-0 items-baseline justify-between gap-3">
+            <span class="truncate text-gray-500 dark:text-gray-400">{{ row.label }}</span>
+            <span class="shrink-0 font-medium tabular-nums text-gray-900 dark:text-white">{{ row.value }}</span>
+          </div>
+        </div>
+      </div>
+
       <div v-if="rootCauseMessage" class="rounded-xl bg-amber-50 p-6 dark:bg-amber-900/10">
         <h3 class="text-sm font-black uppercase tracking-wider text-amber-900 dark:text-amber-200">{{ t('admin.ops.errorDetail.rootCause') }}</h3>
         <div class="mt-3 break-words text-sm font-medium text-amber-900 dark:text-amber-100">{{ rootCauseMessage }}</div>
@@ -254,6 +264,40 @@ const appStore = useAppStore()
 
 const loading = ref(false)
 const detail = ref<OpsErrorDetail | null>(null)
+
+const requestTimingRows = computed(() => {
+  const current = detail.value
+  const timings = current?.request_timings
+  if (!current || !timings) return []
+
+  const values: Array<[string, number | boolean | null | undefined]> = [
+    [t('admin.ops.errorDetail.accountQueueWait'), timings.account_queue_wait_ms],
+    [t('admin.ops.errorDetail.upstreamConnectionWait'), timings.upstream_connection_wait_ms],
+    [t('admin.ops.errorDetail.upstreamDNS'), timings.upstream_dns_ms],
+    [t('admin.ops.errorDetail.upstreamConnect'), timings.upstream_connect_ms],
+    [t('admin.ops.errorDetail.upstreamTLS'), timings.upstream_tls_ms],
+    [t('admin.ops.errorDetail.upstreamRequestWrite'), timings.upstream_request_write_ms],
+    [t('admin.ops.errorDetail.upstreamResponseWait'), timings.upstream_response_wait_ms],
+    [t('admin.ops.errorDetail.timeToFirstToken'), current.time_to_first_token_ms]
+  ]
+
+  if (timings.upstream_connection_reused != null) {
+    values.push([
+      t('admin.ops.errorDetail.upstreamConnection'),
+      timings.upstream_connection_reused
+    ])
+  }
+
+  return values
+    .filter((entry): entry is [string, number | boolean] => entry[1] != null)
+    .map(([label, value]) => ({ label, value: formatTimingValue(value) }))
+})
+
+function formatTimingValue(value: number | boolean): string {
+  if (typeof value === 'boolean') return value ? t('admin.ops.errorDetail.reused') : t('admin.ops.errorDetail.newConnection')
+  if (value < 1000) return `${value} ms`
+  return `${(value / 1000).toFixed(2)} s`
+}
 
 const showUpstreamList = computed(() => props.errorType === 'request')
 

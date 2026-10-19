@@ -1746,6 +1746,17 @@ export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2' | 'cyber'
 export type ImageSizeSource = 'output' | 'input' | 'default' | 'legacy'
 export type ImageSizeBreakdown = Record<string, number>
 
+export interface RequestTimingSnapshot {
+  account_queue_wait_ms?: number | null
+  upstream_connection_wait_ms?: number | null
+  upstream_dns_ms?: number | null
+  upstream_connect_ms?: number | null
+  upstream_tls_ms?: number | null
+  upstream_request_write_ms?: number | null
+  upstream_response_wait_ms?: number | null
+  upstream_connection_reused?: boolean | null
+}
+
 export interface UsageLog {
   id: number
   user_id: number
@@ -1821,6 +1832,7 @@ export interface UsageLogAccountSummary {
 }
 
 export interface AdminUsageLog extends UsageLog {
+  request_timings?: RequestTimingSnapshot | null
   upstream_model?: string | null
   upstream_reasoning_effort?: string | null
   upstream_response_model?: string | null

@@ -5,7 +5,7 @@
  */
 
 import { apiClient, buildGatewayUrl } from '../client'
-import type { PaginatedResponse } from '@/types'
+import type { PaginatedResponse, RequestTimingSnapshot } from '@/types'
 
 export type OpsQueryMode = 'auto' | 'raw' | 'preagg'
 
@@ -950,6 +950,7 @@ export interface OpsErrorLog {
 
 export interface OpsErrorDetail extends OpsErrorLog {
   error_body: string
+  request_timings?: RequestTimingSnapshot | null
 
   // Upstream context (optional; enriched by gateway services)
   upstream_status_code?: number | null
