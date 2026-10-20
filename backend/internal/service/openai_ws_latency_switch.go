@@ -252,13 +252,18 @@ func (s *OpenAIGatewayService) releaseOpenAIWSLatencyCandidate(ctx context.Conte
 	})
 }
 
-func (s *OpenAIGatewayService) claimOpenAIWSLatencyProbe(ctx context.Context, poolKey, probeID string, probeWindow time.Duration) bool {
+func (s *OpenAIGatewayService) claimOpenAIWSLatencyProbe(ctx context.Context, poolKey string, currentAccountID int64, probeID string, probeWindow time.Duration) bool {
 	claimed := false
 	_, updated := s.updateOpenAIWSLatencyCandidatePool(ctx, poolKey, func(pool *openAIWSLatencyCandidatePool) bool {
 		now := time.Now().UnixMilli()
 		pruneOpenAIWSLatencyCandidates(pool, now)
-		if pool.ProbeUntil > now || len(pool.Candidates) > 0 {
-			return len(pool.Candidates) > 0 && pool.ProbeUntil <= now
+		if pool.ProbeUntil > now {
+			return false
+		}
+		for _, candidate := range pool.Candidates {
+			if candidate.AccountID != currentAccountID {
+				return false
+			}
 		}
 		pool.ProbeID = probeID
 		pool.ProbeUntil = now + probeWindow.Milliseconds()

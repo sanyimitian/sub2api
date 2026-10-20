@@ -588,8 +588,8 @@ func TestOpenAIWSLatencySharesInFlightProbeAndReservesCandidatesOnce(t *testing.
 	poolKey := openAIWSLatencyCandidatePoolKey(&groupID, "gpt-5.1", OpenAIUpstreamTransportResponsesWebsocketV2Ingress)
 	probeWindow := time.Minute
 
-	require.True(t, svc.claimOpenAIWSLatencyProbe(ctx, poolKey, "first-probe", probeWindow))
-	require.False(t, svc.claimOpenAIWSLatencyProbe(ctx, poolKey, "second-probe", probeWindow), "a concurrent trigger must join the active probe batch")
+	require.True(t, svc.claimOpenAIWSLatencyProbe(ctx, poolKey, 11, "first-probe", probeWindow))
+	require.False(t, svc.claimOpenAIWSLatencyProbe(ctx, poolKey, 11, "second-probe", probeWindow), "a concurrent trigger must join the active probe batch")
 
 	results := []openAIWSLatencyProbeResult{
 		{accountID: 22, ms: 1200, ok: true},
@@ -600,6 +600,12 @@ func TestOpenAIWSLatencySharesInFlightProbeAndReservesCandidatesOnce(t *testing.
 	require.Equal(t, "first-probe", pool.ProbeID, "joined requests wait for the same probe batch to publish its results")
 	require.Len(t, pool.Candidates, 2)
 	require.Greater(t, pool.Candidates[0].ExpiresAt, time.Now().UnixMilli())
+	_, updated := svc.updateOpenAIWSLatencyCandidatePool(ctx, poolKey, func(pool *openAIWSLatencyCandidatePool) bool {
+		pool.ProbeID, pool.ProbeUntil = "", 0
+		return true
+	})
+	require.True(t, updated)
+	require.False(t, svc.claimOpenAIWSLatencyProbe(ctx, poolKey, 11, "third-probe", probeWindow), "a new batch must not start while reusable candidates remain")
 
 	first, ok := svc.reserveOpenAIWSLatencyCandidate(ctx, poolKey, 11, "lease-one", 300)
 	require.True(t, ok)
@@ -617,6 +623,9 @@ func TestOpenAIWSLatencySharesInFlightProbeAndReservesCandidatesOnce(t *testing.
 
 	pool = svc.getOpenAIWSLatencyCandidatePool(ctx, poolKey)
 	require.Len(t, pool.Candidates, 1, "a successful switch consumes exactly one candidate")
+	svc.releaseOpenAIWSLatencyCandidate(ctx, poolKey, "lease-two", second.AccountID, true)
+	_, _ = svc.addOpenAIWSLatencyCandidates(ctx, poolKey, []openAIWSLatencyProbeResult{{accountID: 11, ms: 1000, ok: true}}, 600, 0, "", 300)
+	require.True(t, svc.claimOpenAIWSLatencyProbe(ctx, poolKey, 11, "self-candidate-probe", probeWindow), "a candidate matching the current account cannot serve this trigger")
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	require.Equal(t, 0, cache.probeStarts, "candidate-pool coordination is separate from per-dialogue state")
