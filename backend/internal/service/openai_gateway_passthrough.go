@@ -585,6 +585,13 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	body []byte,
 	token string,
 ) (*http.Request, error) {
+	if routeSessionID := OpenAIWSLatencyUpstreamSessionID(c); routeSessionID != "" {
+		routedBody, routeErr := sjson.SetBytes(body, "prompt_cache_key", routeSessionID)
+		if routeErr != nil {
+			return nil, fmt.Errorf("set latency-switch prompt cache key: %w", routeErr)
+		}
+		body = routedBody
+	}
 	targetURL := openaiPlatformAPIURL
 	switch account.Type {
 	case AccountTypeOAuth:
@@ -729,6 +736,10 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(c, account, targetURL, req.Header, body)
+	if routeSessionID := OpenAIWSLatencyUpstreamSessionID(c); routeSessionID != "" {
+		req.Header.Set("session_id", routeSessionID)
+		req.Header.Set("conversation_id", routeSessionID)
+	}
 	// x-codex-beta-features：按真实 Codex 的会话级行为补注（在账号级覆写之后，
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)

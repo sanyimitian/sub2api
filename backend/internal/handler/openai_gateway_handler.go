@@ -827,6 +827,17 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
 		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
 		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, account, &passthroughFailoverState)
+		if latencySession != nil {
+			if routeErr := latencySession.ApplyUpstreamSessionIdentity(c.Request.Context(), c, account, reqModel); routeErr != nil {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+					accountReleaseFunc = nil
+				}
+				reqLog.Warn("openai.ws_latency_session_identity_failed", zap.Int64("account_id", account.ID), zap.Error(routeErr))
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "server_error", "Unable to select a latency-switch session", streamStarted)
+				return
+			}
+		}
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
@@ -3028,6 +3039,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if err := latencySession.BeforeRequest(ctx, turn, account, payload, originalModel); err != nil {
 					return err
 				}
+				if err := latencySession.ApplyUpstreamSessionIdentity(ctx, c, account, originalModel); err != nil {
+					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "latency-switch session is unavailable", err)
+				}
 				c.Set(securityAuditWSTurnContextKey, turn)
 				service.BeginOpsStreamTurn(c, turn)
 				setCyberTurnBody(turn, payload)
@@ -3251,6 +3265,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 
 		wsFirstMessage := wsAttemptMessage
+		if err := latencySession.ApplyUpstreamSessionIdentity(ctx, c, account, reqModel); err != nil {
+			reqLog.Warn("openai.ws_latency_session_identity_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "latency-switch session is unavailable")
+			return
+		}
 		// 切组/会话失配防护：previous_response_id 未在当前分组命中粘连账号（StickyPreviousHit=false），
 		// 说明该会话链不属于本次调度到的账号，原样转发会触发上游会话链鉴权失败（“鉴权失败，请检查 API Key”）。
 		// 故剥离首包里的 previous_response_id，改用首包内 input 重建上下文；带 function_call_output 的

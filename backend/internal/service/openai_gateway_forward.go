@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // Forward forwards request to OpenAI API
@@ -46,6 +47,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	// 请求体里的 client_metadata / prompt_cache_key，用改写后的值取键会让不同会话
 	// 落到同一个键，也会与 WS 接入路径按原始报文算出的键对不上。
 	wsExecutionScope, _ := resolveOpenAIWSExecutionScope(c, body, apiKeyID)
+	if routeSessionID := OpenAIWSLatencyUpstreamSessionID(c); routeSessionID != "" {
+		if routedBody, routeErr := sjson.SetBytes(body, "prompt_cache_key", routeSessionID); routeErr == nil {
+			body = routedBody
+		}
+	}
 	logCodexCLIOnlyDetection(ctx, c, account, apiKeyID, restrictionResult, body)
 	if restrictionResult.Enabled && !restrictionResult.Matched {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
@@ -1370,6 +1376,12 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
+	if routeSessionID := OpenAIWSLatencyUpstreamSessionID(c); routeSessionID != "" {
+		promptCacheKey = routeSessionID
+		if routedBody, routeErr := sjson.SetBytes(body, "prompt_cache_key", routeSessionID); routeErr == nil {
+			body = routedBody
+		}
+	}
 	// Determine target URL based on account type
 	var targetURL string
 	switch account.Type {
@@ -1520,6 +1532,10 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(c, account, targetURL, req.Header, body, openCodeSessionHintBody(promptCacheKey))
+	if routeSessionID := OpenAIWSLatencyUpstreamSessionID(c); routeSessionID != "" {
+		req.Header.Set("session_id", routeSessionID)
+		req.Header.Set("conversation_id", routeSessionID)
+	}
 	// x-codex-beta-features：按真实 Codex 的会话级行为补注（在账号级覆写之后，
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)

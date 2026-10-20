@@ -21,6 +21,9 @@ import (
 )
 
 type openAIWSLatencyProbeResult struct {
+	resultID            string
+	upstreamSessionID   string
+	upstreamModel       string
 	probeNumber         int
 	requestedAccountID  int64
 	accountID           int64
@@ -29,6 +32,16 @@ type openAIWSLatencyProbeResult struct {
 	ms                  int
 	ok                  bool
 	timedOut            bool
+}
+
+type openAIWSLatencyProbeSessionIDContextKey struct{}
+
+func openAIWSLatencyProbeSessionID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	sessionID, _ := ctx.Value(openAIWSLatencyProbeSessionIDContextKey{}).(string)
+	return strings.TrimSpace(sessionID)
 }
 
 type openAIWSLatencyProbeLogResult struct {
@@ -93,18 +106,55 @@ func (limiter *openAIWSLatencyProbeLimiter) release() {
 	limiter.active--
 }
 
-func chooseOpenAIWSLatencyTarget(results []openAIWSLatencyProbeResult, currentID int64) int64 {
+func chooseOpenAIWSLatencyTarget(results []openAIWSLatencyProbeResult, _ int64) int64 {
 	bestID, bestMS := int64(0), openAIWSLatencyCandidateMaxFirstTokenMS
 	for _, result := range results {
-		if result.ok && result.accountID != 0 && result.accountID != currentID && result.ms >= 0 && result.ms < bestMS {
+		if result.ok && result.accountID != 0 && result.ms >= 0 && result.ms < bestMS {
 			bestID, bestMS = result.accountID, result.ms
 		}
 	}
 	return bestID
 }
 
-func isOpenAIWSLatencyFastCandidate(result openAIWSLatencyProbeResult, currentID int64) bool {
-	return result.ok && result.accountID != 0 && result.accountID != currentID && result.ms >= 0 && result.ms < openAIWSLatencyFastCandidateMS
+func isOpenAIWSLatencyFastCandidate(result openAIWSLatencyProbeResult, _ int64) bool {
+	return result.ok && result.accountID != 0 && result.ms >= 0 && result.ms < openAIWSLatencyFastCandidateMS
+}
+
+func writeOpenAIWSLatencyProbeCompleted(actor openAIWSLatencyActor, currentID int64, probeCount, round, notWaitedProbes int, results []openAIWSLatencyProbeResult, targetID int64, targetResultID, model string, transport OpenAIUpstreamTransport) {
+	probeLogResults := make([]openAIWSLatencyProbeLogResult, 0, len(results))
+	forwardedAttempts := 0
+	for _, result := range results {
+		probeLog := openAIWSLatencyProbeLogResult{
+			ProbeNumber:         result.probeNumber,
+			RequestedAccountID:  result.requestedAccountID,
+			AccountID:           result.accountID,
+			AttemptedAccountIDs: result.attemptedAccountIDs,
+			Success:             result.ok,
+			TimedOut:            result.timedOut,
+			Failure:             result.failure,
+		}
+		forwardedAttempts += len(result.attemptedAccountIDs)
+		if result.ok || result.timedOut {
+			firstTokenMS := result.ms
+			probeLog.FirstTokenMS = &firstTokenMS
+		}
+		probeLogResults = append(probeLogResults, probeLog)
+	}
+	sort.Slice(probeLogResults, func(i, j int) bool { return probeLogResults[i].ProbeNumber < probeLogResults[j].ProbeNumber })
+	actor.writeEvent("openai.ws_latency_switch_probe_completed", map[string]any{
+		"from_account_id":    currentID,
+		"probe_limit":        probeCount,
+		"probe_round":        round,
+		"max_probe_rounds":   openAIWSLatencyMaxProbeRounds,
+		"probes":             len(results),
+		"not_waited_probes":  notWaitedProbes,
+		"forwarded_attempts": forwardedAttempts,
+		"probe_results":      probeLogResults,
+		"target_account_id":  targetID,
+		"target_result_id":   targetResultID,
+		"model":              model,
+		"transport":          string(transport),
+	})
 }
 
 func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, key string, groupID *int64, currentID int64, poolModel, model string, capability OpenAIEndpointCapability, requiredTransport OpenAIUpstreamTransport, probeID string, actor openAIWSLatencyActor) {
@@ -116,27 +166,85 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 	leaseID := uuid.NewString()
 	ctx, cancel := context.WithTimeout(ctx, openAIWSLatencyProbeWindow(probeCount)-5*time.Second)
 	defer cancel()
+	if requiredTransport == "" {
+		requiredTransport = OpenAIUpstreamTransportResponsesWebsocketV2Ingress
+	}
+	poolModel = strings.TrimSpace(poolModel)
+	if poolModel == "" {
+		poolModel = model
+	}
 	poolKey := openAIWSLatencyCandidatePoolKey(groupID, poolModel, requiredTransport)
 	var targetID int64
 	var candidateLeaseID string
+	var targetResultID string
+	releaseProbeOnReturn := true
+	defer func() {
+		updateCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		defer stop()
+		if targetID == 0 {
+			s.updateOpenAIWSLatencyState(updateCtx, key, func(state *openAIWSLatencyState) bool {
+				if state.ProbeID != probeID || state.AccountID != currentID {
+					return false
+				}
+				state.ProbeID, state.ProbeUntil = "", 0
+				return true
+			})
+		}
+		if releaseProbeOnReturn {
+			s.releaseOpenAIWSLatencyProbe(updateCtx, poolKey, probeID)
+		}
+	}()
+	accounts, err := s.listSchedulableAccounts(ctx, groupID, PlatformOpenAI)
+	if err != nil || s.checkChannelPricingRestriction(ctx, groupID, model) {
+		return
+	}
+	request := OpenAIAccountScheduleRequest{GroupID: groupID, Platform: PlatformOpenAI, RequestedModel: model, RequiredTransport: requiredTransport, RequiredCapability: capability, RequirePrivacySet: s.openAIGroupRequiresPrivacySet(ctx, groupID)}
+	checker := &defaultOpenAIAccountScheduler{service: s}
+	eligibleAccounts := make([]*Account, 0, len(accounts))
+	eligibleAccountIDs := make(map[int64]struct{}, len(accounts))
+	expectedUpstreamModels := make(map[int64]string, len(accounts))
+	currentFound := false
+	for i := range accounts {
+		account := &accounts[i]
+		if !account.IsSchedulable() || account.Platform != PlatformOpenAI || !s.openAIAccountMatchesSchedulingGroup(account, groupID) || !checker.isAccountRequestCompatible(ctx, account, request) || !checker.isAccountTransportCompatible(account, request.RequiredTransport) {
+			continue
+		}
+		eligibleAccounts = append(eligibleAccounts, account)
+		eligibleAccountIDs[account.ID] = struct{}{}
+		expectedModel := resolveOpenAIAccountUpstreamModelForRequest(account, model, false)
+		if expectedModel == "" {
+			expectedModel = model
+		}
+		expectedUpstreamModels[account.ID] = expectedModel
+		currentFound = currentFound || account.ID == currentID
+	}
+	if !currentFound || len(eligibleAccounts) == 0 {
+		return
+	}
 	pendingRecorded := false
-	setPending := func(target int64, leaseID string) bool {
+	setPending := func(candidate openAIWSLatencyReusableCandidate, leaseID string) bool {
 		updateCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 		defer stop()
 		state, changed := s.updateOpenAIWSLatencyState(updateCtx, key, func(state *openAIWSLatencyState) bool {
-			if state.ProbeID != probeID || state.AccountID != currentID {
+			if state.ProbeID != probeID || state.AccountID != currentID || candidate.AccountID <= 0 || candidate.UpstreamSessionID == "" {
 				return false
 			}
 			state.ProbeID, state.ProbeUntil = "", 0
-			state.TargetID = target
+			state.TargetID = candidate.AccountID
+			state.TargetResultID = candidate.ResultID
+			state.TargetUpstreamModel = candidate.UpstreamModel
+			state.TargetPoolKey = poolKey
+			state.UpstreamSessionID = candidate.UpstreamSessionID
 			state.PendingUntil = time.Now().Add(time.Duration(settings.WaitSeconds) * time.Second).UnixMilli()
 			state.CandidateLeaseID = leaseID
+			state.CandidateCommitted = false
 			return true
 		})
 		if changed {
-			targetID = target
+			targetID = candidate.AccountID
+			targetResultID = candidate.ResultID
 			candidateLeaseID = leaseID
-			return state.TargetID == target
+			return state.TargetID == candidate.AccountID && state.TargetResultID == candidate.ResultID
 		}
 		return false
 	}
@@ -156,47 +264,20 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 	reusedProbeResult := false
 	stopForStateChange := false
 	reserveReusableCandidate := func() bool {
-		candidate, ok := s.reserveOpenAIWSLatencyCandidate(ctx, poolKey, currentID, leaseID, settings.WaitSeconds)
+		candidate, ok := s.reserveOpenAIWSLatencyCandidate(ctx, poolKey, currentID, leaseID, settings.WaitSeconds, eligibleAccountIDs, expectedUpstreamModels)
 		if !ok {
 			return false
 		}
-		if !setPending(candidate.AccountID, leaseID) {
+		if !setPending(candidate, leaseID) {
 			s.releaseOpenAIWSLatencyCandidate(context.WithoutCancel(ctx), poolKey, leaseID, candidate.AccountID, false)
 			stopForStateChange = true
 			return false
 		}
 		targetID = candidate.AccountID
+		targetResultID = candidate.ResultID
 		candidateLeaseID = leaseID
 		reusedProbeResult = true
 		return true
-	}
-	hasReusableCandidate := func() bool {
-		pool := s.getOpenAIWSLatencyCandidatePool(ctx, poolKey)
-		now := time.Now().UnixMilli()
-		for _, candidate := range pool.Candidates {
-			if candidate.ExpiresAt > now && candidate.AccountID != currentID {
-				return true
-			}
-		}
-		return false
-	}
-	waitForReusableCandidate := func() bool {
-		for ctx.Err() == nil && !stopForStateChange {
-			if reserveReusableCandidate() {
-				return true
-			}
-			if stopForStateChange || !hasReusableCandidate() {
-				return false
-			}
-			timer := time.NewTimer(100 * time.Millisecond)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return false
-			case <-timer.C:
-			}
-		}
-		return false
 	}
 	defer func() {
 		updateCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
@@ -204,16 +285,6 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		if !pendingRecorded && targetID > 0 && s.settingService.GetOpenAIWSLatencySwitchSettings(updateCtx).Enabled {
 			writePending(reusedProbeResult)
 		}
-		if targetID == 0 {
-			s.updateOpenAIWSLatencyState(updateCtx, key, func(state *openAIWSLatencyState) bool {
-				if state.ProbeID != probeID || state.AccountID != currentID {
-					return false
-				}
-				state.ProbeID, state.ProbeUntil = "", 0
-				return true
-			})
-		}
-		s.releaseOpenAIWSLatencyProbe(updateCtx, poolKey, probeID)
 	}()
 	if !settings.Enabled {
 		return
@@ -231,21 +302,18 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		now := time.Now().UnixMilli()
 		validCandidates := false
 		for _, candidate := range pool.Candidates {
-			if candidate.ExpiresAt > now && candidate.AccountID != currentID {
+			if candidate.ExpiresAt > now && openAIWSLatencyCandidateAllowed(candidate, eligibleAccountIDs, expectedUpstreamModels) {
 				validCandidates = true
 				break
 			}
 		}
 		if !validCandidates && pool.ProbeUntil <= now {
-			claimed = s.claimOpenAIWSLatencyProbe(ctx, poolKey, currentID, probeID, openAIWSLatencyProbeWindow(probeCount))
+			claimed = s.claimOpenAIWSLatencyProbe(ctx, poolKey, currentID, probeID, openAIWSLatencyProbeWindow(probeCount), eligibleAccountIDs, expectedUpstreamModels)
 			if claimed {
 				break
 			}
 		}
-		if !validCandidates && pool.ProbeUntil <= now && len(pool.Candidates) > 0 {
-			return
-		}
-		if reserveReusableCandidate() {
+		if validCandidates && reserveReusableCandidate() {
 			writePending(true)
 			return
 		}
@@ -258,37 +326,15 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	accounts, err := s.listSchedulableAccounts(ctx, groupID, PlatformOpenAI)
-	if err != nil || s.checkChannelPricingRestriction(ctx, groupID, model) {
-		return
-	}
-	checker := &defaultOpenAIAccountScheduler{service: s}
-	if requiredTransport == "" {
-		requiredTransport = OpenAIUpstreamTransportResponsesWebsocketV2Ingress
-	}
-	request := OpenAIAccountScheduleRequest{GroupID: groupID, Platform: PlatformOpenAI, RequestedModel: model, RequiredTransport: requiredTransport, RequiredCapability: capability, RequirePrivacySet: s.openAIGroupRequiresPrivacySet(ctx, groupID)}
-	currentFound := false
-	alternatives := make([]*Account, 0, len(accounts))
-	for i := range accounts {
-		account := &accounts[i]
-		if !account.IsSchedulable() || account.Platform != PlatformOpenAI || !s.openAIAccountMatchesSchedulingGroup(account, groupID) || !checker.isAccountRequestCompatible(ctx, account, request) || !checker.isAccountTransportCompatible(account, request.RequiredTransport) {
-			continue
-		}
-		if account.ID == currentID {
-			currentFound = true
-		} else {
-			alternatives = append(alternatives, account)
-		}
-	}
-	if !currentFound {
+	if !claimed {
 		return
 	}
 	for round := 1; round <= openAIWSLatencyMaxProbeRounds; round++ {
-		if len(alternatives) == 0 {
+		if len(eligibleAccounts) == 0 {
 			break
 		}
-		rand.Shuffle(len(alternatives), func(i, j int) { alternatives[i], alternatives[j] = alternatives[j], alternatives[i] })
-		candidates := alternatives
+		rand.Shuffle(len(eligibleAccounts), func(i, j int) { eligibleAccounts[i], eligibleAccounts[j] = eligibleAccounts[j], eligibleAccounts[i] })
+		candidates := eligibleAccounts
 		if len(candidates) > probeCount {
 			candidates = candidates[:probeCount]
 		}
@@ -298,10 +344,12 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		for i := 0; i < probeCount; i++ {
 			startIndex := i % len(candidates)
 			probeNumber := i + 1
+			probeSessionID := "sub2api-latency-" + uuid.NewString()
 			workers.Add(1)
-			go func(probeNumber int, startIndex int) {
+			go func(probeNumber int, startIndex int, probeSessionID string) {
 				defer workers.Done()
-				if !s.openaiWSLatencyProbeLimiter.acquire(roundCtx, probeCount) {
+				probeCtx := context.WithValue(roundCtx, openAIWSLatencyProbeSessionIDContextKey{}, probeSessionID)
+				if !s.openaiWSLatencyProbeLimiter.acquire(probeCtx, probeCount) {
 					results <- openAIWSLatencyProbeResult{
 						probeNumber:        probeNumber,
 						requestedAccountID: candidates[startIndex].ID,
@@ -310,95 +358,101 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 					return
 				}
 				defer s.openaiWSLatencyProbeLimiter.release()
-				result := s.probeOpenAIWSLatencyCandidates(roundCtx, candidates, startIndex, model, request)
+				result := s.probeOpenAIWSLatencyCandidates(probeCtx, candidates, startIndex, model, request)
 				result.probeNumber = probeNumber
+				if result.upstreamSessionID != "" && result.resultID == "" {
+					result.resultID = uuid.NewString()
+				}
 				results <- result
-			}(probeNumber, startIndex)
+			}(probeNumber, startIndex, probeSessionID)
 		}
 		observed := make([]openAIWSLatencyProbeResult, 0, probeCount)
-		fastCandidateSelected := false
-		for i := 0; i < probeCount; i++ {
+		var selected *openAIWSLatencyProbeResult
+		for len(observed) < probeCount && !stopForStateChange {
 			result := <-results
 			observed = append(observed, result)
-			if !fastCandidateSelected && isOpenAIWSLatencyFastCandidate(result, currentID) {
-				targetID = result.accountID
-				fastCandidateSelected = true
+			if selected == nil && isOpenAIWSLatencyFastCandidate(result, currentID) {
 				candidateLeaseID = uuid.NewString()
-				candidate, reserved := s.addOpenAIWSLatencyCandidates(ctx, poolKey, observed, settings.ProbeReuseSeconds, targetID, candidateLeaseID, settings.WaitSeconds)
-				if reserved {
-					if !setPending(candidate.AccountID, candidateLeaseID) {
-						s.releaseOpenAIWSLatencyCandidate(context.WithoutCancel(ctx), poolKey, candidateLeaseID, candidate.AccountID, false)
-						targetID, candidateLeaseID = 0, ""
-						fastCandidateSelected = false
-					}
+				candidate, reserved := s.addOpenAIWSLatencyCandidates(ctx, poolKey, []openAIWSLatencyProbeResult{result}, settings.ProbeReuseSeconds, result.accountID, candidateLeaseID, settings.WaitSeconds, result.resultID)
+				if reserved && setPending(candidate, candidateLeaseID) {
+					selected = &observed[len(observed)-1]
+					break
 				} else {
-					targetID, candidateLeaseID = 0, ""
-					fastCandidateSelected = false
+					if reserved {
+						s.releaseOpenAIWSLatencyCandidate(context.WithoutCancel(ctx), poolKey, candidateLeaseID, candidate.AccountID, false)
+						stopForStateChange = true
+					}
+					candidateLeaseID = ""
 				}
 			}
+		}
+		if selected != nil {
+			selectedResult := *selected
+			targetID, targetResultID = selectedResult.accountID, selectedResult.resultID
+			others := make([]openAIWSLatencyProbeResult, 0, len(observed)-1)
+			for _, result := range observed {
+				if result.resultID != selectedResult.resultID {
+					others = append(others, result)
+				}
+			}
+			_, _ = s.addOpenAIWSLatencyCandidates(ctx, poolKey, others, settings.ProbeReuseSeconds, 0, "", settings.WaitSeconds)
+			notWaitedProbes := probeCount - len(observed)
+			writePending(reusedProbeResult)
+			cancelRound()
+			releaseProbeOnReturn = false
+			observedResults := append([]openAIWSLatencyProbeResult(nil), observed...)
+			go func(selectedResult openAIWSLatencyProbeResult, observedResults []openAIWSLatencyProbeResult) {
+				workers.Wait()
+				close(results)
+				completedResults := append([]openAIWSLatencyProbeResult(nil), observedResults...)
+				for result := range results {
+					completedResults = append(completedResults, result)
+				}
+				lateResults := make([]openAIWSLatencyProbeResult, 0, len(completedResults))
+				for _, result := range completedResults {
+					if result.resultID != selectedResult.resultID {
+						lateResults = append(lateResults, result)
+					}
+				}
+				collectorCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+				defer stop()
+				_, _ = s.addOpenAIWSLatencyCandidates(collectorCtx, poolKey, lateResults, settings.ProbeReuseSeconds, 0, "", settings.WaitSeconds)
+				writeOpenAIWSLatencyProbeCompleted(actor, currentID, probeCount, round, notWaitedProbes, completedResults, targetID, targetResultID, model, requiredTransport)
+				s.releaseOpenAIWSLatencyProbe(collectorCtx, poolKey, probeID)
+			}(*selected, observedResults)
+			return
 		}
 		cancelRound()
 		workers.Wait()
 		close(results)
-		notWaitedProbes := 0
 		for result := range results {
 			observed = append(observed, result)
 		}
-		if fastCandidateSelected && targetID > 0 {
+		if stopForStateChange {
 			_, _ = s.addOpenAIWSLatencyCandidates(ctx, poolKey, observed, settings.ProbeReuseSeconds, 0, "", settings.WaitSeconds)
-		} else {
-			targetID = chooseOpenAIWSLatencyTarget(observed, currentID)
-			if targetID > 0 {
-				candidateLeaseID = uuid.NewString()
-				candidate, reserved := s.addOpenAIWSLatencyCandidates(ctx, poolKey, observed, settings.ProbeReuseSeconds, targetID, candidateLeaseID, settings.WaitSeconds)
-				if !reserved || !setPending(candidate.AccountID, candidateLeaseID) {
-					if reserved {
-						s.releaseOpenAIWSLatencyCandidate(context.WithoutCancel(ctx), poolKey, candidateLeaseID, candidate.AccountID, false)
-					}
-					targetID, candidateLeaseID = 0, ""
-				}
+			writeOpenAIWSLatencyProbeCompleted(actor, currentID, probeCount, round, 0, observed, 0, "", model, requiredTransport)
+			return
+		}
+		best := chooseOpenAIWSLatencyTargetResult(observed)
+		if best != nil {
+			candidateLeaseID = uuid.NewString()
+			candidate, reserved := s.addOpenAIWSLatencyCandidates(ctx, poolKey, observed, settings.ProbeReuseSeconds, best.accountID, candidateLeaseID, settings.WaitSeconds, best.resultID)
+			if reserved && setPending(candidate, candidateLeaseID) {
+				selected = best
 			} else {
-				_, _ = s.addOpenAIWSLatencyCandidates(ctx, poolKey, observed, settings.ProbeReuseSeconds, 0, "", settings.WaitSeconds)
+				if reserved {
+					s.releaseOpenAIWSLatencyCandidate(context.WithoutCancel(ctx), poolKey, candidateLeaseID, candidate.AccountID, false)
+					stopForStateChange = true
+				}
+				candidateLeaseID = ""
 			}
+		} else {
+			_, _ = s.addOpenAIWSLatencyCandidates(ctx, poolKey, observed, settings.ProbeReuseSeconds, 0, "", settings.WaitSeconds)
 		}
-		if targetID == 0 && round < openAIWSLatencyMaxProbeRounds && !stopForStateChange {
-			waitForReusableCandidate()
+		if selected != nil {
+			targetID, targetResultID = selected.accountID, selected.resultID
 		}
-		probeLogResults := make([]openAIWSLatencyProbeLogResult, 0, len(observed))
-		forwardedAttempts := 0
-		for _, result := range observed {
-			probeLog := openAIWSLatencyProbeLogResult{
-				ProbeNumber:         result.probeNumber,
-				RequestedAccountID:  result.requestedAccountID,
-				AccountID:           result.accountID,
-				AttemptedAccountIDs: result.attemptedAccountIDs,
-				Success:             result.ok,
-				TimedOut:            result.timedOut,
-				Failure:             result.failure,
-			}
-			forwardedAttempts += len(result.attemptedAccountIDs)
-			if result.ok || result.timedOut {
-				firstTokenMS := result.ms
-				probeLog.FirstTokenMS = &firstTokenMS
-			}
-			probeLogResults = append(probeLogResults, probeLog)
-		}
-		sort.Slice(probeLogResults, func(i, j int) bool {
-			return probeLogResults[i].ProbeNumber < probeLogResults[j].ProbeNumber
-		})
-		actor.writeEvent("openai.ws_latency_switch_probe_completed", map[string]any{
-			"from_account_id":    currentID,
-			"probe_limit":        probeCount,
-			"probe_round":        round,
-			"max_probe_rounds":   openAIWSLatencyMaxProbeRounds,
-			"probes":             len(observed),
-			"not_waited_probes":  notWaitedProbes,
-			"forwarded_attempts": forwardedAttempts,
-			"probe_results":      probeLogResults,
-			"target_account_id":  targetID,
-			"model":              model,
-			"transport":          string(requiredTransport),
-		})
+		writeOpenAIWSLatencyProbeCompleted(actor, currentID, probeCount, round, 0, observed, targetID, targetResultID, model, requiredTransport)
 		if targetID > 0 {
 			writePending(reusedProbeResult)
 			return
@@ -407,6 +461,20 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 			return
 		}
 	}
+}
+
+func chooseOpenAIWSLatencyTargetResult(results []openAIWSLatencyProbeResult) *openAIWSLatencyProbeResult {
+	var best *openAIWSLatencyProbeResult
+	for i := range results {
+		result := &results[i]
+		if !result.ok || result.accountID <= 0 || result.upstreamSessionID == "" || result.ms < 0 || result.ms >= openAIWSLatencyCandidateMaxFirstTokenMS {
+			continue
+		}
+		if best == nil || result.ms < best.ms {
+			best = result
+		}
+	}
+	return best
 }
 
 func (s *OpenAIGatewayService) probeOpenAIWSLatencyAccount(ctx context.Context, account *Account, model string) openAIWSLatencyProbeResult {
@@ -432,6 +500,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyCandidates(
 	startIndex = (startIndex%len(candidates) + len(candidates)) % len(candidates)
 	observed := openAIWSLatencyProbeResult{
 		requestedAccountID: candidates[startIndex].ID,
+		upstreamSessionID:  openAIWSLatencyProbeSessionID(ctx),
 		failure:            "no_eligible_account",
 	}
 	checker := &defaultOpenAIAccountScheduler{service: s}
@@ -471,6 +540,8 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyCandidates(
 		observed.accountID = account.ID
 		attemptResult, forwardErr := s.forwardOpenAIWSLatencyProbe(ctx, fresh, model, request.RequiredTransport)
 		observed.ms, observed.ok, observed.timedOut = attemptResult.ms, attemptResult.ok, attemptResult.timedOut
+		observed.upstreamSessionID = attemptResult.upstreamSessionID
+		observed.upstreamModel = attemptResult.upstreamModel
 		if attemptResult.ok {
 			observed.failure = ""
 			return observed
@@ -500,25 +571,42 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyCandidates(
 }
 
 func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, account *Account, model string, requiredTransport OpenAIUpstreamTransport) (openAIWSLatencyProbeResult, error) {
-	observed := openAIWSLatencyProbeResult{accountID: account.ID}
+	observed := openAIWSLatencyProbeResult{accountID: account.ID, upstreamSessionID: openAIWSLatencyProbeSessionID(ctx)}
 	probeCtx, cancel := context.WithTimeout(ctx, openAIWSLatencyProbeTimeout)
 	defer cancel()
 	// Synthetic input never copies user messages, tools, response references or
 	// session IDs. Probes consume upstream quota but are not billed to a user.
-	body, _ := json.Marshal(map[string]any{"model": model, "stream": true, "store": false, "max_output_tokens": 64, "input": []any{map[string]any{"role": "user", "content": "Reply with the single word OK."}}})
+	probeBody := map[string]any{"model": model, "stream": true, "store": false, "max_output_tokens": 64, "input": []any{map[string]any{"role": "user", "content": "Reply with the single word OK."}}}
+	if observed.upstreamSessionID != "" {
+		probeBody["prompt_cache_key"] = observed.upstreamSessionID
+	}
+	body, _ := json.Marshal(probeBody)
 	request, err := http.NewRequestWithContext(probeCtx, http.MethodPost, "http://localhost/v1/responses", bytes.NewReader(body))
 	if err != nil {
 		return observed, err
 	}
 	applyOpenAICodexProbeHeaders(request.Header)
+	if observed.upstreamSessionID != "" {
+		request.Header.Set("session_id", observed.upstreamSessionID)
+		request.Header.Set("conversation_id", observed.upstreamSessionID)
+	}
 	writer := &openAIWSLatencyProbeWriter{header: make(http.Header), mode: s.openAITTFTMode(ctx), started: time.Now(), firstMS: -1, closed: make(chan bool)}
 	c := &gin.Context{Request: request, Writer: writer}
+	if observed.upstreamSessionID != "" {
+		c.Set(openAIWSLatencyUpstreamSessionContextKey, observed.upstreamSessionID)
+	}
 	if requiredTransport == OpenAIUpstreamTransportHTTPSSE {
 		SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
 	} else {
 		SetOpenAIClientTransport(c, OpenAIClientTransportWS)
 	}
 	result, forwardErr := s.Forward(probeCtx, c, account, body)
+	if result != nil {
+		observed.upstreamModel = strings.TrimSpace(result.UpstreamModel)
+	}
+	if observed.upstreamModel == "" {
+		observed.upstreamModel = model
+	}
 	if writer.firstMS >= 0 && (forwardErr == nil || errors.Is(probeCtx.Err(), context.DeadlineExceeded)) {
 		observed.ms, observed.ok = writer.firstMS, true
 	} else if forwardErr == nil && result != nil && result.SucceededForScheduling() && result.FirstTokenMs != nil {

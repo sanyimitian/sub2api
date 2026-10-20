@@ -63,6 +63,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	)
 
 	payload := s.buildOpenAIWSCreatePayload(reqBody, account)
+	routeSessionID := OpenAIWSLatencyUpstreamSessionID(c)
+	if routeSessionID != "" {
+		payload["prompt_cache_key"] = routeSessionID
+	}
 	payloadStrategy, removedKeys := applyOpenAIWSRetryPayloadStrategy(payload, attempt)
 	turnState := ""
 	turnMetadata := ""
@@ -75,6 +79,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	previousResponseID := openAIWSPayloadString(payload, "previous_response_id")
 	previousResponseIDKind := ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 	promptCacheKey := strings.TrimSpace(clientPromptCacheKey)
+	if routeSessionID != "" {
+		promptCacheKey = routeSessionID
+	}
 	if promptCacheKey == "" {
 		// Fingerprint convergence may inject a default key when the client did
 		// not send one; retain that fallback without replacing an explicit raw key.
@@ -166,6 +173,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	)
 	if buildHdrErr != nil {
 		return nil, fmt.Errorf("build ws headers: %w", buildHdrErr)
+	}
+	if routeSessionID != "" {
+		wsHeaders.Set("session_id", routeSessionID)
+		wsHeaders.Set("conversation_id", routeSessionID)
 	}
 	logOpenAIWSModeDebug(
 		"acquire_start account_id=%d account_type=%s transport=%s preferred_conn_id=%s has_previous_response_id=%v session_hash=%s has_turn_state=%v turn_state_len=%d has_turn_metadata=%v turn_metadata_len=%d store_disabled=%v store_disabled_conn_mode=%s retry_last_reason=%s force_new_conn=%v header_user_agent=%s header_openai_beta=%s header_originator=%s header_accept_language=%s header_session_id=%s header_conversation_id=%s session_id_source=%s conversation_id_source=%s has_prompt_cache_key=%v has_chatgpt_account_id=%v has_authorization=%v has_session_id=%v has_conversation_id=%v proxy_enabled=%v",

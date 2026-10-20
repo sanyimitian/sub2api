@@ -33,24 +33,35 @@ type OpenAIWSLatencyCache interface {
 }
 
 type openAIWSLatencyState struct {
-	AccountID        int64  `json:"account_id"`
-	SlowCount        int    `json:"slow_count"`
-	ProbeID          string `json:"probe_id,omitempty"`
-	ProbeUntil       int64  `json:"probe_until,omitempty"`
-	TargetID         int64  `json:"target_id,omitempty"`
-	PendingUntil     int64  `json:"pending_until,omitempty"`
-	ReconnectFrom    string `json:"reconnect_from,omitempty"`
-	CooldownUntil    int64  `json:"cooldown_until,omitempty"`
-	CandidateLeaseID string `json:"candidate_lease_id,omitempty"`
+	AccountID           int64  `json:"account_id"`
+	SlowCount           int    `json:"slow_count"`
+	ProbeID             string `json:"probe_id,omitempty"`
+	ProbeUntil          int64  `json:"probe_until,omitempty"`
+	TargetID            int64  `json:"target_id,omitempty"`
+	TargetResultID      string `json:"target_result_id,omitempty"`
+	TargetUpstreamModel string `json:"target_upstream_model,omitempty"`
+	TargetPoolKey       string `json:"target_pool_key,omitempty"`
+	UpstreamSessionID   string `json:"upstream_session_id,omitempty"`
+	PendingUntil        int64  `json:"pending_until,omitempty"`
+	ReconnectFrom       string `json:"reconnect_from,omitempty"`
+	CooldownUntil       int64  `json:"cooldown_until,omitempty"`
+	CandidateLeaseID    string `json:"candidate_lease_id,omitempty"`
+	CandidateCommitted  bool   `json:"candidate_committed,omitempty"`
 }
 
 type openAIWSLatencyReusableCandidate struct {
-	AccountID    int64  `json:"account_id"`
-	FirstTokenMS int    `json:"first_token_ms"`
-	ExpiresAt    int64  `json:"expires_at"`
-	LeaseID      string `json:"lease_id,omitempty"`
-	LeaseUntil   int64  `json:"lease_until,omitempty"`
+	ResultID          string `json:"result_id,omitempty"`
+	AccountID         int64  `json:"account_id"`
+	UpstreamModel     string `json:"upstream_model,omitempty"`
+	UpstreamSessionID string `json:"upstream_session_id,omitempty"`
+	FirstTokenMS      int    `json:"first_token_ms"`
+	ExpiresAt         int64  `json:"expires_at"`
+	LeaseID           string `json:"lease_id,omitempty"`
+	LeaseUntil        int64  `json:"lease_until,omitempty"`
+	Committed         bool   `json:"committed,omitempty"`
 }
+
+const openAIWSLatencyUpstreamSessionContextKey = "openai_ws_latency_upstream_session_id"
 
 type openAIWSLatencyCandidatePool struct {
 	ProbeID    string                             `json:"probe_id,omitempty"`
@@ -92,8 +103,8 @@ func (s *OpenAIGatewayService) updateOpenAIWSLatencyState(ctx context.Context, k
 	return openAIWSLatencyState{}, false
 }
 
-func openAIWSLatencyCandidatePoolKey(groupID *int64, model string, transport OpenAIUpstreamTransport) string {
-	seed := fmt.Sprintf("openai_ws_latency_pool:%d:%s:%s", derefGroupID(groupID), strings.TrimSpace(model), transport)
+func openAIWSLatencyCandidatePoolKey(_ *int64, model string, transport OpenAIUpstreamTransport) string {
+	seed := fmt.Sprintf("openai_ws_latency_pool:%s:%s", strings.TrimSpace(model), transport)
 	key, _ := deriveOpenAISessionHashes(seed)
 	return "candidate_pool:" + key
 }
@@ -160,14 +171,29 @@ func pruneOpenAIWSLatencyCandidates(pool *openAIWSLatencyCandidatePool, now int6
 	pool.Candidates = kept
 }
 
-func (s *OpenAIGatewayService) reserveOpenAIWSLatencyCandidate(ctx context.Context, poolKey string, currentAccountID int64, leaseID string, leaseSeconds int) (openAIWSLatencyReusableCandidate, bool) {
+func openAIWSLatencyCandidateAllowed(candidate openAIWSLatencyReusableCandidate, eligible map[int64]struct{}, expectedUpstreamModels map[int64]string) bool {
+	if candidate.UpstreamSessionID == "" || strings.TrimSpace(candidate.UpstreamModel) == "" {
+		return false
+	}
+	if eligible != nil {
+		if _, ok := eligible[candidate.AccountID]; !ok {
+			return false
+		}
+	}
+	if expected := strings.TrimSpace(expectedUpstreamModels[candidate.AccountID]); expected != "" && strings.TrimSpace(candidate.UpstreamModel) != expected {
+		return false
+	}
+	return true
+}
+
+func (s *OpenAIGatewayService) reserveOpenAIWSLatencyCandidate(ctx context.Context, poolKey string, _ int64, leaseID string, leaseSeconds int, eligible map[int64]struct{}, expectedUpstreamModels map[int64]string) (openAIWSLatencyReusableCandidate, bool) {
 	var selected openAIWSLatencyReusableCandidate
 	_, updated := s.updateOpenAIWSLatencyCandidatePool(ctx, poolKey, func(pool *openAIWSLatencyCandidatePool) bool {
 		now := time.Now().UnixMilli()
 		pruneOpenAIWSLatencyCandidates(pool, now)
 		selectedIndex := -1
 		for i, candidate := range pool.Candidates {
-			if candidate.AccountID == currentAccountID || candidate.FirstTokenMS < 0 || candidate.FirstTokenMS >= openAIWSLatencyCandidateMaxFirstTokenMS || (candidate.LeaseID != "" && candidate.LeaseUntil > now) {
+			if candidate.FirstTokenMS < 0 || candidate.FirstTokenMS >= openAIWSLatencyCandidateMaxFirstTokenMS || candidate.Committed || (candidate.LeaseID != "" && candidate.LeaseUntil > now) || !openAIWSLatencyCandidateAllowed(candidate, eligible, expectedUpstreamModels) {
 				continue
 			}
 			if selectedIndex < 0 || candidate.FirstTokenMS < pool.Candidates[selectedIndex].FirstTokenMS {
@@ -186,38 +212,47 @@ func (s *OpenAIGatewayService) reserveOpenAIWSLatencyCandidate(ctx context.Conte
 	return selected, updated && selected.AccountID > 0
 }
 
-func (s *OpenAIGatewayService) addOpenAIWSLatencyCandidates(ctx context.Context, poolKey string, results []openAIWSLatencyProbeResult, reuseSeconds int, leaseAccountID int64, leaseID string, leaseSeconds int) (openAIWSLatencyReusableCandidate, bool) {
+func (s *OpenAIGatewayService) addOpenAIWSLatencyCandidates(ctx context.Context, poolKey string, results []openAIWSLatencyProbeResult, reuseSeconds int, leaseAccountID int64, leaseID string, leaseSeconds int, preferredResultID ...string) (openAIWSLatencyReusableCandidate, bool) {
 	var leased openAIWSLatencyReusableCandidate
+	preferred := ""
+	if len(preferredResultID) > 0 {
+		preferred = preferredResultID[0]
+	}
 	_, updated := s.updateOpenAIWSLatencyCandidatePool(ctx, poolKey, func(pool *openAIWSLatencyCandidatePool) bool {
 		now := time.Now().UnixMilli()
 		pruneOpenAIWSLatencyCandidates(pool, now)
 		for _, result := range results {
-			if !result.ok || result.accountID <= 0 || result.ms < 0 || result.ms >= openAIWSLatencyCandidateMaxFirstTokenMS {
+			if !result.ok || result.accountID <= 0 || result.ms < 0 || result.ms >= openAIWSLatencyCandidateMaxFirstTokenMS || result.upstreamSessionID == "" || strings.TrimSpace(result.upstreamModel) == "" {
 				continue
 			}
-			candidate := openAIWSLatencyReusableCandidate{AccountID: result.accountID, FirstTokenMS: result.ms, ExpiresAt: now + (time.Duration(reuseSeconds) * time.Second).Milliseconds()}
-			found := false
+			resultID := result.resultID
+			if resultID == "" {
+				resultID = uuid.NewString()
+			}
+			candidate := openAIWSLatencyReusableCandidate{ResultID: resultID, AccountID: result.accountID, UpstreamModel: result.upstreamModel, UpstreamSessionID: result.upstreamSessionID, FirstTokenMS: result.ms, ExpiresAt: now + (time.Duration(reuseSeconds) * time.Second).Milliseconds()}
+			foundIndex := -1
 			for i := range pool.Candidates {
-				if pool.Candidates[i].AccountID != candidate.AccountID {
+				if pool.Candidates[i].ResultID != candidate.ResultID {
 					continue
 				}
-				found = true
-				candidate.LeaseID = pool.Candidates[i].LeaseID
-				candidate.LeaseUntil = pool.Candidates[i].LeaseUntil
-				if candidate.LeaseID != "" && candidate.LeaseUntil > now {
-					candidate.FirstTokenMS = pool.Candidates[i].FirstTokenMS
-					candidate.ExpiresAt = pool.Candidates[i].ExpiresAt
-				} else {
-					pool.Candidates[i] = candidate
-				}
+				foundIndex = i
 				break
 			}
-			if !found {
+			if foundIndex < 0 {
 				pool.Candidates = append(pool.Candidates, candidate)
+				continue
 			}
+			existing := pool.Candidates[foundIndex]
+			if existing.LeaseID != "" && existing.LeaseUntil > now {
+				continue
+			}
+			pool.Candidates[foundIndex] = candidate
 		}
 		for i := range pool.Candidates {
-			if pool.Candidates[i].AccountID != leaseAccountID || leaseAccountID <= 0 || (pool.Candidates[i].LeaseID != "" && pool.Candidates[i].LeaseUntil > now) {
+			if pool.Candidates[i].AccountID != leaseAccountID || leaseAccountID <= 0 || (pool.Candidates[i].LeaseID != "" && pool.Candidates[i].LeaseUntil > now) || pool.Candidates[i].Committed {
+				continue
+			}
+			if preferred != "" && pool.Candidates[i].ResultID != preferred {
 				continue
 			}
 			pool.Candidates[i].LeaseID = leaseID
@@ -242,7 +277,7 @@ func (s *OpenAIGatewayService) releaseOpenAIWSLatencyCandidate(ctx context.Conte
 			}
 			if consume {
 				pool.Candidates = append(pool.Candidates[:i], pool.Candidates[i+1:]...)
-			} else {
+			} else if !candidate.Committed {
 				candidate.LeaseID = ""
 				candidate.LeaseUntil = 0
 			}
@@ -252,7 +287,7 @@ func (s *OpenAIGatewayService) releaseOpenAIWSLatencyCandidate(ctx context.Conte
 	})
 }
 
-func (s *OpenAIGatewayService) claimOpenAIWSLatencyProbe(ctx context.Context, poolKey string, currentAccountID int64, probeID string, probeWindow time.Duration) bool {
+func (s *OpenAIGatewayService) claimOpenAIWSLatencyProbe(ctx context.Context, poolKey string, _ int64, probeID string, probeWindow time.Duration, eligible map[int64]struct{}, expectedUpstreamModels map[int64]string) bool {
 	claimed := false
 	_, updated := s.updateOpenAIWSLatencyCandidatePool(ctx, poolKey, func(pool *openAIWSLatencyCandidatePool) bool {
 		now := time.Now().UnixMilli()
@@ -261,7 +296,7 @@ func (s *OpenAIGatewayService) claimOpenAIWSLatencyProbe(ctx context.Context, po
 			return false
 		}
 		for _, candidate := range pool.Candidates {
-			if candidate.AccountID != currentAccountID {
+			if candidate.ExpiresAt > now && openAIWSLatencyCandidateAllowed(candidate, eligible, expectedUpstreamModels) {
 				return false
 			}
 		}
@@ -412,6 +447,40 @@ func (session *OpenAIWSLatencySession) state(ctx context.Context) openAIWSLatenc
 	return state
 }
 
+// ApplyUpstreamSessionIdentity pins the selected probe session to the original
+// user conversation. The internal key is consumed only by OpenAI upstream
+// request builders and never copied from client headers.
+func (session *OpenAIWSLatencySession) ApplyUpstreamSessionIdentity(ctx context.Context, c *gin.Context, account *Account, model string) error {
+	if !session.enabled(ctx) || c == nil || account == nil {
+		return nil
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = session.model
+	}
+	state, _ := session.service.updateOpenAIWSLatencyState(ctx, session.key(model), func(*openAIWSLatencyState) bool { return false })
+	routeSessionID := ""
+	if state.TargetID == account.ID && state.UpstreamSessionID != "" && (state.PendingUntil > time.Now().UnixMilli() || state.CandidateCommitted) {
+		routeSessionID = state.UpstreamSessionID
+	} else if state.AccountID == account.ID {
+		routeSessionID = state.UpstreamSessionID
+	}
+	if routeSessionID == "" {
+		return nil
+	}
+	c.Set(openAIWSLatencyUpstreamSessionContextKey, routeSessionID)
+	return nil
+}
+
+func OpenAIWSLatencyUpstreamSessionID(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	value, _ := c.Get(openAIWSLatencyUpstreamSessionContextKey)
+	sessionID, _ := value.(string)
+	return strings.TrimSpace(sessionID)
+}
+
 // Prepare checks the unmodified client frame, before gateway affinity recovery
 // can strip previous_response_id. A delta-only reconnect must never reach B.
 func (session *OpenAIWSLatencySession) Prepare(ctx context.Context, payload []byte) error {
@@ -551,7 +620,7 @@ func (session *OpenAIWSLatencySession) BeforeRequest(ctx context.Context, turn i
 		return nil
 	}
 	state, _ := session.service.updateOpenAIWSLatencyState(ctx, session.key(model), func(*openAIWSLatencyState) bool { return false })
-	if state.AccountID == account.ID && state.TargetID > 0 && state.PendingUntil > time.Now().UnixMilli() {
+	if state.AccountID == account.ID && state.TargetID > 0 && state.PendingUntil > time.Now().UnixMilli() && !session.recovering {
 		return session.requestReconnect(ctx, model)
 	}
 	return nil
@@ -567,7 +636,10 @@ func (session *OpenAIWSLatencySession) SelectTarget(ctx context.Context, exclude
 	if state.TargetID <= 0 || state.PendingUntil <= time.Now().UnixMilli() {
 		return nil, OpenAIAccountScheduleDecision{}, nil
 	}
-	excluded[state.AccountID] = struct{}{}
+	if state.AccountID != state.TargetID {
+		excluded[state.AccountID] = struct{}{}
+	}
+	delete(excluded, state.TargetID)
 	request := OpenAIAccountScheduleRequest{GroupID: session.groupID, Platform: PlatformOpenAI, SessionHash: session.sessionHash, StickyAccountID: state.TargetID, RequestedModel: session.upstreamModel, RequiredTransport: requiredTransport, RequiredCapability: session.requiredCapability, ExcludedIDs: excluded, DisableStickyEscape: true, PreserveStickyBinding: true, RequirePrivacySet: session.service.openAIGroupRequiresPrivacySet(ctx, session.groupID)}
 	scheduler := &defaultOpenAIAccountScheduler{service: session.service}
 	selection, _, err := scheduler.selectBySessionHash(ctx, request)
@@ -607,24 +679,42 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 		return
 	}
 	now := time.Now().UnixMilli()
-	if session.recovering && recoveryConfirmed && classification.user && turnErr == nil && result != nil && result.SucceededForScheduling() {
+	if session.recovering && recoveryConfirmed && classification.user {
+		if turnErr != nil || result == nil || !result.SucceededForScheduling() {
+			return
+		}
 		fromAccountID := int64(0)
 		leaseID := ""
+		resultID := ""
+		upstreamSessionID := ""
+		poolModel := ""
+		poolKey := ""
 		_, completed := session.service.updateOpenAIWSLatencyState(ctx, session.key(session.model), func(state *openAIWSLatencyState) bool {
-			if state.TargetID == 0 || state.AccountID == account.ID {
+			if state.TargetID != account.ID || state.UpstreamSessionID == "" || state.CandidateLeaseID == "" {
 				return false
 			}
 			fromAccountID = state.AccountID
 			leaseID = state.CandidateLeaseID
-			*state = openAIWSLatencyState{AccountID: account.ID, CooldownUntil: now + openAIWSLatencyCooldown.Milliseconds()}
+			resultID = state.TargetResultID
+			upstreamSessionID = state.UpstreamSessionID
+			poolModel = state.TargetUpstreamModel
+			poolKey = state.TargetPoolKey
+			*state = openAIWSLatencyState{AccountID: account.ID, UpstreamSessionID: upstreamSessionID, TargetUpstreamModel: poolModel, CooldownUntil: now + openAIWSLatencyCooldown.Milliseconds()}
 			return true
 		})
 		if completed {
-			session.service.releaseOpenAIWSLatencyCandidate(ctx, openAIWSLatencyCandidatePoolKey(session.groupID, session.model, session.requiredTransport), leaseID, account.ID, true)
+			if poolKey == "" {
+				if poolModel == "" {
+					poolModel = session.upstreamModel
+				}
+				poolKey = openAIWSLatencyCandidatePoolKey(session.groupID, poolModel, session.requiredTransport)
+			}
+			session.service.releaseOpenAIWSLatencyCandidate(ctx, poolKey, leaseID, account.ID, true)
 			session.actor.writeEvent("openai.ws_latency_switch_completed", map[string]any{
 				"from_account_id":   fromAccountID,
 				"target_account_id": account.ID,
 				"account_id":        account.ID,
+				"target_result_id":  resultID,
 				"model":             session.model,
 				"transport":         string(session.requiredTransport),
 			})
@@ -647,8 +737,9 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 		if state.CooldownUntil > now || state.PendingUntil > now || state.ProbeUntil > now {
 			return false
 		}
-		state.TargetID, state.PendingUntil, state.ReconnectFrom = 0, 0, ""
+		state.TargetID, state.TargetResultID, state.TargetUpstreamModel, state.TargetPoolKey, state.PendingUntil, state.ReconnectFrom = 0, "", "", "", 0, ""
 		state.CandidateLeaseID = ""
+		state.CandidateCommitted = false
 		state.ProbeID, state.ProbeUntil = "", 0
 		if !slow {
 			state.SlowCount = 0
