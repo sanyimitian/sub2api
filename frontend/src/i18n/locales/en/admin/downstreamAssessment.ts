@@ -23,6 +23,8 @@ export default {
     totalTokens: 'Total usage (B)',
     dailyAverage: 'Daily average (B)',
     status: 'Status',
+    lastUsedAt: 'Last used',
+    lastUsedHelp: 'Latest usage across all groups, regardless of the assessment date range. A dash indicates no usage records.',
     qualified: 'Qualified',
     unqualified: 'Below threshold',
     members: 'Assessed users',

@@ -5,6 +5,7 @@ import DownstreamAssessmentView from '../DownstreamAssessmentView.vue'
 import UserAllowedGroupsModal from '@/components/admin/user/UserAllowedGroupsModal.vue'
 import type { DownstreamAssessmentResult } from '@/api/admin/downstreamAssessment'
 import type { AdminUser } from '@/types'
+import { formatDateTime } from '@/utils/format'
 
 const { getGroups, getAssessment, getUser, listGroups, updateUser, showError, showSuccess } = vi.hoisted(() => ({
   getGroups: vi.fn(), getAssessment: vi.fn(), getUser: vi.fn(), listGroups: vi.fn(),
@@ -15,7 +16,13 @@ vi.mock('@/api/admin/downstreamAssessment', () => ({ getDownstreamAssessment: ge
 vi.mock('@/api/admin/users', () => ({ getById: getUser }))
 vi.mock('@/api/admin', () => ({ adminAPI: { groups: { list: listGroups }, users: { update: updateUser } } }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, showSuccess }) }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key, locale: { value: 'en' } }) }))
+vi.mock('vue-i18n', async () => {
+  const { ref } = await import('vue')
+  return {
+    ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'),
+    useI18n: () => ({ t: (key: string) => key, locale: ref('en') })
+  }
+})
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
 
 const GroupSelect = defineComponent({
@@ -36,8 +43,8 @@ const Pager = defineComponent({
 
 const response = (overrides: Partial<DownstreamAssessmentResult> = {}): DownstreamAssessmentResult => ({
   items: [
-    { user_id: 1, email: 'idle@test.com', username: 'Idle', total_requests: 0, total_tokens: 0, daily_average: 0, qualified: false },
-    { user_id: 2, email: 'met@test.com', username: 'Met', total_requests: 10, total_tokens: 7000000000, daily_average: 1000000000, qualified: true }
+    { user_id: 1, email: 'idle@test.com', username: 'Idle', total_requests: 0, total_tokens: 0, daily_average: 0, qualified: false, last_used_at: null },
+    { user_id: 2, email: 'met@test.com', username: 'Met', total_requests: 10, total_tokens: 7000000000, daily_average: 1000000000, qualified: true, last_used_at: '2026-10-15T04:34:56Z' }
   ],
   total: 31, qualified_count: 20, unqualified_count: 11, total_tokens: 7000000000,
   days: 7, daily_threshold: 1000000000, page: 1, page_size: 20, pages: 2, ...overrides
@@ -101,9 +108,12 @@ describe('DownstreamAssessmentView', () => {
     const qualifiedStatus = wrapper.find('[data-user-id="2"] [data-testid=assessment-status]')
     expect(qualifiedStatus.text()).toBe('admin.downstreamAssessment.qualified')
     expect(qualifiedStatus.classes()).toContain('badge-success')
-    expect(wrapper.find('[data-user-id="2"] [data-testid=total-tokens-b]').text()).toBe('7')
-    expect(wrapper.find('[data-user-id="2"] [data-testid=daily-average-b]').text()).toBe('1')
-    expect(wrapper.find('[data-user-id="1"] [data-testid=total-tokens-b]').text()).toBe('0')
+    expect(wrapper.find('[data-user-id="2"] [data-testid=total-tokens-b]').text()).toBe('7.00')
+    expect(wrapper.find('[data-user-id="2"] [data-testid=daily-average-b]').text()).toBe('1.00')
+    expect(wrapper.find('[data-user-id="1"] [data-testid=total-tokens-b]').text()).toBe('0.00')
+    expect(wrapper.find('[data-user-id="1"] [data-testid=last-used-at]').text()).toBe('-')
+    expect(wrapper.find('[data-user-id="2"] [data-testid=last-used-at]').text()).toBe(formatDateTime('2026-10-15T04:34:56Z', undefined, 'en'))
+    expect(wrapper.findAll('thead th')).toHaveLength(7)
     expect(wrapper.findComponent(Pager).props('total')).toBe(31)
     expect(wrapper.findAll('thead th').at(-1)?.text()).toBe('common.actions')
     expect(wrapper.findAll('[data-testid=configure-groups]')).toHaveLength(2)
@@ -136,7 +146,7 @@ describe('DownstreamAssessmentView', () => {
     expect(getAssessment).toHaveBeenLastCalledWith(expect.objectContaining({ group_id: 7, start_date: '2026-10-01', end_date: '2026-10-07', daily_threshold: 1000000000, page: 2 }), expect.anything())
     expect(modal.props('show')).toBe(false)
     expect(wrapper.find('[data-user-id]').exists()).toBe(false)
-    expect(wrapper.get('tbody td').attributes('colspan')).toBe('6')
+    expect(wrapper.get('tbody td').attributes('colspan')).toBe('7')
   })
 
   it('closes group settings without saving or rerunning the assessment on cancel', async () => {
@@ -191,16 +201,30 @@ describe('DownstreamAssessmentView', () => {
     getAssessment.mockResolvedValueOnce(response({
       daily_threshold: 500000000,
       total_tokens: 3500000000,
-      items: [{ user_id: 3, email: 'half@test.com', username: 'Half', total_requests: 7, total_tokens: 3500000000, daily_average: 500000000, qualified: true }]
+      items: [{ user_id: 3, email: 'half@test.com', username: 'Half', total_requests: 7, total_tokens: 3500000000, daily_average: 500000000, qualified: true, last_used_at: null }]
     }))
     await fillFilters()
     await wrapper.find('#assessment-threshold').setValue('0.5')
     await wrapper.find('[data-testid=assess]').trigger('click')
     await flushPromises()
     expect(getAssessment).toHaveBeenLastCalledWith(expect.objectContaining({ daily_threshold: 500000000 }), expect.anything())
-    expect(wrapper.find('[data-testid=total-tokens-b]').text()).toBe('3.5')
-    expect(wrapper.find('[data-testid=daily-average-b]').text()).toBe('0.5')
-    expect(wrapper.find('p[title="3.5 B"]').text()).toBe('3.5')
+    expect(wrapper.find('[data-testid=total-tokens-b]').text()).toBe('3.50')
+    expect(wrapper.find('[data-testid=daily-average-b]').text()).toBe('0.50')
+    expect(wrapper.find('p[title="3.50 B"]').text()).toBe('3.50')
+  })
+
+  it('retains the API qualification when below-threshold usage rounds up to the threshold', async () => {
+    getAssessment.mockResolvedValueOnce(response({ items: [
+      { user_id: 3, email: 'below@test.com', username: 'Below', total_requests: 7, total_tokens: 6999999999, daily_average: 6999999999 / 7, qualified: false, last_used_at: '2026-10-07T12:00:00Z' },
+      response().items[1]
+    ] }))
+    await fillFilters()
+    await wrapper.find('[data-testid=assess]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-user-id="3"] [data-testid=total-tokens-b]').text()).toBe('7.00')
+    expect(wrapper.find('[data-user-id="3"] [data-testid=daily-average-b]').text()).toBe('1.00')
+    expect(wrapper.find('[data-user-id="3"] [data-testid=assessment-status]').classes()).toContain('badge-danger')
+    expect(wrapper.find('[data-user-id="2"] [data-testid=assessment-status]').classes()).toContain('badge-success')
   })
 
   it('paginates on the server with the applied filters and resets page when size changes', async () => {

@@ -23,6 +23,8 @@ export default {
     totalTokens: '总用量（B）',
     dailyAverage: '日均用量（B）',
     status: '状态',
+    lastUsedAt: '最后使用时间',
+    lastUsedHelp: '该用户在全部分组的最近一次使用时间，不受考核日期范围限制；无使用记录显示 -。',
     qualified: '达标',
     unqualified: '未达标',
     members: '考核人数',

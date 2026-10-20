@@ -19,13 +19,14 @@ type DownstreamAssessmentFilter struct {
 }
 
 type DownstreamAssessmentUser struct {
-	UserID        int64   `json:"user_id"`
-	Email         string  `json:"email"`
-	Username      string  `json:"username"`
-	TotalRequests int64   `json:"total_requests"`
-	TotalTokens   int64   `json:"total_tokens"`
-	DailyAverage  float64 `json:"daily_average"`
-	Qualified     bool    `json:"qualified"`
+	UserID        int64      `json:"user_id"`
+	Email         string     `json:"email"`
+	Username      string     `json:"username"`
+	TotalRequests int64      `json:"total_requests"`
+	TotalTokens   int64      `json:"total_tokens"`
+	DailyAverage  float64    `json:"daily_average"`
+	Qualified     bool       `json:"qualified"`
+	LastUsedAt    *time.Time `json:"last_used_at"`
 }
 
 type DownstreamAssessmentResult struct {

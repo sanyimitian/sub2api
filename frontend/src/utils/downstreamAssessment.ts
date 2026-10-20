@@ -14,7 +14,7 @@ export function parseDailyTokenThresholdB(value: string): number | null {
   return tokens > 0n && tokens <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(tokens) : null
 }
 
-// Keep one unit for every usage figure, including values below 1B.
+// Display usage in B with two decimals. Qualification still uses raw token counts.
 export function formatTokensInBillions(tokens: number, locale: string): string {
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 9 }).format(tokens / TOKENS_PER_BILLION)
+  return new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(tokens / TOKENS_PER_BILLION)
 }

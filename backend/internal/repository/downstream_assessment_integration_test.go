@@ -47,6 +47,7 @@ func TestDownstreamAssessmentMembershipAndUsage(t *testing.T) {
 	keyOnlyKey := newKey(keyOnly, group.ID, "one")
 	deletedKeyKey := newKey(deletedKey, group.ID, "one")
 	otherKey := newKey(otherUser, other.ID, "one")
+	subscriberKey := newKey(subscriber, other.ID, "one")
 	now := time.Now()
 	for _, s := range []struct {
 		u          *service.User
@@ -87,6 +88,9 @@ func TestDownstreamAssessmentMembershipAndUsage(t *testing.T) {
 	// Out-of-range dates and usage by a non-member must still be excluded.
 	addUsage(exact, exactKey, group.ID, start.Add(-time.Second), 100, 100, 100, 100)
 	addUsage(exact, exactKey, group.ID, end, 100, 100, 100, 100)
+	latest := end.AddDate(0, 0, 2)
+	addUsage(exact, exactKey, other.ID, latest, 100, 100, 100, 100)
+	addUsage(subscriber, subscriberKey, other.ID, start.Add(-time.Hour), 100, 100, 100, 100)
 	addUsage(otherUser, otherKey, group.ID, start, 100, 100, 100, 100)
 	filter := service.DownstreamAssessmentFilter{GroupID: group.ID, StartTime: start, EndTime: end, Days: 7, DailyThreshold: 1000000000}
 	var ids []int64
@@ -105,6 +109,16 @@ func TestDownstreamAssessmentMembershipAndUsage(t *testing.T) {
 				require.Equal(t, int64(7000000000), row.TotalTokens)
 				require.Equal(t, int64(3), row.TotalRequests)
 				require.Equal(t, float64(1000000000), row.DailyAverage)
+				require.NotNil(t, row.LastUsedAt)
+				require.Equal(t, latest, *row.LastUsedAt)
+			}
+			if row.UserID == idle.ID {
+				require.Nil(t, row.LastUsedAt)
+			}
+			if row.UserID == subscriber.ID {
+				require.Zero(t, row.TotalTokens)
+				require.NotNil(t, row.LastUsedAt)
+				require.Equal(t, start.Add(-time.Hour), *row.LastUsedAt)
 			}
 		}
 	}

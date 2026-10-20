@@ -58,7 +58,7 @@
         </div>
         <div class="card overflow-hidden">
           <div class="space-y-1 border-b border-gray-200 p-4 text-sm text-gray-600 dark:border-dark-700 dark:text-gray-300">
-            <p>{{ t('admin.downstreamAssessment.resultSummary', { group: appliedGroupName, start: appliedFilters.start_date, end: appliedFilters.end_date, days: result.days, threshold: formatTokenAmount(result.daily_threshold) }) }}</p>
+            <p>{{ t('admin.downstreamAssessment.resultSummary', { group: appliedGroupName, start: appliedFilters.start_date, end: appliedFilters.end_date, days: result.days, threshold: formatThreshold(result.daily_threshold) }) }}</p>
             <p>{{ t('admin.downstreamAssessment.sortHint') }}</p>
           </div>
           <div class="overflow-x-auto">
@@ -70,6 +70,7 @@
                   <th scope="col" class="px-4 py-3 text-right">{{ t('admin.downstreamAssessment.totalTokens') }}</th>
                   <th scope="col" class="px-4 py-3 text-right">{{ t('admin.downstreamAssessment.dailyAverage') }}</th>
                   <th scope="col" class="px-4 py-3">{{ t('admin.downstreamAssessment.status') }}</th>
+                  <th scope="col" class="px-4 py-3" :title="t('admin.downstreamAssessment.lastUsedHelp')">{{ t('admin.downstreamAssessment.lastUsedAt') }}</th>
                   <th scope="col" class="px-4 py-3">{{ t('common.actions') }}</th>
                 </tr>
               </thead>
@@ -83,6 +84,9 @@
                     <span class="badge" :class="row.qualified ? 'badge-success' : 'badge-danger'" data-testid="assessment-status">
                       {{ t(row.qualified ? 'admin.downstreamAssessment.qualified' : 'admin.downstreamAssessment.unqualified') }}
                     </span>
+                  </td>
+                  <td class="whitespace-nowrap px-4 py-3 tabular-nums" data-testid="last-used-at">
+                    {{ row.last_used_at ? formatDateTime(row.last_used_at, undefined, locale) : '-' }}
                   </td>
                   <td class="whitespace-nowrap px-4 py-3">
                     <button
@@ -98,7 +102,7 @@
                     </button>
                   </td>
                 </tr>
-                <tr v-if="result.items.length === 0"><td colspan="6" class="p-8 text-center text-gray-500">{{ t('admin.downstreamAssessment.noMembers') }}</td></tr>
+                <tr v-if="result.items.length === 0"><td colspan="7" class="p-8 text-center text-gray-500">{{ t('admin.downstreamAssessment.noMembers') }}</td></tr>
               </tbody>
             </table>
           </div>
@@ -124,7 +128,8 @@ import { getAllIncludingInactive } from '@/api/admin/groups'
 import { getById as getUserById } from '@/api/admin/users'
 import { getDownstreamAssessment, type DownstreamAssessmentParams, type DownstreamAssessmentResult } from '@/api/admin/downstreamAssessment'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
-import { parseDailyTokenThresholdB, formatTokensInBillions } from '@/utils/downstreamAssessment'
+import { parseDailyTokenThresholdB, formatTokensInBillions, TOKENS_PER_BILLION } from '@/utils/downstreamAssessment'
+import { formatDateTime } from '@/utils/format'
 import { useAppStore } from '@/stores/app'
 import type { AdminGroup, AdminUser } from '@/types'
 
@@ -160,6 +165,8 @@ const loadingGroupUserId = ref<number | null>(null)
 let groupRequestVersion = 0
 const formatNumber = (value: number) => new Intl.NumberFormat(locale.value, { maximumFractionDigits: 2 }).format(value)
 const formatTokenAmount = (value: number) => formatTokensInBillions(value, locale.value)
+// Keep the entered threshold exact, even when usage rounds to two decimals.
+const formatThreshold = (value: number) => new Intl.NumberFormat(locale.value, { maximumFractionDigits: 9 }).format(value / TOKENS_PER_BILLION)
 const summaryCards = computed(() => result.value ? [
   { label: t('admin.downstreamAssessment.members'), value: result.value.total },
   { label: t('admin.downstreamAssessment.unqualified'), value: result.value.unqualified_count },

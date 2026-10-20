@@ -18,6 +18,7 @@ export interface DownstreamAssessmentUser {
   total_tokens: number
   daily_average: number
   qualified: boolean
+  last_used_at: string | null // Latest usage across all groups and dates.
 }
 
 export interface DownstreamAssessmentResult {

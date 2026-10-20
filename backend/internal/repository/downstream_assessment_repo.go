@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -15,6 +16,8 @@ var _ service.DownstreamAssessmentRepository = (*usageLogRepository)(nil)
 // EXISTS prevents multiple keys/grants from multiplying users or token counts.
 // The group selects members only. Count their usage across ALL groups (including
 // logs without a group) within the date range, regardless of current key bindings.
+// Last-used time follows user management: all retained usage, independent of the
+// assessment dates and group. Fetch it only for users on the requested page.
 const downstreamAssessmentSQL = `
 WITH members AS (
     SELECT u.id, u.email, COALESCE(u.username, '') AS username
@@ -47,8 +50,14 @@ WITH members AS (
     SELECT * FROM assessed ORDER BY qualified ASC, total_tokens ASC, user_id ASC LIMIT $6 OFFSET $7
 )
 SELECT s.total, s.qualified_count, s.unqualified_count, s.total_tokens AS summary_total_tokens,
-    p.user_id, p.email, p.username, p.total_requests, p.total_tokens, p.daily_average, p.qualified
+    p.user_id, p.email, p.username, p.total_requests, p.total_tokens, p.daily_average, p.qualified,
+    last_usage.created_at AS last_used_at
 FROM summary s LEFT JOIN page p ON TRUE
+LEFT JOIN LATERAL (
+    SELECT ul.created_at FROM usage_logs ul
+    WHERE ul.user_id = p.user_id
+    ORDER BY ul.created_at DESC LIMIT 1
+) last_usage ON TRUE
 ORDER BY p.qualified ASC, p.total_tokens ASC, p.user_id ASC`
 
 func (r *usageLogRepository) GetDownstreamAssessment(ctx context.Context, params pagination.PaginationParams, filter service.DownstreamAssessmentFilter) (*service.DownstreamAssessmentResult, error) {
@@ -67,14 +76,21 @@ func (r *usageLogRepository) GetDownstreamAssessment(ctx context.Context, params
 		var email, username sql.NullString
 		var average sql.NullFloat64
 		var qualified sql.NullBool
+		var lastUsedAt sql.NullTime
 		if err := rows.Scan(&result.Total, &result.QualifiedCount, &result.UnqualifiedCount, &result.TotalTokens,
-			&userID, &email, &username, &requests, &tokens, &average, &qualified); err != nil {
+			&userID, &email, &username, &requests, &tokens, &average, &qualified, &lastUsedAt); err != nil {
 			return nil, err
 		}
 		if userID.Valid {
+			var lastUsed *time.Time
+			if lastUsedAt.Valid {
+				ts := lastUsedAt.Time.UTC()
+				lastUsed = &ts
+			}
 			result.Items = append(result.Items, service.DownstreamAssessmentUser{
 				UserID: userID.Int64, Email: email.String, Username: username.String,
 				TotalRequests: requests.Int64, TotalTokens: tokens.Int64, DailyAverage: average.Float64, Qualified: qualified.Bool,
+				LastUsedAt: lastUsed,
 			})
 		}
 	}
