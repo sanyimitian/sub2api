@@ -512,6 +512,8 @@ export default {
         latencySwitchHint: "Off by default. After consecutive slow requests, probe the configured number of upstreams in the background. If a faster route is found, close the connection before the next user request and require reconnection with complete effective context. Tool results do not trigger a switch. Uses the first-token metric selected above. Probes consume upstream quota.",
         latencySwitchConsecutive: "Consecutive slow requests (1-20)",
         latencySwitchSlowMS: "Slow first-token threshold (ms)",
+        latencySwitchMinTPS: "Minimum output TPS (tok/s)",
+        latencySwitchMinTPSHint: "Optional; leave blank for no TPS limit. When set, a turn counts as slow only if first-token time reaches its threshold and output TPS is below this value. Output TPS is output tokens divided by total request duration.",
         latencySwitchProbeCount: "Candidate concurrency (2-20)",
         latencySwitchProbeCountHint: "Concurrency is configurable and defaults to 6 candidate accounts, excluding the current account. Under 5 seconds, select immediately while completing the round and retaining other results under 10 seconds; otherwise wait for the round and choose the fastest candidate under 10 seconds. Up to 5 rounds per batch. Available accounts may reduce the actual count. Changes apply to the next probe batch.",
         latencySwitchWaitSeconds: "Wait for the user's next connection",

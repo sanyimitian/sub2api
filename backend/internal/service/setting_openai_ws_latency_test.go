@@ -18,12 +18,14 @@ func TestOpenAIWSLatencySettingsDefaultsAndValidation(t *testing.T) {
 	require.False(t, defaults.OpenAIWSLatencySwitchEnabled)
 	require.Equal(t, 3, defaults.OpenAIWSLatencySwitchConsecutive)
 	require.Equal(t, 15000, defaults.OpenAIWSLatencySwitchSlowMS)
+	require.Zero(t, defaults.OpenAIWSLatencySwitchMinTPS)
 	require.Equal(t, 6, defaults.OpenAIWSLatencySwitchProbeCount)
 	require.Equal(t, 300, defaults.OpenAIWSLatencySwitchWaitSeconds)
 	require.Equal(t, 600, defaults.OpenAIWSLatencyProbeReuseSeconds)
 	defaults.OpenAIWSLatencySwitchEnabled = true
 	defaults.OpenAIWSLatencySwitchConsecutive = 5
 	defaults.OpenAIWSLatencySwitchSlowMS = 20000
+	defaults.OpenAIWSLatencySwitchMinTPS = 42.5
 	defaults.OpenAIWSLatencySwitchProbeCount = 8
 	defaults.OpenAIWSLatencySwitchWaitSeconds = 480
 	defaults.OpenAIWSLatencyProbeReuseSeconds = 720
@@ -32,6 +34,7 @@ func TestOpenAIWSLatencySettingsDefaultsAndValidation(t *testing.T) {
 	require.Equal(t, "true", updates[SettingKeyOpenAIWSLatencySwitchEnabled])
 	require.Equal(t, "5", updates[SettingKeyOpenAIWSLatencySwitchConsecutive])
 	require.Equal(t, "20000", updates[SettingKeyOpenAIWSLatencySwitchSlowMS])
+	require.Equal(t, "42.5", updates[SettingKeyOpenAIWSLatencySwitchMinTPS])
 	require.Equal(t, "8", updates[SettingKeyOpenAIWSLatencySwitchProbeCount])
 	require.Equal(t, "480", updates[SettingKeyOpenAIWSLatencySwitchWaitSeconds])
 	require.Equal(t, "720", updates[SettingKeyOpenAIWSLatencyProbeReuseSeconds])
@@ -40,10 +43,12 @@ func TestOpenAIWSLatencySettingsDefaultsAndValidation(t *testing.T) {
 	require.Equal(t, 8, roundTrip.OpenAIWSLatencySwitchProbeCount)
 	require.Equal(t, 480, roundTrip.OpenAIWSLatencySwitchWaitSeconds)
 	require.Equal(t, 720, roundTrip.OpenAIWSLatencyProbeReuseSeconds)
+	require.Equal(t, 42.5, roundTrip.OpenAIWSLatencySwitchMinTPS)
 	svc.refreshCachedSettings(roundTrip)
 	require.Equal(t, 8, svc.GetOpenAIWSLatencySwitchSettings(context.Background()).ProbeCount)
 	require.Equal(t, 480, svc.GetOpenAIWSLatencySwitchSettings(context.Background()).WaitSeconds)
 	require.Equal(t, 720, svc.GetOpenAIWSLatencySwitchSettings(context.Background()).ProbeReuseSeconds)
+	require.Equal(t, 42.5, svc.GetOpenAIWSLatencySwitchSettings(context.Background()).MinTPS)
 	defaults.OpenAIWSLatencySwitchConsecutive = 21
 	_, err = svc.buildSystemSettingsUpdates(context.Background(), defaults)
 	require.ErrorContains(t, err, SettingKeyOpenAIWSLatencySwitchConsecutive)
@@ -52,6 +57,10 @@ func TestOpenAIWSLatencySettingsDefaultsAndValidation(t *testing.T) {
 	_, err = svc.buildSystemSettingsUpdates(context.Background(), defaults)
 	require.ErrorContains(t, err, SettingKeyOpenAIWSLatencySwitchSlowMS)
 	defaults.OpenAIWSLatencySwitchSlowMS = 15000
+	defaults.OpenAIWSLatencySwitchMinTPS = -1
+	_, err = svc.buildSystemSettingsUpdates(context.Background(), defaults)
+	require.ErrorContains(t, err, SettingKeyOpenAIWSLatencySwitchMinTPS)
+	defaults.OpenAIWSLatencySwitchMinTPS = 42.5
 	for _, invalid := range []int{-1, 1, 21} {
 		defaults.OpenAIWSLatencySwitchProbeCount = invalid
 		_, err = svc.buildSystemSettingsUpdates(context.Background(), defaults)

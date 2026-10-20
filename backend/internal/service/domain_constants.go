@@ -677,6 +677,7 @@ const (
 	SettingKeyOpenAIWSLatencySwitchEnabled     = "openai_ws_latency_switch_enabled"
 	SettingKeyOpenAIWSLatencySwitchConsecutive = "openai_ws_latency_switch_consecutive"
 	SettingKeyOpenAIWSLatencySwitchSlowMS      = "openai_ws_latency_switch_slow_ms"
+	SettingKeyOpenAIWSLatencySwitchMinTPS      = "openai_ws_latency_switch_min_tps"
 	SettingKeyOpenAIWSLatencySwitchProbeCount  = "openai_ws_latency_switch_probe_count"
 	SettingKeyOpenAIWSLatencySwitchWaitSeconds = "openai_ws_latency_switch_wait_seconds"
 	SettingKeyOpenAIWSLatencyProbeReuseSeconds = "openai_ws_latency_probe_reuse_seconds"

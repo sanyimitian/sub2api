@@ -108,6 +108,47 @@ func TestOpenAIWSLatencyCountsOnlyConsecutiveUserRequests(t *testing.T) {
 	require.Greater(t, session.state(context.Background()).CooldownUntil, time.Now().UnixMilli())
 }
 
+func TestOpenAIWSLatencyMinTPSThresholdRequiresBothConditions(t *testing.T) {
+	svc, _ := newOpenAIWSLatencyTestService(t)
+	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
+		latencySwitch: OpenAIWSLatencySwitchSettings{Enabled: true, Consecutive: 3, SlowMS: 15000, MinTPS: 20},
+		expiresAt:     time.Now().Add(time.Hour).UnixNano(),
+	})
+	user := []byte(`{"type":"response.create","input":[{"role":"user","content":"hello"}]}`)
+	session := newOpenAIWSLatencyTestSession(t, svc, "min-tps", 1, user)
+	account := &Account{ID: 11}
+	slowMS := 16000
+	base := OpenAIForwardResult{FirstTokenMs: &slowMS, Duration: time.Second}
+
+	fastOutput := base
+	fastOutput.Usage.OutputTokens = 30
+	require.NoError(t, session.BeforeRequest(context.Background(), 1, account, user, ""))
+	session.Observe(context.Background(), 1, account, &fastOutput, nil)
+	require.Zero(t, session.state(context.Background()).SlowCount)
+
+	slowOutput := base
+	slowOutput.Usage.OutputTokens = 10
+	require.NoError(t, session.BeforeRequest(context.Background(), 2, account, user, ""))
+	session.Observe(context.Background(), 2, account, &slowOutput, nil)
+	require.Equal(t, 1, session.state(context.Background()).SlowCount)
+
+	missingOutput := base
+	require.NoError(t, session.BeforeRequest(context.Background(), 3, account, user, ""))
+	session.Observe(context.Background(), 3, account, &missingOutput, nil)
+	require.Zero(t, session.state(context.Background()).SlowCount)
+}
+
+func TestOpenAIWSOutputTPSMatchesUsageRateDefinition(t *testing.T) {
+	result := &OpenAIForwardResult{Duration: 2 * time.Second, Usage: OpenAIUsage{OutputTokens: 100}}
+	tps, ok := openAIWSOutputTPS(result)
+	require.True(t, ok)
+	require.Equal(t, float64(50), tps)
+
+	result.ImageCount = 1
+	_, ok = openAIWSOutputTPS(result)
+	require.False(t, ok)
+}
+
 func TestOpenAIWSLatencyReconnectPreservesPendingAcrossInstances(t *testing.T) {
 	svc, _ := newOpenAIWSLatencyTestService(t)
 	payload := []byte(`{"input":[{"role":"user","content":"question"}]}`)

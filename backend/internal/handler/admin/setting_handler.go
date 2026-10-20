@@ -292,6 +292,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIWSLatencySwitchEnabled:                           settings.OpenAIWSLatencySwitchEnabled,
 		OpenAIWSLatencySwitchConsecutive:                       settings.OpenAIWSLatencySwitchConsecutive,
 		OpenAIWSLatencySwitchSlowMS:                            settings.OpenAIWSLatencySwitchSlowMS,
+		OpenAIWSLatencySwitchMinTPS:                            settings.OpenAIWSLatencySwitchMinTPS,
 		OpenAIWSLatencySwitchProbeCount:                        settings.OpenAIWSLatencySwitchProbeCount,
 		OpenAIWSLatencySwitchWaitSeconds:                       settings.OpenAIWSLatencySwitchWaitSeconds,
 		OpenAIWSLatencyProbeReuseSeconds:                       settings.OpenAIWSLatencyProbeReuseSeconds,

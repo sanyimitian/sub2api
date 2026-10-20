@@ -468,6 +468,7 @@ const baseSettingsResponse = {
   openai_ws_latency_switch_enabled: false,
   openai_ws_latency_switch_consecutive: 3,
   openai_ws_latency_switch_slow_ms: 15000,
+  openai_ws_latency_switch_min_tps: 0,
   openai_ws_latency_switch_probe_count: 6,
   openai_ws_latency_switch_wait_seconds: 300,
   openai_ws_latency_probe_reuse_seconds: 600,
@@ -1523,6 +1524,9 @@ describe("admin SettingsView payment visible method controls", () => {
     expect((toggle.element as HTMLInputElement).checked).toBe(false);
     expect((card.get('[data-testid="openai-ws-latency-switch-consecutive"]').element as HTMLInputElement).value).toBe("3");
     expect((card.get('[data-testid="openai-ws-latency-switch-slow-ms"]').element as HTMLInputElement).value).toBe("15000");
+    const minTPS = card.get('[data-testid="openai-ws-latency-switch-min-tps"]');
+    expect((minTPS.element as HTMLInputElement).value).toBe("");
+    expect(minTPS.attributes("required")).toBeUndefined();
     const probeCount = card.get('[data-testid="openai-ws-latency-switch-probe-count"]');
     expect((probeCount.element as HTMLInputElement).value).toBe("6");
     expect(probeCount.attributes("min")).toBe("2");
@@ -1538,6 +1542,7 @@ describe("admin SettingsView payment visible method controls", () => {
     await probeCount.setValue(4);
     await waitSeconds.setValue(600);
     await probeReuseSeconds.setValue(900);
+    await minTPS.setValue(18.5);
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
     const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
@@ -1547,6 +1552,7 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(payload.openai_ws_latency_switch_probe_count).toBe(4);
     expect(payload.openai_ws_latency_switch_wait_seconds).toBe(600);
     expect(payload.openai_ws_latency_probe_reuse_seconds).toBe(900);
+    expect(payload.openai_ws_latency_switch_min_tps).toBe(18.5);
   });
 
   it("loads Codex latency settings and preserves thresholds when disabling", async () => {

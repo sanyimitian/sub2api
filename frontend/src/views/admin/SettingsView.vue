@@ -5395,6 +5395,11 @@
                     <input id="openai-ws-latency-switch-slow-ms" v-model.number="form.openai_ws_latency_switch_slow_ms" type="number" min="1000" max="300000" step="1000" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-slow-ms" />
                   </div>
                   <div>
+                    <label for="openai-ws-latency-switch-min-tps" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchMinTPS") }}</label>
+                    <input id="openai-ws-latency-switch-min-tps" v-model.number="form.openai_ws_latency_switch_min_tps" type="number" min="0" step="0.1" class="input mt-2 w-full" data-testid="openai-ws-latency-switch-min-tps" />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchMinTPSHint") }}</p>
+                  </div>
+                  <div>
                     <label for="openai-ws-latency-switch-probe-count" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCount") }}</label>
                     <input id="openai-ws-latency-switch-probe-count" v-model.number="form.openai_ws_latency_switch_probe_count" type="number" min="2" max="20" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-probe-count" />
                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCountHint") }}</p>
@@ -9767,11 +9772,13 @@ type SettingsForm = Omit<
   | "wechat_connect_mp_enabled"
   | "wechat_connect_mobile_enabled"
   | "openai_oauth_scheduling_rate_multiplier"
+  | "openai_ws_latency_switch_min_tps"
 > & {
   /** Form always binds a concrete boolean (SystemSettings marks this optional). */
   channel_monitor_hide_throughput: boolean;
   channel_monitor_show_quota: boolean;
   channel_monitor_hide_user_ranking: boolean;
+  openai_ws_latency_switch_min_tps: number | "";
   smtp_password: string;
   turnstile_secret_key: string;
   tencent_captcha_app_secret_key: string;
@@ -10068,6 +10075,7 @@ const form = reactive<SettingsForm>({
   openai_ws_latency_switch_enabled: false,
   openai_ws_latency_switch_consecutive: 3,
   openai_ws_latency_switch_slow_ms: 15000,
+  openai_ws_latency_switch_min_tps: "",
   openai_ws_latency_switch_probe_count: 6,
   openai_ws_latency_switch_wait_seconds: 300,
   openai_ws_latency_probe_reuse_seconds: 600,
@@ -11114,6 +11122,9 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    if (settings.openai_ws_latency_switch_min_tps === 0) {
+      form.openai_ws_latency_switch_min_tps = "";
+    }
     // For this optional override, null explicitly selects per-account rates.
     if (settings.openai_oauth_scheduling_rate_multiplier === null) {
       form.openai_oauth_scheduling_rate_multiplier = null;
@@ -11720,6 +11731,7 @@ async function saveSettings() {
       openai_ws_latency_switch_enabled: form.openai_ws_latency_switch_enabled,
       openai_ws_latency_switch_consecutive: Number(form.openai_ws_latency_switch_consecutive),
       openai_ws_latency_switch_slow_ms: Number(form.openai_ws_latency_switch_slow_ms),
+      openai_ws_latency_switch_min_tps: Number(form.openai_ws_latency_switch_min_tps) || 0,
       openai_ws_latency_switch_probe_count: Number(form.openai_ws_latency_switch_probe_count),
       openai_ws_latency_switch_wait_seconds: Number(form.openai_ws_latency_switch_wait_seconds),
       openai_ws_latency_probe_reuse_seconds: Number(form.openai_ws_latency_probe_reuse_seconds),
@@ -11917,6 +11929,9 @@ async function saveSettings() {
       if (value !== null && value !== undefined) {
         (form as Record<string, unknown>)[key] = value;
       }
+    }
+    if (updated.openai_ws_latency_switch_min_tps === 0) {
+      form.openai_ws_latency_switch_min_tps = "";
     }
     if (updated.openai_oauth_scheduling_rate_multiplier === null) {
       form.openai_oauth_scheduling_rate_multiplier = null;

@@ -464,6 +464,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAIWSLatencySwitchSlowMS != after.OpenAIWSLatencySwitchSlowMS {
 		changed = append(changed, "openai_ws_latency_switch_slow_ms")
 	}
+	if before.OpenAIWSLatencySwitchMinTPS != after.OpenAIWSLatencySwitchMinTPS {
+		changed = append(changed, "openai_ws_latency_switch_min_tps")
+	}
 	if before.OpenAIWSLatencySwitchProbeCount != after.OpenAIWSLatencySwitchProbeCount {
 		changed = append(changed, "openai_ws_latency_switch_probe_count")
 	}

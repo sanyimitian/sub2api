@@ -632,6 +632,7 @@ export interface SystemSettings {
   openai_ws_latency_switch_enabled: boolean;
   openai_ws_latency_switch_consecutive: number;
   openai_ws_latency_switch_slow_ms: number;
+  openai_ws_latency_switch_min_tps: number;
   openai_ws_latency_switch_probe_count: number;
   openai_ws_latency_switch_wait_seconds: number;
   openai_ws_latency_probe_reuse_seconds: number;
@@ -968,6 +969,7 @@ export interface UpdateSettingsRequest {
   openai_ws_latency_switch_enabled?: boolean;
   openai_ws_latency_switch_consecutive?: number;
   openai_ws_latency_switch_slow_ms?: number;
+  openai_ws_latency_switch_min_tps?: number;
   openai_ws_latency_switch_probe_count?: number;
   openai_ws_latency_switch_wait_seconds?: number;
   openai_ws_latency_probe_reuse_seconds?: number;

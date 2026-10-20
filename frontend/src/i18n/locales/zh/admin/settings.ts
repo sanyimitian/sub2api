@@ -505,6 +505,8 @@ export default {
         latencySwitchHint: '默认关闭。同一对话连续首字慢后，后台按配置路数探测；发现更快上游时，在下次用户提问发送前关闭连接，要求客户端携带完整有效上下文重连。工具结果回传不会触发切换。首字时间沿用上方统计口径。探测会消耗上游额度。',
         latencySwitchConsecutive: '连续慢请求次数（1–20）',
         latencySwitchSlowMS: '首字慢阈值（毫秒）',
+        latencySwitchMinTPS: '输出 TPS 最低值（tok/s）',
+        latencySwitchMinTPSHint: '选填；留空不限制。设置后，首 token 时间达到阈值且单轮输出 TPS 低于此值时才计为首字慢。输出 TPS 按输出 token 数除以请求总耗时计算。',
         latencySwitchProbeCount: '候选并发数（2–20）',
         latencySwitchProbeCountHint: '并发数可配置，默认 6 个候选账号，不包含当前账号。低于 5 秒时立即选中，同时继续完成本轮探测并保留其他低于 10 秒的结果；否则等本轮完成并选择低于 10 秒的最快账号。一批最多探测 5 轮。实际账号数受可用账号与并发限制；修改后从下一批探测生效。',
         latencySwitchWaitSeconds: '等待用户下次连接时间',

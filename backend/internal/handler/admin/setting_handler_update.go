@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -243,28 +244,29 @@ type UpdateSettingsRequest struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	OpenAIWSLatencySwitchEnabled           *bool   `json:"openai_ws_latency_switch_enabled"`
-	OpenAIWSLatencySwitchConsecutive       *int    `json:"openai_ws_latency_switch_consecutive"`
-	OpenAIWSLatencySwitchSlowMS            *int    `json:"openai_ws_latency_switch_slow_ms"`
-	OpenAIWSLatencySwitchProbeCount        *int    `json:"openai_ws_latency_switch_probe_count"`
-	OpenAIWSLatencySwitchWaitSeconds       *int    `json:"openai_ws_latency_switch_wait_seconds"`
-	OpenAIWSLatencyProbeReuseSeconds       *int    `json:"openai_ws_latency_probe_reuse_seconds"`
-	OpenAITTFTMode                         *string `json:"openai_ttft_mode"`
-	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
-	EnableCCHSigning                       *bool   `json:"enable_cch_signing"`
-	EnableClaudeOAuthSystemPromptInjection *bool   `json:"enable_claude_oauth_system_prompt_injection"`
-	ClaudeOAuthSystemPrompt                *string `json:"claude_oauth_system_prompt"`
-	ClaudeOAuthSystemPromptBlocks          *string `json:"claude_oauth_system_prompt_blocks"`
-	EnableAnthropicCacheTTL1hInjection     *bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
-	RewriteMessageCacheControl             *bool   `json:"rewrite_message_cache_control"`
-	EnableClientDatelineNormalization      *bool   `json:"enable_client_dateline_normalization"`
-	AntigravityUserAgentVersion            *string `json:"antigravity_user_agent_version"`
-	OpenAICodexUserAgent                   *string `json:"openai_codex_user_agent"`
-	OpenAICodexClientVersion               *string `json:"openai_codex_client_version"`
-	OpenAICodexVersionAutoSyncEnabled      *bool   `json:"openai_codex_version_auto_sync_enabled"`
-	ClaudeCodeClientVersion                *string `json:"claude_code_client_version"`
-	ClaudeCodeVersionAutoSyncEnabled       *bool   `json:"claude_code_version_auto_sync_enabled"`
+	OpenAIWSLatencySwitchEnabled           *bool    `json:"openai_ws_latency_switch_enabled"`
+	OpenAIWSLatencySwitchConsecutive       *int     `json:"openai_ws_latency_switch_consecutive"`
+	OpenAIWSLatencySwitchSlowMS            *int     `json:"openai_ws_latency_switch_slow_ms"`
+	OpenAIWSLatencySwitchMinTPS            *float64 `json:"openai_ws_latency_switch_min_tps"`
+	OpenAIWSLatencySwitchProbeCount        *int     `json:"openai_ws_latency_switch_probe_count"`
+	OpenAIWSLatencySwitchWaitSeconds       *int     `json:"openai_ws_latency_switch_wait_seconds"`
+	OpenAIWSLatencyProbeReuseSeconds       *int     `json:"openai_ws_latency_probe_reuse_seconds"`
+	OpenAITTFTMode                         *string  `json:"openai_ttft_mode"`
+	EnableFingerprintUnification           *bool    `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough              *bool    `json:"enable_metadata_passthrough"`
+	EnableCCHSigning                       *bool    `json:"enable_cch_signing"`
+	EnableClaudeOAuthSystemPromptInjection *bool    `json:"enable_claude_oauth_system_prompt_injection"`
+	ClaudeOAuthSystemPrompt                *string  `json:"claude_oauth_system_prompt"`
+	ClaudeOAuthSystemPromptBlocks          *string  `json:"claude_oauth_system_prompt_blocks"`
+	EnableAnthropicCacheTTL1hInjection     *bool    `json:"enable_anthropic_cache_ttl_1h_injection"`
+	RewriteMessageCacheControl             *bool    `json:"rewrite_message_cache_control"`
+	EnableClientDatelineNormalization      *bool    `json:"enable_client_dateline_normalization"`
+	AntigravityUserAgentVersion            *string  `json:"antigravity_user_agent_version"`
+	OpenAICodexUserAgent                   *string  `json:"openai_codex_user_agent"`
+	OpenAICodexClientVersion               *string  `json:"openai_codex_client_version"`
+	OpenAICodexVersionAutoSyncEnabled      *bool    `json:"openai_codex_version_auto_sync_enabled"`
+	ClaudeCodeClientVersion                *string  `json:"claude_code_client_version"`
+	ClaudeCodeVersionAutoSyncEnabled       *bool    `json:"claude_code_version_auto_sync_enabled"`
 
 	// codex_cli_only 加固（global-only）
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -515,6 +517,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if req.OpenAIWSLatencySwitchSlowMS != nil && (*req.OpenAIWSLatencySwitchSlowMS < 1000 || *req.OpenAIWSLatencySwitchSlowMS > 300000) {
 		response.BadRequest(c, "openai_ws_latency_switch_slow_ms must be between 1000 and 300000")
+		return
+	}
+	if req.OpenAIWSLatencySwitchMinTPS != nil && (math.IsNaN(*req.OpenAIWSLatencySwitchMinTPS) || math.IsInf(*req.OpenAIWSLatencySwitchMinTPS, 0) || *req.OpenAIWSLatencySwitchMinTPS < 0) {
+		response.BadRequest(c, "openai_ws_latency_switch_min_tps must be a finite non-negative number")
 		return
 	}
 	if req.OpenAIWSLatencySwitchProbeCount != nil && (*req.OpenAIWSLatencySwitchProbeCount < 2 || *req.OpenAIWSLatencySwitchProbeCount > 20) {
@@ -1757,6 +1763,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpenAIWSLatencySwitchSlowMS
 		}(),
+		OpenAIWSLatencySwitchMinTPS: func() float64 {
+			if req.OpenAIWSLatencySwitchMinTPS != nil {
+				return *req.OpenAIWSLatencySwitchMinTPS
+			}
+			return previousSettings.OpenAIWSLatencySwitchMinTPS
+		}(),
 		OpenAIWSLatencySwitchProbeCount: func() int {
 			if req.OpenAIWSLatencySwitchProbeCount != nil {
 				return *req.OpenAIWSLatencySwitchProbeCount
@@ -2422,6 +2434,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIWSLatencySwitchEnabled:                           updatedSettings.OpenAIWSLatencySwitchEnabled,
 		OpenAIWSLatencySwitchConsecutive:                       updatedSettings.OpenAIWSLatencySwitchConsecutive,
 		OpenAIWSLatencySwitchSlowMS:                            updatedSettings.OpenAIWSLatencySwitchSlowMS,
+		OpenAIWSLatencySwitchMinTPS:                            updatedSettings.OpenAIWSLatencySwitchMinTPS,
 		OpenAIWSLatencySwitchProbeCount:                        updatedSettings.OpenAIWSLatencySwitchProbeCount,
 		OpenAIWSLatencySwitchWaitSeconds:                       updatedSettings.OpenAIWSLatencySwitchWaitSeconds,
 		OpenAIWSLatencyProbeReuseSeconds:                       updatedSettings.OpenAIWSLatencyProbeReuseSeconds,

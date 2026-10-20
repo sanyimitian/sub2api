@@ -241,6 +241,7 @@ type SystemSettings struct {
 	OpenAIWSLatencySwitchEnabled           bool
 	OpenAIWSLatencySwitchConsecutive       int
 	OpenAIWSLatencySwitchSlowMS            int
+	OpenAIWSLatencySwitchMinTPS            float64
 	OpenAIWSLatencySwitchProbeCount        int
 	OpenAIWSLatencySwitchWaitSeconds       int
 	OpenAIWSLatencyProbeReuseSeconds       int

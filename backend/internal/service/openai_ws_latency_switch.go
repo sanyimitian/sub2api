@@ -582,6 +582,13 @@ func (session *OpenAIWSLatencySession) SelectTarget(ctx context.Context, exclude
 	return selection, decision, err
 }
 
+func openAIWSOutputTPS(result *OpenAIForwardResult) (float64, bool) {
+	if result == nil || result.Usage.OutputTokens <= 0 || result.Duration.Milliseconds() <= 0 || result.ImageCount > 0 || result.Usage.ImageOutputTokens > 0 {
+		return 0, false
+	}
+	return float64(result.Usage.OutputTokens) * 1000 / float64(result.Duration.Milliseconds()), true
+}
+
 func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, account *Account, result *OpenAIForwardResult, turnErr error) {
 	if !session.enabled(ctx) {
 		return
@@ -622,7 +629,11 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 		return
 	}
 	settings := session.service.settingService.GetOpenAIWSLatencySwitchSettings(ctx)
+	outputTPS, outputTPSKnown := openAIWSOutputTPS(result)
 	slow := turnErr == nil && result != nil && result.SucceededForScheduling() && result.FirstTokenMs != nil && *result.FirstTokenMs >= settings.SlowMS
+	if settings.MinTPS > 0 {
+		slow = slow && outputTPSKnown && outputTPS < settings.MinTPS
+	}
 	probeID := uuid.NewString()
 	state, changed := session.service.updateOpenAIWSLatencyState(ctx, session.key(classification.model), func(state *openAIWSLatencyState) bool {
 		if state.AccountID != account.ID {
