@@ -71,6 +71,44 @@ describe('HelpTooltip', () => {
     wrapper.unmount()
   })
 
+  it('places compact side tooltips beside the trigger and flips them inside the viewport', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const isTooltip = this.getAttribute('role') === 'tooltip'
+      return {
+        x: isTooltip ? 0 : 900,
+        y: isTooltip ? 0 : 30,
+        top: isTooltip ? 0 : 30,
+        left: isTooltip ? 0 : 900,
+        right: isTooltip ? 180 : 940,
+        bottom: isTooltip ? 80 : 46,
+        width: isTooltip ? 180 : 40,
+        height: isTooltip ? 80 : 16,
+        toJSON: () => ({}),
+      } as DOMRect
+    })
+
+    const wrapper = mount(HelpTooltip, {
+      attachTo: document.body,
+      props: {
+        content: 'compact details',
+        placement: 'right',
+        compact: true,
+        widthClass: 'w-max',
+      },
+    })
+
+    await wrapper.get('.group').trigger('mouseenter')
+    await nextTick()
+
+    const tooltip = getTooltipElement()
+    expect(tooltip.style.top).toBe('38px')
+    expect(tooltip.style.left).toBe('892px')
+    expect(tooltip.classList.contains('-translate-x-full')).toBe(true)
+    expect(tooltip.classList.contains('before:left-full')).toBe(true)
+
+    wrapper.unmount()
+  })
+
   it('keeps a hover tooltip open while the pointer moves between the trigger and the tooltip', async () => {
     const wrapper = mount(HelpTooltip, {
       attachTo: document.body,

@@ -5,15 +5,20 @@ const props = withDefaults(defineProps<{
   content?: string
   trigger?: 'hover' | 'click'
   widthClass?: string
+  placement?: 'top' | 'right'
+  compact?: boolean
 }>(), {
   trigger: 'hover',
   widthClass: 'w-64',
+  placement: 'top',
+  compact: false,
 })
 
 const show = ref(false)
 const triggerRef = useTemplateRef<HTMLElement>('trigger')
 const tooltipRef = useTemplateRef<HTMLElement>('tooltip')
 const tooltipStyle = ref({ top: '0px', left: '0px' })
+const tooltipSide = ref<'left' | 'right'>('right')
 
 function openTooltip() {
   show.value = true
@@ -80,6 +85,18 @@ function updatePosition() {
   const el = triggerRef.value
   if (!el) return
   const rect = el.getBoundingClientRect()
+
+  if (props.placement === 'right') {
+    const tooltipWidth = tooltipRef.value?.getBoundingClientRect().width ?? 0
+    const rightLeft = rect.right + 8
+    tooltipSide.value = rightLeft + tooltipWidth <= window.innerWidth - 8 ? 'right' : 'left'
+    tooltipStyle.value = {
+      top: `${rect.top + rect.height / 2}px`,
+      left: tooltipSide.value === 'right' ? `${rightLeft}px` : `${rect.left - 8}px`,
+    }
+    return
+  }
+
   tooltipStyle.value = {
     top: `${rect.top}px`,
     left: `${rect.left + rect.width / 2}px`,
@@ -134,10 +151,15 @@ onBeforeUnmount(() => {
         v-show="show"
         role="tooltip"
         :class="[
-          'fixed z-[99999] -translate-x-1/2 -translate-y-full rounded-lg bg-gray-900 p-3 text-xs leading-relaxed text-white shadow-xl ring-1 ring-white/10 selection:bg-primary-200 selection:text-gray-900 before:absolute before:inset-x-0 before:top-full before:h-3 dark:bg-gray-800 dark:selection:bg-primary-200 dark:selection:text-gray-900',
+          props.compact
+            ? 'fixed z-[99999] rounded-lg border border-gray-700 bg-gray-900 px-3 py-2.5 text-xs text-white shadow-xl dark:border-gray-600 dark:bg-gray-800'
+            : 'fixed z-[99999] rounded-lg bg-gray-900 p-3 text-xs leading-relaxed text-white shadow-xl ring-1 ring-white/10 selection:bg-primary-200 selection:text-gray-900 dark:bg-gray-800 dark:selection:bg-primary-200 dark:selection:text-gray-900',
+          props.placement === 'right'
+            ? [tooltipSide === 'right' ? '-translate-y-1/2' : '-translate-x-full -translate-y-1/2', props.compact && (tooltipSide === 'right' ? 'before:absolute before:right-full before:top-0 before:h-full before:w-2' : 'before:absolute before:left-full before:top-0 before:h-full before:w-2')]
+            : ['-translate-x-1/2 -translate-y-full', !props.compact && 'before:absolute before:inset-x-0 before:top-full before:h-3'],
           props.widthClass,
         ]"
-        :style="{ top: `calc(${tooltipStyle.top} - 8px)`, left: tooltipStyle.left }"
+        :style="{ top: props.placement === 'right' ? tooltipStyle.top : `calc(${tooltipStyle.top} - 8px)`, left: tooltipStyle.left }"
         @mouseleave="onTooltipLeave"
       >
         <button
@@ -152,7 +174,14 @@ onBeforeUnmount(() => {
           </svg>
         </button>
         <slot>{{ content }}</slot>
-        <div class="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-900 dark:bg-gray-800"></div>
+        <div
+          v-if="props.placement === 'right' && props.compact"
+          :class="tooltipSide === 'right'
+            ? 'absolute right-full top-1/2 h-0 w-0 -translate-y-1/2 border-b-[6px] border-r-[6px] border-t-[6px] border-b-transparent border-r-gray-900 border-t-transparent dark:border-r-gray-800'
+            : 'absolute left-full top-1/2 h-0 w-0 -translate-y-1/2 border-b-[6px] border-l-[6px] border-t-[6px] border-b-transparent border-l-gray-900 border-t-transparent dark:border-l-gray-800'
+          "
+        ></div>
+        <div v-else-if="props.placement === 'top' && !props.compact" class="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-900 dark:bg-gray-800"></div>
       </div>
     </Teleport>
   </div>

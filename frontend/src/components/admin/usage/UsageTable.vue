@@ -251,7 +251,12 @@
               <span class="text-gray-400 dark:text-gray-500" :title="t('usage.outputTpsHint')">{{ t('usage.outputTps') }}</span>
               <span data-testid="output-tps" class="inline-flex items-center gap-1 font-medium tabular-nums text-gray-700 dark:text-gray-300">
                 {{ formatUsageOutputRate(row) }}
-                <HelpTooltip v-if="row.request_timings && requestTimingDetails(row.request_timings).length" width-class="w-72">
+                <HelpTooltip
+                  v-if="row.request_timings && requestTimingDetails(row.request_timings).length"
+                  placement="right"
+                  compact
+                  width-class="w-max max-w-[calc(100vw-2rem)]"
+                >
                   <template #trigger>
                     <button
                       type="button"
@@ -261,14 +266,14 @@
                       <Icon name="infoCircle" size="xs" />
                     </button>
                   </template>
-                  <div class="space-y-1">
+                  <div class="space-y-1.5">
                     <div
                       v-for="detail in requestTimingDetails(row.request_timings)"
                       :key="detail.label"
-                      class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3"
+                      class="flex items-center justify-between gap-4 whitespace-nowrap"
                     >
-                      <span class="text-gray-300">{{ detail.label }}</span>
-                      <span class="font-medium tabular-nums text-white">{{ detail.value }}</span>
+                      <span :class="detail.key === 'upstream_response_wait_ms' ? 'text-sky-300' : 'text-gray-400'">{{ detail.label }}</span>
+                      <span class="font-medium tabular-nums" :class="detail.key === 'upstream_response_wait_ms' ? 'text-sky-300' : 'text-white'">{{ detail.value }}</span>
                     </div>
                   </div>
                 </HelpTooltip>
@@ -751,15 +756,16 @@ const requestTimingLabel = (key: string): string => t(requestTimingLabels[key] ?
 const requestTimingDetails = (timings: AdminUsageLog['request_timings']) => {
   if (!timings) return []
 
-  const details: { label: string; value: string }[] = []
+  const details: { key: string; label: string; value: string }[] = []
   for (const [key, value] of Object.entries(timings)) {
     if (typeof value === 'number') {
-      details.push({ label: requestTimingLabel(key), value: formatDuration(value) })
+      details.push({ key, label: requestTimingLabel(key), value: formatDuration(value) })
     }
   }
 
   if (timings.upstream_connection_reused != null) {
     details.push({
+      key: 'upstream_connection_reused',
       label: t('usage.timingConnectionReuse'),
       value: timings.upstream_connection_reused ? t('usage.timingReused') : t('usage.timingNewConnection'),
     })
