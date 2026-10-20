@@ -1,0 +1,32 @@
+export default {
+  downstreamAssessment: {
+    title: 'Downstream Assessment',
+    description: 'Select users by group and assess their daily average usage across all groups in B',
+    group: 'Assessment group',
+    selectGroup: 'Select a group',
+    dateRange: 'Assessment date range (days)',
+    dailyThreshold: 'Daily average threshold (B, required)',
+    thresholdPlaceholder: 'e.g. 1 or 0.5, in B',
+    thresholdHelp: 'The unit is always B: 1B = 1 billion tokens. Enter 1 for 1B per day or 0.5 for 0.5B per day. A positive value is required.',
+    invalidThreshold: 'Enter a valid positive amount in B, such as 1 or 0.5. The minimum increment is 0.000000001B.',
+    scopeHelp: 'Includes current explicit group grants, non-deleted group API keys, and active group subscriptions, deduplicated by user. Public access alone does not establish membership. Users with zero usage are included.',
+    calculationHelp: 'The group only selects users. Their usage in the date range includes all groups and records without a group. Usage = input + output + cache creation + cache read, displayed in B. Daily average = total usage / calendar days, including both endpoints and idle days. Today counts as a full day. Dates use your browser timezone.',
+    calculate: 'Run assessment',
+    groupsError: 'Failed to load groups. Please retry.',
+    loadError: 'Assessment failed. Click Run assessment to retry.',
+    loadUserError: 'Failed to load user group settings. Please retry.',
+    configureUserGroups: 'Configure groups for {email}',
+    resultSummary: '{group} · {start} to {end} · {days} days · Daily threshold ≥ {threshold} B',
+    sortHint: 'Below-threshold users appear first, then ascending usage within each status. Qualification uses unrounded usage.',
+    user: 'User',
+    requests: 'Requests',
+    totalTokens: 'Total usage (B)',
+    dailyAverage: 'Daily average (B)',
+    status: 'Status',
+    qualified: 'Qualified',
+    unqualified: 'Below threshold',
+    members: 'Assessed users',
+    noMembers: 'No eligible users in this group',
+    initialHint: 'Select a group and date range, enter a daily threshold, and run the assessment.'
+  }
+}

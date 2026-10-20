@@ -1,0 +1,32 @@
+export default {
+  downstreamAssessment: {
+    title: '下游考核',
+    description: '按分组筛选用户，以全部分组的日均用量（B）检查是否达标',
+    group: '考核分组',
+    selectGroup: '请选择分组',
+    dateRange: '考核日期范围（按天）',
+    dailyThreshold: '日均达标用量（B，必填）',
+    thresholdPlaceholder: '例如 1 或 0.5，单位 B',
+    thresholdHelp: '单位固定为 B：1B = 10 亿 Token。填写 1 表示日均 1B，0.5 表示日均 0.5B；必须填写大于 0 的数值。',
+    invalidThreshold: '请输入有效的正数（单位 B），例如 1 或 0.5，最小精度为 0.000000001B。',
+    scopeHelp: '考核当前已授权该分组、持有该分组未删除 API Key，或拥有该分组有效订阅的用户（去重）。仅有公共分组访问权限不计入名单；零用量用户也参与考核。',
+    calculationHelp: '分组仅用于筛选用户；统计这些用户在所选时间内的全部用量，包含其他分组及无分组记录。总用量 = 输入 + 输出 + 缓存创建 + 缓存读取，统一按 B 展示。日均 = 总用量 ÷ 所选自然日天数（包含首尾日期、零用量日期；今天按一天计）。按浏览器时区统计。',
+    calculate: '开始统计',
+    groupsError: '分组加载失败，请重试。',
+    loadError: '统计失败，请重新点击“开始统计”重试。',
+    loadUserError: '用户分组信息加载失败，请重试。',
+    configureUserGroups: '设置 {email} 的分组',
+    resultSummary: '{group} · {start} 至 {end} · 共 {days} 天 · 日均达标线 ≥ {threshold} B',
+    sortHint: '未达标用户优先，同一状态按用量从低到高排列；达标判断使用未四舍五入的实际用量。',
+    user: '用户',
+    requests: '请求数',
+    totalTokens: '总用量（B）',
+    dailyAverage: '日均用量（B）',
+    status: '状态',
+    qualified: '达标',
+    unqualified: '未达标',
+    members: '考核人数',
+    noMembers: '该分组暂无符合条件的用户',
+    initialHint: '请选择分组和时间范围，填写日均达标用量后点击“开始统计”。'
+  }
+}

@@ -680,6 +680,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/downstream-assessment',
+    name: 'AdminDownstreamAssessment',
+    component: () => import('@/views/admin/DownstreamAssessmentView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Downstream Assessment',
+      titleKey: 'admin.downstreamAssessment.title',
+      descriptionKey: 'admin.downstreamAssessment.description'
+    }
+  },
+  {
     path: '/admin/affiliates',
     redirect: '/admin/affiliates/invites'
   },
