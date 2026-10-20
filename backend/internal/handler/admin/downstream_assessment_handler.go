@@ -20,6 +20,16 @@ func (h *UsageHandler) GetDownstreamAssessment(c *gin.Context) {
 		response.BadRequest(c, "A positive group_id is required")
 		return
 	}
+	sortBy := strings.TrimSpace(c.DefaultQuery("sort_by", "total_tokens"))
+	if sortBy != "total_tokens" && sortBy != "daily_average" {
+		response.BadRequest(c, "sort_by must be total_tokens or daily_average")
+		return
+	}
+	sortOrder := strings.ToLower(strings.TrimSpace(c.DefaultQuery("sort_order", "asc")))
+	if sortOrder != "asc" && sortOrder != "desc" {
+		response.BadRequest(c, "sort_order must be asc or desc")
+		return
+	}
 	threshold, err := strconv.ParseInt(strings.TrimSpace(c.Query("daily_threshold")), 10, 64)
 	if err != nil || threshold <= 0 {
 		response.BadRequest(c, "daily_threshold is required and must be a positive integer token count")
@@ -54,6 +64,7 @@ func (h *UsageHandler) GetDownstreamAssessment(c *gin.Context) {
 	page, pageSize := response.ParsePagination(c)
 	result, err := h.usageService.GetDownstreamAssessment(c.Request.Context(), pagination.PaginationParams{Page: page, PageSize: pageSize}, service.DownstreamAssessmentFilter{
 		GroupID: groupID, StartTime: start, EndTime: end.AddDate(0, 0, 1), Days: days, DailyThreshold: threshold,
+		SortBy: sortBy, SortOrder: sortOrder,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

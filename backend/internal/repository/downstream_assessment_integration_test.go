@@ -124,6 +124,28 @@ func TestDownstreamAssessmentMembershipAndUsage(t *testing.T) {
 	}
 	require.Equal(t, []int64{idle.ID, subscriber.ID, below.ID, exact.ID, keyOnly.ID}, ids)
 	require.Equal(t, []bool{false, false, false, true, true}, qualified)
+	for _, field := range []string{"total_tokens", "daily_average"} {
+		for _, direction := range []string{"asc", "desc"} {
+			t.Run(field+"/"+direction, func(t *testing.T) {
+				sortedFilter := filter
+				sortedFilter.SortBy, sortedFilter.SortOrder = field, direction
+				var sortedIDs []int64
+				for page := 1; page <= 3; page++ {
+					result, err := repo.GetDownstreamAssessment(ctx, pagination.PaginationParams{Page: page, PageSize: 2}, sortedFilter)
+					require.NoError(t, err)
+					require.Equal(t, int64(21999999999), result.TotalTokens)
+					for _, row := range result.Items {
+						sortedIDs = append(sortedIDs, row.UserID)
+					}
+				}
+				want := []int64{idle.ID, subscriber.ID, below.ID, exact.ID, keyOnly.ID}
+				if direction == "desc" {
+					want = []int64{below.ID, idle.ID, subscriber.ID, keyOnly.ID, exact.ID}
+				}
+				require.Equal(t, want, sortedIDs)
+			})
+		}
+	}
 	result, err := repo.GetDownstreamAssessment(ctx, pagination.PaginationParams{Page: 20, PageSize: 2}, filter)
 	require.NoError(t, err)
 	require.Equal(t, int64(5), result.Total)

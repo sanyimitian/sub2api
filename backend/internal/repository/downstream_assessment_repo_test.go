@@ -23,7 +23,7 @@ func TestDownstreamAssessmentRepositoryPagination(t *testing.T) {
 	start := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	lastUsed := time.Date(2026, 10, 15, 12, 34, 56, 0, time.FixedZone("UTC+8", 8*60*60))
 	filter := service.DownstreamAssessmentFilter{GroupID: 7, StartTime: start, EndTime: start.AddDate(0, 0, 7), Days: 7, DailyThreshold: 1000000000}
-	mock.ExpectQuery(regexp.QuoteMeta(downstreamAssessmentSQL)).
+	mock.ExpectQuery(regexp.QuoteMeta(downstreamAssessmentQuery(filter))).
 		WithArgs(int64(7), filter.StartTime, filter.EndTime, 7, int64(1000000000), 2, 0).
 		WillReturnRows(sqlmock.NewRows(assessmentColumns).
 			AddRow(3, 1, 2, int64(7000000000), 1, "idle@test.com", "Idle", 0, 0, 0, false, nil).
@@ -48,7 +48,7 @@ func TestDownstreamAssessmentRepositoryEmptyPageKeepsSummary(t *testing.T) {
 	for _, total := range []int64{0, 7} {
 		db, mock := newSQLMock(t)
 		repo := newUsageLogRepositoryWithSQL(nil, db)
-		mock.ExpectQuery(regexp.QuoteMeta(downstreamAssessmentSQL)).WillReturnRows(sqlmock.NewRows(assessmentColumns).AddRow(total, 0, total, 0, nil, nil, nil, nil, nil, nil, nil, nil))
+		mock.ExpectQuery(regexp.QuoteMeta(downstreamAssessmentQuery(service.DownstreamAssessmentFilter{}))).WillReturnRows(sqlmock.NewRows(assessmentColumns).AddRow(total, 0, total, 0, nil, nil, nil, nil, nil, nil, nil, nil))
 		result, err := repo.GetDownstreamAssessment(context.Background(), pagination.PaginationParams{Page: 5, PageSize: 2}, service.DownstreamAssessmentFilter{Days: 7, DailyThreshold: 1})
 		require.NoError(t, err)
 		require.Equal(t, total, result.Total)
@@ -64,7 +64,7 @@ func TestDownstreamAssessmentRepositoryErrors(t *testing.T) {
 		t.Run(stage, func(t *testing.T) {
 			db, mock := newSQLMock(t)
 			repo := newUsageLogRepositoryWithSQL(nil, db)
-			expect := mock.ExpectQuery(regexp.QuoteMeta(downstreamAssessmentSQL))
+			expect := mock.ExpectQuery(regexp.QuoteMeta(downstreamAssessmentQuery(service.DownstreamAssessmentFilter{})))
 			switch stage {
 			case "query":
 				expect.WillReturnError(errors.New("unavailable"))
@@ -75,6 +75,28 @@ func TestDownstreamAssessmentRepositoryErrors(t *testing.T) {
 			}
 			_, err := repo.GetDownstreamAssessment(context.Background(), pagination.PaginationParams{Page: 1, PageSize: 20}, service.DownstreamAssessmentFilter{Days: 1, DailyThreshold: 1})
 			require.Error(t, err)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestDownstreamAssessmentRepositorySorting(t *testing.T) {
+	for _, tc := range []struct{ field, direction, want string }{
+		{"total_tokens", "asc", "total_tokens ASC"},
+		{"total_tokens", "desc", "total_tokens DESC"},
+		{"daily_average", "asc", "daily_average ASC"},
+		{"daily_average", "desc", "daily_average DESC"},
+		{"total_tokens; DROP TABLE users", "desc; --", "total_tokens ASC"},
+	} {
+		t.Run(tc.field+"/"+tc.direction, func(t *testing.T) {
+			db, mock := newSQLMock(t)
+			repo := newUsageLogRepositoryWithSQL(nil, db)
+			filter := service.DownstreamAssessmentFilter{Days: 7, DailyThreshold: 1, SortBy: tc.field, SortOrder: tc.direction}
+			pattern := "(?s)" + regexp.QuoteMeta("ORDER BY qualified ASC, "+tc.want+", user_id ASC LIMIT $6 OFFSET $7") + ".*" + regexp.QuoteMeta("ORDER BY p.qualified ASC, p."+tc.want+", p.user_id ASC")
+			mock.ExpectQuery(pattern).WithArgs(int64(0), filter.StartTime, filter.EndTime, 7, int64(1), 2, 2).
+				WillReturnRows(sqlmock.NewRows(assessmentColumns).AddRow(0, 0, 0, 0, nil, nil, nil, nil, nil, nil, nil, nil))
+			_, err := repo.GetDownstreamAssessment(context.Background(), pagination.PaginationParams{Page: 2, PageSize: 2}, filter)
+			require.NoError(t, err)
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}

@@ -16,6 +16,8 @@ type DownstreamAssessmentFilter struct {
 	EndTime        time.Time
 	Days           int
 	DailyThreshold int64
+	SortBy         string // total_tokens or daily_average; status always sorts first.
+	SortOrder      string // asc or desc
 }
 
 type DownstreamAssessmentUser struct {

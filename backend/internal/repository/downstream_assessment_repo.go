@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -47,7 +48,7 @@ WITH members AS (
         COALESCE(SUM(total_tokens), 0) AS total_tokens
     FROM assessed
 ), page AS (
-    SELECT * FROM assessed ORDER BY qualified ASC, total_tokens ASC, user_id ASC LIMIT $6 OFFSET $7
+    SELECT * FROM assessed ORDER BY qualified ASC, %s, user_id ASC LIMIT $6 OFFSET $7
 )
 SELECT s.total, s.qualified_count, s.unqualified_count, s.total_tokens AS summary_total_tokens,
     p.user_id, p.email, p.username, p.total_requests, p.total_tokens, p.daily_average, p.qualified,
@@ -58,10 +59,24 @@ LEFT JOIN LATERAL (
     WHERE ul.user_id = p.user_id
     ORDER BY ul.created_at DESC LIMIT 1
 ) last_usage ON TRUE
-ORDER BY p.qualified ASC, p.total_tokens ASC, p.user_id ASC`
+ORDER BY p.qualified ASC, p.%s, p.user_id ASC`
+
+func downstreamAssessmentQuery(filter service.DownstreamAssessmentFilter) string {
+	// Only interpolate fixed identifiers/directions, never raw request parameters.
+	column, direction := "total_tokens", "ASC"
+	if filter.SortBy == "daily_average" {
+		column = "daily_average"
+	}
+	if filter.SortOrder == "desc" {
+		direction = "DESC"
+	}
+	order := column + " " + direction
+	// Apply the same order before pagination and after joining last-used times.
+	return fmt.Sprintf(downstreamAssessmentSQL, order, order)
+}
 
 func (r *usageLogRepository) GetDownstreamAssessment(ctx context.Context, params pagination.PaginationParams, filter service.DownstreamAssessmentFilter) (*service.DownstreamAssessmentResult, error) {
-	rows, err := r.sql.QueryContext(ctx, downstreamAssessmentSQL, filter.GroupID, filter.StartTime, filter.EndTime, filter.Days, filter.DailyThreshold, params.Limit(), params.Offset())
+	rows, err := r.sql.QueryContext(ctx, downstreamAssessmentQuery(filter), filter.GroupID, filter.StartTime, filter.EndTime, filter.Days, filter.DailyThreshold, params.Limit(), params.Offset())
 	if err != nil {
 		return nil, err
 	}

@@ -57,6 +57,8 @@ func TestDownstreamAssessmentValidation(t *testing.T) {
 		{"daily_threshold", "1.5"}, {"daily_threshold", "NaN"}, {"daily_threshold", "9223372036854775808"},
 		{"start_date", ""}, {"start_date", "2026-02-30"}, {"end_date", ""},
 		{"end_date", "2026-09-30"}, {"timezone", "Invalid/Zone"},
+		{"sort_by", "email"}, {"sort_by", "total_tokens; DROP TABLE users"}, {"sort_by", ""},
+		{"sort_order", "invalid"}, {"sort_order", "desc; --"}, {"sort_order", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
@@ -97,6 +99,8 @@ func TestDownstreamAssessmentDatesAndPagination(t *testing.T) {
 			require.Equal(t, tc.endUTC, repo.filter.EndTime.UTC().Format(time.RFC3339))
 			require.Equal(t, int64(1000000000), repo.filter.DailyThreshold)
 			require.Equal(t, int64(7), repo.filter.GroupID)
+			require.Equal(t, "total_tokens", repo.filter.SortBy)
+			require.Equal(t, "asc", repo.filter.SortOrder)
 			require.Equal(t, 2, repo.params.Page)
 			require.Equal(t, 50, repo.params.PageSize)
 			var body struct {
@@ -106,6 +110,26 @@ func TestDownstreamAssessmentDatesAndPagination(t *testing.T) {
 			require.NotNil(t, body.Data.Items)
 			require.Equal(t, tc.days, body.Data.Days)
 		})
+	}
+}
+
+func TestDownstreamAssessmentSorting(t *testing.T) {
+	for _, field := range []string{"total_tokens", "daily_average"} {
+		for _, direction := range []string{"asc", "desc"} {
+			t.Run(field+"/"+direction, func(t *testing.T) {
+				repo := &assessmentRepoCapture{}
+				query := assessmentQuery()
+				query.Set("sort_by", field)
+				query.Set("sort_order", direction)
+				query.Set("page", "2")
+				rec := httptest.NewRecorder()
+				assessmentRouter(repo, &assessmentAdminStub{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assessment?"+query.Encode(), nil))
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+				require.Equal(t, field, repo.filter.SortBy)
+				require.Equal(t, direction, repo.filter.SortOrder)
+				require.Equal(t, 2, repo.params.Page)
+			})
+		}
 	}
 }
 

@@ -17,7 +17,7 @@ export default {
     loadUserError: '用户分组信息加载失败，请重试。',
     configureUserGroups: '设置 {email} 的分组',
     resultSummary: '{group} · {start} 至 {end} · 共 {days} 天 · 日均达标线 ≥ {threshold} B',
-    sortHint: '未达标用户优先，同一状态按用量从低到高排列；达标判断使用未四舍五入的实际用量。',
+    sortHint: '未达标用户优先。点击总用量或日均用量表头可切换同一状态内的升序、降序，排序覆盖全部分页；默认从低到高。排序和达标判断均使用未四舍五入的实际用量。',
     user: '用户',
     requests: '请求数',
     totalTokens: '总用量（B）',

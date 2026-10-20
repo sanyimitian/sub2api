@@ -1,5 +1,7 @@
 import { apiClient } from '../client'
 
+export type DownstreamAssessmentSortBy = 'total_tokens' | 'daily_average'
+
 export interface DownstreamAssessmentParams {
   // Selects users only; their usage is aggregated across all groups.
   group_id: number
@@ -8,6 +10,8 @@ export interface DownstreamAssessmentParams {
   daily_threshold: number // Whole tokens; the page converts its B input exactly.
   page: number
   page_size: number
+  sort_by?: DownstreamAssessmentSortBy
+  sort_order?: 'asc' | 'desc'
 }
 
 export interface DownstreamAssessmentUser {

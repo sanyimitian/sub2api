@@ -17,7 +17,7 @@ export default {
     loadUserError: 'Failed to load user group settings. Please retry.',
     configureUserGroups: 'Configure groups for {email}',
     resultSummary: '{group} · {start} to {end} · {days} days · Daily threshold ≥ {threshold} B',
-    sortHint: 'Below-threshold users appear first, then ascending usage within each status. Qualification uses unrounded usage.',
+    sortHint: 'Below-threshold users appear first. Click either usage header to toggle ascending or descending order within each status across all pages; ascending is the default. Sorting and qualification use unrounded usage.',
     user: 'User',
     requests: 'Requests',
     totalTokens: 'Total usage (B)',

@@ -67,8 +67,15 @@
                 <tr>
                   <th scope="col" class="px-4 py-3">{{ t('admin.downstreamAssessment.user') }}</th>
                   <th scope="col" class="px-4 py-3 text-right">{{ t('admin.downstreamAssessment.requests') }}</th>
-                  <th scope="col" class="px-4 py-3 text-right">{{ t('admin.downstreamAssessment.totalTokens') }}</th>
-                  <th scope="col" class="px-4 py-3 text-right">{{ t('admin.downstreamAssessment.dailyAverage') }}</th>
+                  <th v-for="column in usageColumns" :key="column.key" scope="col" class="px-4 py-3 text-right" :aria-sort="getAriaSort(column.key)">
+                    <button type="button" class="inline-flex items-center gap-1 rounded hover:text-primary-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 dark:hover:text-primary-400" :data-testid="`sort-${column.key}`" @click="changeSort(column.key)">
+                      {{ t(column.label) }}
+                      <span class="inline-flex h-5 w-4 flex-col items-center justify-center" aria-hidden="true">
+                        <svg class="h-2.5 w-2.5" :class="getAriaSort(column.key) === 'ascending' ? 'text-primary-600 dark:text-primary-400' : 'text-gray-300 dark:text-dark-500'" fill="currentColor" viewBox="0 0 10 10"><path d="M5 2L1.5 6.5h7L5 2z" /></svg>
+                        <svg class="-mt-0.5 h-2.5 w-2.5" :class="getAriaSort(column.key) === 'descending' ? 'text-primary-600 dark:text-primary-400' : 'text-gray-300 dark:text-dark-500'" fill="currentColor" viewBox="0 0 10 10"><path d="M5 8L1.5 3.5h7L5 8z" /></svg>
+                      </span>
+                    </button>
+                  </th>
                   <th scope="col" class="px-4 py-3">{{ t('admin.downstreamAssessment.status') }}</th>
                   <th scope="col" class="px-4 py-3" :title="t('admin.downstreamAssessment.lastUsedHelp')">{{ t('admin.downstreamAssessment.lastUsedAt') }}</th>
                   <th scope="col" class="px-4 py-3">{{ t('common.actions') }}</th>
@@ -126,7 +133,7 @@ import Icon from '@/components/icons/Icon.vue'
 import UserAllowedGroupsModal from '@/components/admin/user/UserAllowedGroupsModal.vue'
 import { getAllIncludingInactive } from '@/api/admin/groups'
 import { getById as getUserById } from '@/api/admin/users'
-import { getDownstreamAssessment, type DownstreamAssessmentParams, type DownstreamAssessmentResult } from '@/api/admin/downstreamAssessment'
+import { getDownstreamAssessment, type DownstreamAssessmentParams, type DownstreamAssessmentResult, type DownstreamAssessmentSortBy } from '@/api/admin/downstreamAssessment'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { parseDailyTokenThresholdB, formatTokensInBillions, TOKENS_PER_BILLION } from '@/utils/downstreamAssessment'
 import { formatDateTime } from '@/utils/format'
@@ -156,6 +163,10 @@ const loading = ref(false)
 const error = ref(false)
 const result = ref<DownstreamAssessmentResult | null>(null)
 const appliedFilters = ref<DownstreamAssessmentParams | null>(null)
+const usageColumns: { key: DownstreamAssessmentSortBy; label: string }[] = [
+  { key: 'total_tokens', label: 'admin.downstreamAssessment.totalTokens' },
+  { key: 'daily_average', label: 'admin.downstreamAssessment.dailyAverage' }
+]
 const appliedGroupName = computed(() => groups.value.find(group => group.id === appliedFilters.value?.group_id)?.name ?? '')
 let controller: AbortController | null = null
 let requestVersion = 0
@@ -231,6 +242,17 @@ function runAssessment() {
 function changePage(page: number) {
   if (!appliedFilters.value || loading.value) return
   void fetchAssessment({ ...appliedFilters.value, page })
+}
+
+function getAriaSort(key: DownstreamAssessmentSortBy): 'none' | 'ascending' | 'descending' {
+  if ((appliedFilters.value?.sort_by ?? 'total_tokens') !== key) return 'none'
+  return appliedFilters.value?.sort_order === 'desc' ? 'descending' : 'ascending'
+}
+
+function changeSort(key: DownstreamAssessmentSortBy) {
+  if (!appliedFilters.value || loading.value) return
+  const order = getAriaSort(key) === 'ascending' ? 'desc' : 'asc'
+  void fetchAssessment({ ...appliedFilters.value, page: 1, sort_by: key, sort_order: order })
 }
 
 function changePageSize(size: number) {
