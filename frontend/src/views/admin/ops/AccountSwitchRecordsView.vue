@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -8,7 +8,8 @@ import { opsAPI, type OpsSystemLog } from '@/api/admin/ops'
 import { useAppStore } from '@/stores'
 
 type TimeRange = '5m' | '30m' | '1h' | '6h' | '24h'
-type SwitchEvent = 'probe' | 'pending' | 'reconnect' | 'completed'
+type SwitchEvent = 'probe' | 'pending' | 'reconnect' | 'completed' | 'assigned' | 'claimed' | 'discarded'
+type RecordCategory = 'latency' | 'claim'
 
 interface ProbeResultLog {
   probe_number?: number
@@ -22,14 +23,14 @@ interface ProbeResultLog {
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const allRecords = ref<OpsSystemLog[]>([])
 const loading = ref(false)
-const page = ref(1)
-const pageSize = ref(20)
-const total = ref(0)
 const timeRange = ref<TimeRange>('1h')
 const modelFilter = ref('')
 const expandedGroups = ref(new Set<string>())
+const categories = reactive([
+  { id: 'latency' as RecordCategory, title: 'latencyTitle', query: 'openai.ws_latency_switch_', expanded: false, page: 1, pageSize: 20, records: [] as OpsSystemLog[] },
+  { id: 'claim' as RecordCategory, title: 'claimTitle', query: 'openai.session_pool_', expanded: false, page: 1, pageSize: 20, records: [] as OpsSystemLog[] }
+])
 
 interface SwitchRecordGroup {
   id: string
@@ -51,7 +52,10 @@ const eventStyles: Record<SwitchEvent, string> = {
   probe: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300',
   pending: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
   reconnect: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  completed: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+  completed: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+  assigned: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+  claimed: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+  discarded: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
 }
 
 const eventType = (row: OpsSystemLog): SwitchEvent | null => {
@@ -64,6 +68,12 @@ const eventType = (row: OpsSystemLog): SwitchEvent | null => {
       return 'reconnect'
     case 'openai.ws_latency_switch_completed':
       return 'completed'
+    case 'openai.session_pool_assigned':
+      return 'assigned'
+    case 'openai.session_pool_assignment_completed':
+      return 'claimed'
+    case 'openai.session_pool_candidate_discarded':
+      return 'discarded'
     default:
       return null
   }
@@ -74,7 +84,10 @@ const eventLabel = (event: SwitchEvent) => {
     probe: 'admin.ops.switchRecords.probeCompleted',
     pending: 'admin.ops.switchRecords.pending',
     reconnect: 'admin.ops.switchRecords.reconnectRequested',
-    completed: 'admin.ops.switchRecords.completed'
+    completed: 'admin.ops.switchRecords.completed',
+    assigned: 'admin.ops.switchRecords.assigned',
+    claimed: 'admin.ops.switchRecords.claimed',
+    discarded: 'admin.ops.switchRecords.discarded'
   }
   return t(keys[event])
 }
@@ -113,11 +126,11 @@ const formatTime = (value: string) => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
-const groups = computed<SwitchRecordGroup[]>(() => {
+const groupRecords = (records: OpsSystemLog[], category: RecordCategory): SwitchRecordGroup[] => {
   const grouped = new Map<string, OpsSystemLog[]>()
-  for (const row of allRecords.value) {
+  for (const row of records) {
     const conversationID = extraValue(row, 'conversation_id')
-    const key = conversationID ? `conversation:${conversationID}` : `legacy:${row.id}`
+    const key = conversationID ? `${category}:conversation:${conversationID}` : `${category}:legacy:${row.id}`
     const rows = grouped.get(key) || []
     rows.push(row)
     grouped.set(key, rows)
@@ -134,12 +147,23 @@ const groups = computed<SwitchRecordGroup[]>(() => {
       targetAccount: newestValue(targetAccount)
     }
   }).sort((a, b) => new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime())
-})
+}
 
-const pagedGroups = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return groups.value.slice(start, start + pageSize.value)
-})
+const sections = computed(() => categories.map((category) => {
+  const groups = groupRecords(category.records, category.id)
+  const start = (category.page - 1) * category.pageSize
+  return { ...category, groups, pagedGroups: groups.slice(start, start + category.pageSize) }
+}))
+
+const toggleSection = (id: RecordCategory) => {
+  const category = categories.find((item) => item.id === id)!
+  category.expanded = !category.expanded
+}
+
+const claimProbeLatency = (group: SwitchRecordGroup) => {
+  const event = [...group.events].reverse().find((row) => row.extra?.probe_first_token_ms != null)
+  return event ? `${extraValue(event, 'probe_first_token_ms')} ms` : '-'
+}
 
 const toggleGroup = (id: string) => {
   const next = new Set(expandedGroups.value)
@@ -154,47 +178,53 @@ const groupStatus = (group: SwitchRecordGroup) => {
 }
 
 const fetchRecords = async () => {
+  if (loading.value) return
   loading.value = true
+  const filters = { time_range: timeRange.value, model: modelFilter.value.trim() || undefined }
   try {
-    const pageSize = 200
-    const rows: OpsSystemLog[] = []
-    let currentPage = 1
-    let responseTotal = 0
-    do {
-      const response = await opsAPI.listSystemLogs({
-        page: currentPage,
-        page_size: pageSize,
-        time_range: timeRange.value,
-        q: 'openai.ws_latency_switch_',
-        model: modelFilter.value.trim() || undefined
-      })
-      rows.push(...(response.items || []).filter((row) => eventType(row) !== null))
-      responseTotal = response.total || 0
-      currentPage++
-    } while (rows.length < responseTotal && currentPage <= Math.ceil(responseTotal / pageSize))
-    allRecords.value = rows
-    total.value = groups.value.length
+    await Promise.all(categories.map(async (category) => {
+      try {
+        const batchSize = 200
+        const rows: OpsSystemLog[] = []
+        let currentPage = 1
+        let responseTotal = 0
+        do {
+          const response = await opsAPI.listSystemLogs({
+            page: currentPage,
+            page_size: batchSize,
+            ...filters,
+            q: category.query
+          })
+          rows.push(...(response.items || []).filter((row) => row.message.startsWith(category.query) && eventType(row) !== null))
+          responseTotal = response.total || 0
+          currentPage++
+        } while (currentPage <= Math.ceil(responseTotal / batchSize))
+        category.records = rows
+        category.page = 1
+      } catch (error: any) {
+        category.records = []
+        console.error('[AccountSwitchRecordsView] Failed to fetch records', error)
+        appStore.showError(error?.response?.data?.detail || t('admin.ops.switchRecords.loadFailed'))
+      }
+    }))
     expandedGroups.value = new Set()
-  } catch (error: any) {
-    console.error('[AccountSwitchRecordsView] Failed to fetch records', error)
-    appStore.showError(error?.response?.data?.detail || t('admin.ops.switchRecords.loadFailed'))
   } finally {
     loading.value = false
   }
 }
 
 const applyFilters = () => {
-  page.value = 1
   fetchRecords()
 }
 
-const changePage = (nextPage: number) => {
-  page.value = nextPage
+const changePage = (id: RecordCategory, nextPage: number) => {
+  categories.find((item) => item.id === id)!.page = nextPage
 }
 
-const changePageSize = (nextPageSize: number) => {
-  pageSize.value = nextPageSize
-  page.value = 1
+const changePageSize = (id: RecordCategory, nextPageSize: number) => {
+  const category = categories.find((item) => item.id === id)!
+  category.pageSize = nextPageSize
+  category.page = 1
 }
 
 onMounted(fetchRecords)
@@ -228,112 +258,131 @@ onMounted(fetchRecords)
             @keyup.enter="applyFilters"
           />
         </label>
-        <button type="button" class="btn btn-primary btn-sm" @click="applyFilters">
+        <button type="button" class="btn btn-primary btn-sm" :disabled="loading" @click="applyFilters">
           {{ t('admin.ops.switchRecords.search') }}
         </button>
       </section>
 
-      <div class="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
-        <table class="w-full min-w-[1020px] text-left text-sm">
-          <thead class="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-dark-800 dark:text-gray-400">
-            <tr>
-              <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.time') }}</th>
-              <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.status') }}</th>
-              <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.triggeringUser') }}</th>
-              <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.fromAccount') }}</th>
-              <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.targetAccount') }}</th>
-              <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.model') }}</th>
-              <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.probeResults') }}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100 dark:divide-dark-800">
-            <tr v-if="loading">
-              <td colspan="7" class="px-4 py-10 text-center text-gray-500">{{ t('common.loading') }}</td>
-            </tr>
-            <tr v-else-if="groups.length === 0">
-              <td colspan="7" class="px-4 py-10 text-center text-gray-500">{{ t('admin.ops.switchRecords.empty') }}</td>
-            </tr>
-            <template v-else>
-              <template v-for="group in pagedGroups" :key="group.id">
-              <tr class="text-gray-700 dark:text-gray-200">
-                <td class="whitespace-nowrap px-4 py-3">
-                  <button
-                    type="button"
-                    class="inline-flex items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
-                    data-testid="toggle-switch-group"
-                    :aria-expanded="expandedGroups.has(group.id)"
-                    :aria-label="`${expandedGroups.has(group.id) ? t('admin.ops.switchRecords.collapse') : t('admin.ops.switchRecords.expand')} ${triggeringUser(group.latest)}`"
-                    @click="toggleGroup(group.id)"
-                  >
-                    <span aria-hidden="true" class="w-4 shrink-0 text-center">{{ expandedGroups.has(group.id) ? '▾' : '▸' }}</span>
-                    {{ formatTime(group.latest.created_at) }}
-                  </button>
-                </td>
-                <td class="px-4 py-3">
-                  <span
-                    v-if="eventType(group.latest)"
-                    class="inline-flex rounded-md px-2 py-1 text-xs font-medium"
-                    :class="eventStyles[eventType(group.latest)!]"
-                  >
-                    {{ groupStatus(group) }}<span v-if="eventType(group.latest) === 'probe' && probeRound(group.latest)"> · {{ probeRound(group.latest) }}</span>
-                  </span>
-                  <span class="ml-2 text-xs text-gray-500">{{ t('admin.ops.switchRecords.eventCount', { count: group.events.length }) }}</span>
-                </td>
-                <td class="px-4 py-3" data-testid="triggering-user">
-                  <div class="font-medium">{{ triggeringUser(group.latest) }}</div>
-                  <div v-if="extraValue(group.latest, 'username') && extraValue(group.latest, 'user_email')" class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ extraValue(group.latest, 'user_email') }}</div>
-                  <div v-if="group.latest.user_id && (extraValue(group.latest, 'username') || extraValue(group.latest, 'user_email'))" class="mt-1 font-mono text-xs text-gray-500 dark:text-gray-400">ID: {{ group.latest.user_id }}</div>
-                </td>
-                <td class="px-4 py-3 font-mono">{{ group.fromAccount }}</td>
-                <td class="px-4 py-3 font-mono">{{ group.targetAccount }}</td>
-                <td class="px-4 py-3">{{ group.latest.model || '-' }}</td>
-                <td class="px-4 py-3">
-                  <div v-if="probeResults(group.latest).length" class="space-y-1">
-                    <div
-                      v-for="(result, index) in probeResults(group.latest)"
-                      :key="result.probe_number ?? index"
-                      class="whitespace-nowrap text-xs"
-                    >
-                      <span class="font-mono">{{ t('admin.ops.switchRecords.probeNumber') }} #{{ result.probe_number ?? index + 1 }}: {{ attemptedAccounts(result) }}</span>
-                      <span class="ml-2 text-gray-500 dark:text-gray-400">
-                        {{ result.first_token_ms == null ? '-' : `${result.first_token_ms} ms` }}
-                        · {{ probeStatus(result) }}
-                      </span>
-                    </div>
-                  </div>
-                  <span v-else class="text-gray-400">-</span>
-                </td>
-              </tr>
-              <tr v-if="expandedGroups.has(group.id)" class="bg-gray-50 text-gray-700 dark:bg-dark-800/50 dark:text-gray-200">
-                <td colspan="7" class="px-4 py-3">
-                  <ol class="space-y-2">
-                    <li v-for="event in group.events" :key="event.id" class="grid gap-2 text-xs sm:grid-cols-[150px_150px_minmax(0,1fr)]">
-                      <time class="text-gray-500 dark:text-gray-400">{{ formatTime(event.created_at) }}</time>
-                      <span>{{ eventType(event) ? eventLabel(eventType(event)!) : '-' }}</span>
-                      <div v-if="probeResults(event).length" class="space-y-1">
-                        <div v-for="(result, index) in probeResults(event)" :key="result.probe_number ?? index">
-                          <span class="font-mono">{{ t('admin.ops.switchRecords.probeNumber') }} #{{ result.probe_number ?? index + 1 }}: {{ attemptedAccounts(result) }}</span>
-                          <span class="ml-2 text-gray-500 dark:text-gray-400">{{ result.first_token_ms == null ? '-' : `${result.first_token_ms} ms` }} · {{ probeStatus(result) }}</span>
+      <section v-for="section in sections" :key="section.id" class="space-y-3">
+        <h2>
+          <button
+            type="button"
+            class="flex w-full items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-3 text-left text-sm font-semibold text-gray-900 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:border-dark-700 dark:bg-dark-900 dark:text-white dark:hover:bg-dark-800"
+            :data-testid="`toggle-${section.id}-section`"
+            :aria-expanded="section.expanded"
+            :aria-controls="`${section.id}-records`"
+            @click="toggleSection(section.id)"
+          >
+            <span aria-hidden="true" class="w-4 shrink-0 text-center">{{ section.expanded ? '▾' : '▸' }}</span>
+            {{ t(`admin.ops.switchRecords.${section.title}`) }}
+            <span v-if="!loading" class="ml-auto text-xs font-normal text-gray-500 dark:text-gray-400">{{ t('admin.ops.switchRecords.conversationCount', { count: section.groups.length }) }}</span>
+          </button>
+        </h2>
+        <div v-if="section.expanded" :id="`${section.id}-records`" class="space-y-3">
+          <div class="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
+            <table class="w-full min-w-[1020px] text-left text-sm">
+              <thead class="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-dark-800 dark:text-gray-400">
+                <tr>
+                  <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.time') }}</th>
+                  <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.status') }}</th>
+                  <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.triggeringUser') }}</th>
+                  <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.fromAccount') }}</th>
+                  <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.targetAccount') }}</th>
+                  <th class="px-4 py-3 font-medium">{{ t('admin.ops.switchRecords.model') }}</th>
+                  <th class="px-4 py-3 font-medium">{{ t(section.id === 'claim' ? 'admin.ops.switchRecords.probeLatency' : 'admin.ops.switchRecords.probeResults') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100 dark:divide-dark-800">
+                <tr v-if="loading">
+                  <td colspan="7" class="px-4 py-10 text-center text-gray-500">{{ t('common.loading') }}</td>
+                </tr>
+                <tr v-else-if="section.groups.length === 0">
+                  <td colspan="7" class="px-4 py-10 text-center text-gray-500">{{ t('admin.ops.switchRecords.empty') }}</td>
+                </tr>
+                <template v-else>
+                  <template v-for="group in section.pagedGroups" :key="group.id">
+                    <tr class="text-gray-700 dark:text-gray-200">
+                      <td class="whitespace-nowrap px-4 py-3">
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                          data-testid="toggle-switch-group"
+                          :aria-expanded="expandedGroups.has(group.id)"
+                          :aria-label="`${expandedGroups.has(group.id) ? t('admin.ops.switchRecords.collapse') : t('admin.ops.switchRecords.expand')} ${triggeringUser(group.latest)}`"
+                          @click="toggleGroup(group.id)"
+                        >
+                          <span aria-hidden="true" class="w-4 shrink-0 text-center">{{ expandedGroups.has(group.id) ? '▾' : '▸' }}</span>
+                          {{ formatTime(group.latest.created_at) }}
+                        </button>
+                      </td>
+                      <td class="px-4 py-3">
+                        <span
+                          v-if="eventType(group.latest)"
+                          class="inline-flex rounded-md px-2 py-1 text-xs font-medium"
+                          :class="eventStyles[eventType(group.latest)!]"
+                        >
+                          {{ groupStatus(group) }}<span v-if="eventType(group.latest) === 'probe' && probeRound(group.latest)"> · {{ probeRound(group.latest) }}</span>
+                        </span>
+                        <span class="ml-2 text-xs text-gray-500">{{ t('admin.ops.switchRecords.eventCount', { count: group.events.length }) }}</span>
+                      </td>
+                      <td class="px-4 py-3" data-testid="triggering-user">
+                        <div class="font-medium">{{ triggeringUser(group.latest) }}</div>
+                        <div v-if="extraValue(group.latest, 'username') && extraValue(group.latest, 'user_email')" class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ extraValue(group.latest, 'user_email') }}</div>
+                        <div v-if="group.latest.user_id && (extraValue(group.latest, 'username') || extraValue(group.latest, 'user_email'))" class="mt-1 font-mono text-xs text-gray-500 dark:text-gray-400">ID: {{ group.latest.user_id }}</div>
+                      </td>
+                      <td class="px-4 py-3 font-mono">{{ group.fromAccount }}</td>
+                      <td class="px-4 py-3 font-mono">{{ group.targetAccount }}</td>
+                      <td class="px-4 py-3">{{ group.latest.model || '-' }}</td>
+                      <td class="px-4 py-3">
+                        <span v-if="section.id === 'claim'" class="whitespace-nowrap font-mono text-xs">{{ claimProbeLatency(group) }}</span>
+                        <div v-else-if="probeResults(group.latest).length" class="space-y-1">
+                          <div
+                            v-for="(result, index) in probeResults(group.latest)"
+                            :key="result.probe_number ?? index"
+                            class="whitespace-nowrap text-xs"
+                          >
+                            <span class="font-mono">{{ t('admin.ops.switchRecords.probeNumber') }} #{{ result.probe_number ?? index + 1 }}: {{ attemptedAccounts(result) }}</span>
+                            <span class="ml-2 text-gray-500 dark:text-gray-400">
+                              {{ result.first_token_ms == null ? '-' : `${result.first_token_ms} ms` }}
+                              · {{ probeStatus(result) }}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    </li>
-                  </ol>
-                </td>
-              </tr>
-              </template>
-            </template>
-          </tbody>
-        </table>
-      </div>
+                        <span v-else class="text-gray-400">-</span>
+                      </td>
+                    </tr>
+                    <tr v-if="expandedGroups.has(group.id)" class="bg-gray-50 text-gray-700 dark:bg-dark-800/50 dark:text-gray-200">
+                      <td colspan="7" class="px-4 py-3">
+                        <ol class="space-y-2">
+                          <li v-for="event in group.events" :key="event.id" class="grid gap-2 text-xs sm:grid-cols-[150px_150px_minmax(0,1fr)]">
+                            <time class="text-gray-500 dark:text-gray-400">{{ formatTime(event.created_at) }}</time>
+                            <span>{{ eventType(event) ? eventLabel(eventType(event)!) : '-' }}</span>
+                            <div v-if="probeResults(event).length" class="space-y-1">
+                              <div v-for="(result, index) in probeResults(event)" :key="result.probe_number ?? index">
+                                <span class="font-mono">{{ t('admin.ops.switchRecords.probeNumber') }} #{{ result.probe_number ?? index + 1 }}: {{ attemptedAccounts(result) }}</span>
+                                <span class="ml-2 text-gray-500 dark:text-gray-400">{{ result.first_token_ms == null ? '-' : `${result.first_token_ms} ms` }} · {{ probeStatus(result) }}</span>
+                              </div>
+                            </div>
+                          </li>
+                        </ol>
+                      </td>
+                    </tr>
+                  </template>
+                </template>
+              </tbody>
+            </table>
+          </div>
 
-      <Pagination
-        v-if="total > 0"
-        :page="page"
-        :total="total"
-        :page-size="pageSize"
-        @update:page="changePage"
-        @update:pageSize="changePageSize"
-      />
+          <Pagination
+            v-if="section.groups.length > 0"
+            :page="section.page"
+            :total="section.groups.length"
+            :page-size="section.pageSize"
+            @update:page="changePage(section.id, $event)"
+            @update:pageSize="changePageSize(section.id, $event)"
+          />
+        </div>
+      </section>
     </main>
   </AppLayout>
 </template>

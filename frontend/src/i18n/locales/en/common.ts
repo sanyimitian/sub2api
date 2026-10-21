@@ -186,7 +186,7 @@ export default {
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',
-    accountSwitchRecords: 'Latency Switches',
+    accountSwitchRecords: 'Session Switches',
     promoCodes: 'Promo Codes',
     settings: 'Settings',
     myAccount: 'My Account',

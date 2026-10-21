@@ -753,7 +753,7 @@ func (session *OpenAIWSLatencySession) abandonPreparedCandidate(ctx context.Cont
 			zap.Int64("target_account_id", old.TargetID), zap.String("target_result_id", old.TargetResultID),
 			zap.Bool("candidate_committed", old.CandidateCommitted), zap.Bool("initial_assignment", old.InitialAssignment))
 		if old.CandidateCommitted {
-			session.actor.writeEvent("openai.session_pool_candidate_discarded", map[string]any{"target_account_id": old.TargetID, "target_result_id": old.TargetResultID, "reason": reason})
+			session.actor.writeEvent("openai.session_pool_candidate_discarded", map[string]any{"target_account_id": old.TargetID, "target_result_id": old.TargetResultID, "model": session.model, "reason": reason})
 		}
 		session.service.wakeOpenAISessionPool()
 	}

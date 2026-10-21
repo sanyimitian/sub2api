@@ -465,7 +465,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: true,
-      title: 'Account Switch Records',
+      title: 'Session Switch Records',
       titleKey: 'admin.ops.switchRecords.title',
       descriptionKey: 'admin.ops.switchRecords.description'
     }

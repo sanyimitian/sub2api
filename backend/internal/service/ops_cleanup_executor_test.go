@@ -19,7 +19,9 @@ func TestDeleteOldOpenAIWSLatencySwitchLogs(t *testing.T) {
 	query := regexp.QuoteMeta(`
 WITH batch AS (
   SELECT id FROM ops_system_logs
-  WHERE message LIKE 'openai.ws_latency_switch_%' AND created_at < $1
+  WHERE (message LIKE 'openai.ws_latency_switch_%'
+    OR message IN ('openai.session_pool_assigned', 'openai.session_pool_assignment_completed', 'openai.session_pool_candidate_discarded'))
+    AND created_at < $1
   ORDER BY id
   LIMIT $2
 )

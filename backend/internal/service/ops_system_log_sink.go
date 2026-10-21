@@ -165,7 +165,8 @@ func (s *OpsSystemLogSink) shouldIndex(event *logger.LogEvent) bool {
 	}
 	if event != nil {
 		switch strings.TrimSpace(event.Message) {
-		case "openai.ws_latency_switch_probe_completed", "openai.ws_latency_switch_pending", "openai.ws_latency_switch_reconnect_requested", "openai.ws_latency_switch_completed":
+		case "openai.ws_latency_switch_probe_completed", "openai.ws_latency_switch_pending", "openai.ws_latency_switch_reconnect_requested", "openai.ws_latency_switch_completed",
+			"openai.session_pool_assigned", "openai.session_pool_assignment_completed", "openai.session_pool_candidate_discarded":
 			return true
 		}
 	}

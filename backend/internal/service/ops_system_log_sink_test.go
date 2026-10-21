@@ -106,6 +106,25 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 	}
 }
 
+func TestOpsSystemLogSink_ShouldIndexSessionPoolLifecycle(t *testing.T) {
+	sink := &OpsSystemLogSink{}
+	for _, message := range []string{"openai.session_pool_assigned", "openai.session_pool_assignment_completed", "openai.session_pool_candidate_discarded"} {
+		t.Run(message, func(t *testing.T) {
+			event := &logger.LogEvent{Level: "info", Message: message}
+			if !sink.shouldIndex(event) {
+				t.Fatal("session pool lifecycle event must be persisted")
+			}
+			event.Fields = map[string]any{logger.OpsSystemLogSkipField: true}
+			if sink.shouldIndex(event) {
+				t.Fatal("explicit skip must still take precedence")
+			}
+		})
+	}
+	if sink.shouldIndex(&logger.LogEvent{Level: "info", Message: "openai.session_pool_probe_completed"}) {
+		t.Fatal("background probe diagnostics must not become conversation claim records")
+	}
+}
+
 func TestOpsSystemLogSink_ShouldIndexAccessLogsOnlyWhenEnabled(t *testing.T) {
 	sink := &OpsSystemLogSink{}
 	sink.SetPersistAccessLogs(true)
