@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -94,4 +95,64 @@ func openAIWSLatencyRemainingMS(until, now int64) int64 {
 		return until - now
 	}
 	return 0
+}
+
+// 路由诊断与原有状态事件分开：应用会话标识不代表已发送请求或接管成功。
+func (session *OpenAIWSLatencySession) routeDiagnostic(ctx context.Context, level logger.Level, stage, reason, model string, state openAIWSLatencyState, fields ...zap.Field) {
+	session.mu.Lock()
+	recovering, confirmed := session.recovering, session.recoveryConfirmed
+	session.mu.Unlock()
+	base := append(session.actor.diagnosticFields(), zap.String("stage", stage),
+		zap.String("model", model), zap.String("transport", string(session.requiredTransport)),
+		zap.Int64("from_account_id", state.AccountID), zap.Int64("target_account_id", state.TargetID),
+		zap.String("target_result_id", state.TargetResultID),
+		zap.Int64("pending_remaining_ms", openAIWSLatencyRemainingMS(state.PendingUntil, time.Now().UnixMilli())),
+		zap.Bool("reconnect_requested", state.ReconnectFrom != ""),
+		zap.Bool("candidate_lease_present", state.CandidateLeaseID != ""),
+		zap.Bool("upstream_session_present", state.UpstreamSessionID != ""),
+		zap.Bool("recovering", recovering), zap.Bool("recovery_confirmed", confirmed))
+	writeOpenAIWSLatencyDiagnostic(ctx, level, reason, append(base, fields...)...)
+}
+
+// 只汇总已读取的池快照，不增加缓存访问；预占、已承诺独占和可领取分别计数。
+func openAIWSLatencyPoolDiagnosticFields(pool openAIWSLatencyCandidatePool, eligible map[int64]struct{}, models map[int64]string, now int64) []zap.Field {
+	var expired, ineligible, allowed, invalid, leased, committed, available int
+	var nextExpiry, nextLease int64
+	for _, candidate := range pool.Candidates {
+		if candidate.ExpiresAt <= now {
+			expired++
+			continue
+		}
+		if !openAIWSLatencyCandidateAllowed(candidate, eligible, models) {
+			ineligible++
+			continue
+		}
+		allowed++
+		if nextExpiry == 0 || candidate.ExpiresAt < nextExpiry {
+			nextExpiry = candidate.ExpiresAt
+		}
+		switch {
+		case candidate.FirstTokenMS < 0 || candidate.FirstTokenMS >= openAIWSLatencyCandidateMaxFirstTokenMS:
+			invalid++
+		case candidate.Committed:
+			committed++
+		case candidate.LeaseID != "" && candidate.LeaseUntil > now:
+			leased++
+			if nextLease == 0 || candidate.LeaseUntil < nextLease {
+				nextLease = candidate.LeaseUntil
+			}
+		default:
+			available++
+		}
+	}
+	return []zap.Field{
+		zap.Int("candidate_count", len(pool.Candidates)), zap.Int("expired_candidate_count", expired),
+		zap.Int("ineligible_candidate_count", ineligible), zap.Int("eligible_candidate_count", allowed),
+		zap.Int("invalid_latency_candidate_count", invalid), zap.Int("leased_candidate_count", leased),
+		zap.Int("committed_candidate_count", committed), zap.Int("available_candidate_count", available),
+		zap.Bool("eligible_candidates_present", allowed > 0), zap.Bool("shared_probe_running", pool.ProbeUntil > now),
+		zap.Int64("shared_probe_remaining_ms", openAIWSLatencyRemainingMS(pool.ProbeUntil, now)),
+		zap.Int64("next_candidate_expiry_ms", openAIWSLatencyRemainingMS(nextExpiry, now)),
+		zap.Int64("next_lease_expiry_ms", openAIWSLatencyRemainingMS(nextLease, now)),
+	}
 }

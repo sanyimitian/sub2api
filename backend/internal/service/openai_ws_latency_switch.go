@@ -546,9 +546,18 @@ func (session *OpenAIWSLatencySession) ApplyUpstreamSessionIdentity(ctx context.
 		routeSessionID = state.UpstreamSessionID
 	}
 	if routeSessionID == "" {
+		if state.TargetID > 0 || state.UpstreamSessionID != "" {
+			session.routeDiagnostic(ctx, logger.LevelInfo, "route", "upstream_session_not_applied", model, state, zap.Int64("account_id", account.ID))
+		}
 		return nil
 	}
 	c.Set(openAIWSLatencyUpstreamSessionContextKey, routeSessionID)
+	level := logger.LevelDebug
+	if state.TargetID > 0 {
+		level = logger.LevelInfo
+	}
+	session.routeDiagnostic(ctx, level, "route", "upstream_session_applied", model, state,
+		zap.Int64("account_id", account.ID), zap.String("upstream_session_hash", hashOpenAIWSLatencyModel(routeSessionID)))
 	return nil
 }
 
@@ -575,7 +584,9 @@ func (session *OpenAIWSLatencySession) Prepare(ctx context.Context, payload []by
 	coverage := AnalyzeToolCallOutputContextCoverageBytes(payload)
 	if previous != "" || (coverage.HasFunctionCallOutput && !coverage.ContextCoversAllCallIDs) {
 		if state.ReconnectFrom != "" {
-			slog.Warn("openai.ws_latency_recovery_context_required", "scope", session.scope, "has_previous_response_id", previous != "", "tool_context_complete", coverage.ContextCoversAllCallIDs)
+			logger.FromContext(ctx).Warn("openai.ws_latency_recovery_context_required", append(session.actor.diagnosticFields(),
+				zap.Bool("has_previous_response_id", previous != ""), zap.Bool("tool_context_complete", coverage.ContextCoversAllCallIDs),
+				zap.Int64("target_account_id", state.TargetID), zap.String("target_result_id", state.TargetResultID))...)
 			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "route switch requires complete context without previous_response_id", nil)
 		}
 		if openAIWSLatencyIsUserRequest(payload) {
@@ -589,7 +600,11 @@ func (session *OpenAIWSLatencySession) Prepare(ctx context.Context, payload []by
 	input := gjson.GetBytes(payload, "input")
 	generate := gjson.GetBytes(payload, "generate")
 	session.recoveryConfirmed = (!generate.Exists() || generate.Bool()) && ((input.IsArray() && len(input.Array()) > 0) || (input.Type == gjson.String && strings.TrimSpace(input.String()) != ""))
-	slog.Info("openai.ws_latency_reconnect_received", "scope", session.scope, "input_items", len(input.Array()), "has_previous_response_id", false, "has_tool_output", coverage.HasFunctionCallOutput, "tool_context_complete", coverage.ContextCoversAllCallIDs, "context_confirmed", session.recoveryConfirmed)
+	logger.FromContext(ctx).Info("openai.ws_latency_reconnect_received", append(session.actor.diagnosticFields(),
+		zap.Int("input_items", len(input.Array())), zap.Bool("has_previous_response_id", false),
+		zap.Bool("has_tool_output", coverage.HasFunctionCallOutput), zap.Bool("tool_context_complete", coverage.ContextCoversAllCallIDs),
+		zap.Bool("context_confirmed", session.recoveryConfirmed), zap.String("transport", string(session.requiredTransport)),
+		zap.Int64("target_account_id", state.TargetID), zap.String("target_result_id", state.TargetResultID))...)
 	session.clearUpstreamAffinity(ctx)
 	return nil
 }
@@ -602,7 +617,15 @@ func (session *OpenAIWSLatencySession) PrepareHTTP(ctx context.Context, payload 
 		return false, nil
 	}
 	state := session.state(ctx)
-	if state.TargetID <= 0 || state.PendingUntil <= time.Now().UnixMilli() || !openAIWSLatencyIsUserRequest(payload) {
+	if state.TargetID <= 0 || state.PendingUntil <= time.Now().UnixMilli() {
+		if state.TargetID > 0 {
+			session.routeDiagnostic(ctx, logger.LevelInfo, "reconnect", "pending_expired", session.model, state)
+		}
+		return false, nil
+	}
+	if !openAIWSLatencyIsUserRequest(payload) {
+		session.routeDiagnostic(ctx, logger.LevelInfo, "reconnect", "reconnect_non_user_request", session.model, state,
+			zap.String("request_kind", openAIWSLatencyRequestKind(payload)))
 		return false, nil
 	}
 	if state.ReconnectFrom == "" {
@@ -618,12 +641,14 @@ func (session *OpenAIWSLatencySession) PrepareHTTP(ctx context.Context, payload 
 			session.actor.writeEvent("openai.ws_latency_switch_reconnect_requested", map[string]any{
 				"from_account_id":   state.AccountID,
 				"target_account_id": state.TargetID,
+				"target_result_id":  state.TargetResultID,
 				"model":             session.model,
 				"transport":         string(OpenAIUpstreamTransportHTTPSSE),
 			})
 			return true, nil
 		}
 		if state.ReconnectFrom == "" {
+			session.routeDiagnostic(ctx, logger.LevelWarn, "reconnect", "reconnect_state_not_updated", session.model, state)
 			return false, nil
 		}
 	}
@@ -631,16 +656,24 @@ func (session *OpenAIWSLatencySession) PrepareHTTP(ctx context.Context, payload 
 	previous := strings.TrimSpace(gjson.GetBytes(payload, "previous_response_id").String())
 	coverage := AnalyzeToolCallOutputContextCoverageBytes(payload)
 	if previous != "" || (coverage.HasFunctionCallOutput && !coverage.ContextCoversAllCallIDs) {
+		session.routeDiagnostic(ctx, logger.LevelInfo, "reconnect", "reconnect_context_rejected", session.model, state,
+			zap.Bool("has_previous_response_id", previous != ""), zap.Bool("has_tool_output", coverage.HasFunctionCallOutput),
+			zap.Bool("tool_context_complete", coverage.ContextCoversAllCallIDs))
 		return false, fmt.Errorf("route switch requires complete context without previous_response_id")
 	}
 	input := gjson.GetBytes(payload, "input")
 	if !((input.IsArray() && len(input.Array()) > 0) || (input.Type == gjson.String && strings.TrimSpace(input.String()) != "")) {
+		session.routeDiagnostic(ctx, logger.LevelInfo, "reconnect", "reconnect_input_empty", session.model, state)
 		return false, fmt.Errorf("route switch requires complete request input")
 	}
 	session.recovering = true
 	session.recoveryConfirmed = true
 	session.clearUpstreamAffinity(ctx)
-	slog.Info("openai.ws_latency_reconnect_received", "scope", session.scope, "input_items", len(input.Array()), "has_previous_response_id", false, "has_tool_output", coverage.HasFunctionCallOutput, "tool_context_complete", coverage.ContextCoversAllCallIDs, "context_confirmed", true, "transport", string(OpenAIUpstreamTransportHTTPSSE))
+	logger.FromContext(ctx).Info("openai.ws_latency_reconnect_received", append(session.actor.diagnosticFields(),
+		zap.Int("input_items", len(input.Array())), zap.Bool("has_previous_response_id", false),
+		zap.Bool("has_tool_output", coverage.HasFunctionCallOutput), zap.Bool("tool_context_complete", coverage.ContextCoversAllCallIDs),
+		zap.Bool("context_confirmed", true), zap.String("transport", string(OpenAIUpstreamTransportHTTPSSE)),
+		zap.Int64("target_account_id", state.TargetID), zap.String("target_result_id", state.TargetResultID))...)
 	return false, nil
 }
 
@@ -670,6 +703,7 @@ func (session *OpenAIWSLatencySession) requestReconnect(ctx context.Context, mod
 	session.actor.writeEvent("openai.ws_latency_switch_reconnect_requested", map[string]any{
 		"from_account_id":   state.AccountID,
 		"target_account_id": state.TargetID,
+		"target_result_id":  state.TargetResultID,
 		"model":             model,
 	})
 	return NewOpenAIWSClientCloseError(OpenAIWSLatencySwitchCloseCode, "Request terminated", nil)
@@ -726,6 +760,21 @@ func (session *OpenAIWSLatencySession) SelectTarget(ctx context.Context, exclude
 	scheduler := &defaultOpenAIAccountScheduler{service: session.service}
 	selection, _, err := scheduler.selectBySessionHash(ctx, request)
 	decision := OpenAIAccountScheduleDecision{Layer: "latency_switch"}
+	selectionReason := "target_account_unavailable"
+	selectionFields := []zap.Field{zap.Bool("selection_failed", err != nil)}
+	switch {
+	case err != nil:
+		selectionReason = "target_selection_failed"
+	case selection != nil && !selection.Acquired:
+		selectionReason = "target_slot_not_acquired"
+	case selection != nil && selection.Account != nil:
+		selectionReason = "target_account_selected"
+	}
+	if selection != nil && selection.Account != nil {
+		selectionFields = append(selectionFields, zap.Int64("selected_account_id", selection.Account.ID),
+			zap.Bool("selected_target_matches", selection.Account.ID == state.TargetID))
+	}
+	session.routeDiagnostic(ctx, logger.LevelInfo, "selection", selectionReason, session.model, state, selectionFields...)
 	if err == nil && selection != nil && !selection.Acquired {
 		if selection.ReleaseFunc != nil {
 			selection.ReleaseFunc()
@@ -783,7 +832,14 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 			}
 		}
 	}
-	defer func() { writeOpenAIWSLatencyDiagnostic(ctx, level, reason, fields...) }()
+	completionDecision := "not_evaluated"
+	defer func() {
+		if session.recovering && level == logger.LevelDebug {
+			level = logger.LevelInfo
+		}
+		fields = append(fields, zap.String("switch_completion_decision", completionDecision))
+		writeOpenAIWSLatencyDiagnostic(ctx, level, reason, fields...)
+	}()
 	if !exists {
 		return
 	}
@@ -792,6 +848,16 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 		return
 	}
 	fields = append(fields, zap.Int64("account_id", account.ID))
+	switch {
+	case !session.recovering:
+		completionDecision = "not_recovering"
+	case !recoveryConfirmed:
+		completionDecision = "context_unconfirmed"
+	case !classification.user:
+		completionDecision = "non_user_request"
+	default:
+		completionDecision = "request_unsuccessful"
+	}
 	now := time.Now().UnixMilli()
 	if session.recovering && recoveryConfirmed && classification.user {
 		if turnErr != nil || result == nil || !result.SucceededForScheduling() {
@@ -804,7 +870,20 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 		upstreamSessionID := ""
 		poolModel := ""
 		poolKey := ""
+		completionDecision = "state_update_failed"
+		var completionState openAIWSLatencyState
+		completionStateRead := false
 		_, completed := session.service.updateOpenAIWSLatencyState(ctx, session.key(session.model), func(state *openAIWSLatencyState) bool {
+			completionState, completionStateRead = *state, true
+			completionDecision = "state_update_failed"
+			switch {
+			case state.TargetID != account.ID:
+				completionDecision = "target_account_mismatch"
+			case state.UpstreamSessionID == "":
+				completionDecision = "upstream_session_missing"
+			case state.CandidateLeaseID == "":
+				completionDecision = "candidate_lease_missing"
+			}
 			if state.TargetID != account.ID || state.UpstreamSessionID == "" || state.CandidateLeaseID == "" {
 				return false
 			}
@@ -818,7 +897,12 @@ func (session *OpenAIWSLatencySession) Observe(ctx context.Context, turn int, ac
 			return true
 		})
 		fields = append(fields, zap.Bool("switch_completed", completed))
+		if completionStateRead {
+			fields = append(fields, zap.Int64("completion_target_account_id", completionState.TargetID),
+				zap.String("completion_target_result_id", completionState.TargetResultID))
+		}
 		if completed {
+			completionDecision = "completed"
 			if poolKey == "" {
 				if poolModel == "" {
 					poolModel = session.upstreamModel

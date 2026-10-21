@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
@@ -270,4 +272,267 @@ func TestOpenAIWSLatencyDiagnosticFailedWriteDoesNotReportPersistedCount(t *test
 	require.Equal(t, "state_update_failed", events[0].Fields["reason"])
 	require.Equal(t, false, events[0].Fields["state_updated"])
 	require.NotContains(t, events[0].Fields, "slow_count_after")
+}
+
+func TestOpenAIWSLatencyDiagnosticReconnectDecisions(t *testing.T) {
+	for _, tt := range []struct {
+		name, payload, reason string
+		expired, rejected     bool
+	}{
+		{"工具回传仍跳过恢复", `{"input":[{"type":"function_call_output","call_id":"private-call","output":"private-output"}]}`, "reconnect_non_user_request", false, false},
+		{"等待过期", `{"input":"private-input"}`, "pending_expired", true, false},
+		{"旧响应引用拒绝接管", `{"previous_response_id":"private-response","input":"private-input"}`, "reconnect_context_rejected", false, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _ := newOpenAIWSLatencyTestService(t)
+			sink, cleanup := captureStructuredLog(t)
+			defer cleanup()
+			ctx := latencyDiagnosticContext()
+			session := svc.NewOpenAIHTTPResponsesLatencySession(ctx, nil, &APIKey{ID: 7}, "private-session", "test-model", "test-model", OpenAIEndpointCapabilityResponses, []byte(tt.payload))
+			state := openAIWSLatencyState{AccountID: 11, TargetID: 11, TargetResultID: "result-1", UpstreamSessionID: "private-upstream", CandidateLeaseID: "private-lease", ReconnectFrom: "private-connection", PendingUntil: time.Now().Add(time.Minute).UnixMilli()}
+			if tt.expired {
+				state.PendingUntil = time.Now().Add(-time.Second).UnixMilli()
+			}
+			svc.updateOpenAIWSLatencyState(ctx, session.key(session.model), func(s *openAIWSLatencyState) bool { *s = state; return true })
+			retry, err := session.PrepareHTTP(ctx, []byte(tt.payload))
+			require.Equal(t, tt.rejected, err != nil)
+			require.False(t, retry)
+			require.False(t, session.recovering)
+			require.Equal(t, state, session.state(ctx), "诊断不能改变重连状态")
+			events := latencyDiagnosticEvents(sink, "reconnect")
+			require.Len(t, events, 1)
+			require.Equal(t, tt.reason, events[0].Fields["reason"])
+			require.Equal(t, "server-request", events[0].Fields["request_id"])
+			require.Equal(t, session.scope, events[0].Fields["scope"])
+			require.Equal(t, true, events[0].Fields["reconnect_requested"])
+			if tt.reason == "reconnect_non_user_request" {
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				require.NoError(t, session.ApplyUpstreamSessionIdentity(ctx, c, &Account{ID: 11}, session.model))
+				require.Equal(t, "private-upstream", OpenAIWSLatencyUpstreamSessionID(c))
+				routes := latencyDiagnosticEvents(sink, "route")
+				require.Len(t, routes, 1)
+				require.Equal(t, "upstream_session_applied", routes[0].Fields["reason"])
+				require.Equal(t, false, routes[0].Fields["recovering"])
+				require.NotEmpty(t, routes[0].Fields["upstream_session_hash"])
+				events = append(events, routes...)
+			}
+			serialized, err := json.Marshal(events)
+			require.NoError(t, err)
+			require.NotContains(t, string(serialized), "private-")
+		})
+	}
+}
+
+func TestOpenAIWSLatencyDiagnosticCompletionDecisions(t *testing.T) {
+	for _, reason := range []string{"completed", "target_account_mismatch", "upstream_session_missing", "candidate_lease_missing", "non_user_request", "context_unconfirmed", "request_unsuccessful", "state_update_failed"} {
+		t.Run(reason, func(t *testing.T) {
+			svc, _ := newOpenAIWSLatencyTestService(t)
+			sink, cleanup := captureStructuredLog(t)
+			defer cleanup()
+			ctx := latencyDiagnosticContext()
+			payload := []byte(`{"input":"private-input"}`)
+			if reason == "non_user_request" {
+				payload = []byte(`{"input":[{"type":"function_call_output","output":"private-output"}]}`)
+			}
+			session := svc.NewOpenAIHTTPResponsesLatencySession(ctx, nil, &APIKey{ID: 7}, "private-session", "test-model", "test-model", OpenAIEndpointCapabilityResponses, payload)
+			session.recovering, session.recoveryConfirmed = true, reason != "context_unconfirmed"
+			state := openAIWSLatencyState{AccountID: 11, TargetID: 11, TargetResultID: "result-1", UpstreamSessionID: "private-upstream", CandidateLeaseID: "private-lease", PendingUntil: time.Now().Add(time.Minute).UnixMilli()}
+			switch reason {
+			case "target_account_mismatch":
+				state.TargetID = 22
+			case "upstream_session_missing":
+				state.UpstreamSessionID = ""
+			case "candidate_lease_missing":
+				state.CandidateLeaseID = ""
+			}
+			svc.updateOpenAIWSLatencyState(ctx, session.key(session.model), func(s *openAIWSLatencyState) bool { *s = state; return true })
+			if reason == "state_update_failed" {
+				svc.cache = &latencyDiagnosticFailureCache{mode: "read"}
+			}
+			var turnErr error
+			if reason == "request_unsuccessful" {
+				turnErr = errors.New("private-error")
+			}
+			firstMS := 1000
+			session.Observe(ctx, 1, &Account{ID: 11}, &OpenAIForwardResult{FirstTokenMs: &firstMS, Duration: 88 * time.Second, Usage: OpenAIUsage{OutputTokens: 100}}, turnErr)
+			events := latencyDiagnosticEvents(sink, "observe")
+			require.Len(t, events, 1, "完成判据合并进原统计事件")
+			require.Equal(t, reason, events[0].Fields["switch_completion_decision"])
+			require.Equal(t, true, events[0].Fields[logger.OpsSystemLogSkipField])
+			require.Contains(t, []string{"info", "warn"}, events[0].Level)
+			if reason == "completed" {
+				require.Equal(t, true, events[0].Fields["switch_completed"])
+				require.EqualValues(t, 88000, events[0].Fields["duration_ms"])
+				require.Zero(t, session.state(ctx).TargetID)
+			} else if reason != "state_update_failed" {
+				require.Equal(t, state, session.state(ctx))
+			}
+			serialized, err := json.Marshal(events)
+			require.NoError(t, err)
+			require.NotContains(t, string(serialized), "private-")
+		})
+	}
+}
+
+func TestOpenAIWSLatencyDiagnosticOccupiedPoolWait(t *testing.T) {
+	for _, outcome := range []string{"canceled", "deadline_exceeded", "candidate_reserved"} {
+		t.Run(outcome, func(t *testing.T) {
+			svc, cache := newOpenAIWSLatencyTestService(t)
+			sink, cleanup := captureStructuredLog(t)
+			defer cleanup()
+			gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{latencySwitch: OpenAIWSLatencySwitchSettings{Enabled: true, ProbeCount: 6, WaitSeconds: 3600, ProbeReuseSeconds: 3600}, expiresAt: time.Now().Add(time.Hour).UnixNano()})
+			ctx, cancel := context.WithCancel(latencyDiagnosticContext())
+			defer cancel()
+			if outcome == "deadline_exceeded" {
+				var stop context.CancelFunc
+				ctx, stop = context.WithTimeout(ctx, 350*time.Millisecond)
+				defer stop()
+			}
+			groupID := int64(1)
+			model := "test-model"
+			svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{{ID: 11, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{1}}}}
+			session := svc.NewOpenAIHTTPResponsesLatencySession(ctx, &groupID, &APIKey{ID: 7}, "private-session", model, model, OpenAIEndpointCapabilityResponses, []byte(`{"input":"private-input"}`))
+			poolKey := openAIWSLatencyCandidatePoolKey(&groupID, model, OpenAIUpstreamTransportHTTPSSE)
+			svc.addOpenAIWSLatencyCandidates(ctx, poolKey, []openAIWSLatencyProbeResult{{resultID: "result-1", accountID: 11, upstreamModel: model, upstreamSessionID: "private-upstream-session", ms: 1000, ok: true}}, 3600, 11, "private-lease", 3600)
+			svc.updateOpenAIWSLatencyState(ctx, session.key(model), func(state *openAIWSLatencyState) bool {
+				*state = openAIWSLatencyState{AccountID: 11, ProbeID: "probe-wait"}
+				return true
+			})
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				svc.probeOpenAIWSLatencyRoutes(ctx, session.key(model), &groupID, 11, model, model, OpenAIEndpointCapabilityResponses, OpenAIUpstreamTransportHTTPSSE, "probe-wait", session.actor)
+			}()
+			defer func() { cancel(); <-done }()
+			require.Eventually(t, func() bool { return len(latencyDiagnosticEvents(sink, "probe")) > 0 }, time.Second, time.Millisecond)
+			if outcome == "candidate_reserved" {
+				svc.releaseOpenAIWSLatencyCandidate(ctx, poolKey, "private-lease", 11, false)
+			} else if outcome == "canceled" {
+				cancel()
+			}
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("等待任务未及时退出")
+			}
+			events := latencyDiagnosticEvents(sink, "probe")
+			counts := map[string]int{}
+			for _, event := range events {
+				counts[event.Fields["reason"].(string)]++
+			}
+			require.Equal(t, 1, counts["shared_pool_wait"])
+			require.Equal(t, 1, counts["shared_pool_wait_ended"])
+			require.Zero(t, counts["new_probe_started"], "日志补充不能让占用候选触发新探测")
+			first := events[0].Fields
+			require.EqualValues(t, 1, first["leased_candidate_count"])
+			require.EqualValues(t, 0, first["available_candidate_count"])
+			require.EqualValues(t, 3600, first["switch_wait_seconds"])
+			require.EqualValues(t, 3600, first["probe_reuse_seconds"])
+			require.NotEmpty(t, first["pool_key_hash"])
+			last := events[len(events)-1].Fields
+			require.Equal(t, outcome, last["wait_outcome"])
+			require.GreaterOrEqual(t, last["wait_duration_ms"], int64(0))
+			require.Equal(t, outcome == "deadline_exceeded", last["deadline_exceeded"])
+			if outcome == "candidate_reserved" {
+				require.Equal(t, 1, counts["candidate_reserved"])
+				require.EqualValues(t, 11, session.state(context.Background()).TargetID)
+			} else {
+				require.Zero(t, session.state(context.Background()).TargetID)
+			}
+			cache.mu.Lock()
+			starts := cache.probeStarts
+			cache.mu.Unlock()
+			require.Equal(t, 1, starts)
+			serialized, err := json.Marshal(events)
+			require.NoError(t, err)
+			require.NotContains(t, string(serialized), "private-")
+		})
+	}
+}
+
+func TestOpenAIWSLatencyDiagnosticPoolSnapshot(t *testing.T) {
+	sink, cleanup := captureStructuredLog(t)
+	defer cleanup()
+	now := time.Now().UnixMilli()
+	base := openAIWSLatencyReusableCandidate{AccountID: 11, UpstreamModel: "test-model", UpstreamSessionID: "private-upstream", FirstTokenMS: 1000, ExpiresAt: now + 60000}
+	pool := openAIWSLatencyCandidatePool{ProbeUntil: now + 1000}
+	for i := 0; i < 8; i++ {
+		c := base
+		switch i {
+		case 1:
+			c.ExpiresAt = now
+		case 2:
+			c.AccountID = 22
+		case 3:
+			c.UpstreamModel = "other-model"
+		case 4:
+			c.LeaseID, c.LeaseUntil = "private-lease", now+5000
+		case 5:
+			c.Committed = true
+		case 6:
+			c.FirstTokenMS = 10000
+		case 7:
+			c.LeaseID, c.LeaseUntil = "private-expired-lease", now
+		}
+		pool.Candidates = append(pool.Candidates, c)
+	}
+	before, err := json.Marshal(pool)
+	require.NoError(t, err)
+	fields := openAIWSLatencyPoolDiagnosticFields(pool, map[int64]struct{}{11: {}}, map[int64]string{11: "test-model"}, now)
+	fields = append(fields, zap.String("stage", "probe"))
+	writeOpenAIWSLatencyDiagnostic(latencyDiagnosticContext(), logger.LevelInfo, "shared_pool_wait", fields...)
+	events := latencyDiagnosticEvents(sink, "probe")
+	require.Len(t, events, 1)
+	for key, value := range map[string]int64{
+		"candidate_count": 8, "expired_candidate_count": 1, "ineligible_candidate_count": 2,
+		"eligible_candidate_count": 5, "available_candidate_count": 2, "leased_candidate_count": 1,
+		"committed_candidate_count": 1, "invalid_latency_candidate_count": 1,
+		"shared_probe_remaining_ms": 1000, "next_candidate_expiry_ms": 60000, "next_lease_expiry_ms": 5000,
+	} {
+		require.EqualValues(t, value, events[0].Fields[key], key)
+	}
+	after, err := json.Marshal(pool)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "统计不能修改候选池")
+	serialized, err := json.Marshal(events)
+	require.NoError(t, err)
+	require.NotContains(t, string(serialized), "private-")
+}
+
+func TestOpenAIWSLatencyDiagnosticRecoveryCorrelation(t *testing.T) {
+	for _, transport := range []OpenAIUpstreamTransport{OpenAIUpstreamTransportHTTPSSE, OpenAIUpstreamTransportResponsesWebsocketV2Ingress} {
+		t.Run(string(transport), func(t *testing.T) {
+			svc, _ := newOpenAIWSLatencyTestService(t)
+			sink, cleanup := captureStructuredLog(t)
+			defer cleanup()
+			ctx := latencyDiagnosticContext()
+			payload := []byte(`{"input":"private-context"}`)
+			session := newOpenAIWSLatencySession(ctx, svc, nil, &APIKey{ID: 7, UserID: 42}, "scope", "private-session", "test-model", "test-model", OpenAIEndpointCapabilityResponses, transport, payload)
+			svc.updateOpenAIWSLatencyState(ctx, session.key(session.model), func(state *openAIWSLatencyState) bool {
+				*state = openAIWSLatencyState{AccountID: 11, TargetID: 22, TargetResultID: "result-1", ReconnectFrom: "private-connection", PendingUntil: time.Now().Add(time.Minute).UnixMilli()}
+				return true
+			})
+			if transport == OpenAIUpstreamTransportHTTPSSE {
+				retry, err := session.PrepareHTTP(ctx, payload)
+				require.NoError(t, err)
+				require.False(t, retry)
+			} else {
+				require.NoError(t, session.Prepare(ctx, payload))
+			}
+			sink.mu.Lock()
+			defer sink.mu.Unlock()
+			count := 0
+			for _, event := range sink.events {
+				if event.Message != "openai.ws_latency_reconnect_received" {
+					continue
+				}
+				count++
+				require.Equal(t, "server-request", event.Fields["request_id"])
+				require.Equal(t, "client-request", event.Fields["client_request_id"])
+				require.Equal(t, "result-1", event.Fields["target_result_id"])
+				require.Equal(t, string(transport), event.Fields["transport"])
+			}
+			require.Equal(t, 1, count, "补充字段不重复记录恢复事件")
+		})
+	}
 }

@@ -197,7 +197,9 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 	poolKey := openAIWSLatencyCandidatePoolKey(groupID, poolModel, requiredTransport)
 	diagnostic := func(reason string, fields ...zap.Field) {
 		base := append(actor.diagnosticFields(), zap.String("stage", "probe"), zap.String("model", model),
-			zap.String("transport", string(requiredTransport)), zap.Int64("account_id", currentID), zap.String("probe_id", probeID))
+			zap.String("transport", string(requiredTransport)), zap.Int64("account_id", currentID), zap.String("probe_id", probeID),
+			zap.String("pool_key_hash", hashOpenAIWSLatencyModel(poolKey)), zap.String("pool_model", poolModel),
+			zap.Int("switch_wait_seconds", settings.WaitSeconds), zap.Int("probe_reuse_seconds", settings.ProbeReuseSeconds))
 		writeOpenAIWSLatencyDiagnostic(ctx, logger.LevelInfo, reason, append(base, fields...)...)
 	}
 	var targetID int64
@@ -285,6 +287,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		fields := map[string]any{
 			"from_account_id":   currentID,
 			"target_account_id": targetID,
+			"target_result_id":  targetResultID,
 			"model":             model,
 			"transport":         string(requiredTransport),
 		}
@@ -333,9 +336,40 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 	}
 	claimed := false
 	waitLogged := false
+	var waitStarted time.Time
+	var lastPool openAIWSLatencyCandidatePool
+	var snapshotAt int64
+	waitEnded := false
+	// 复用现有开始/结束事件，只在离开等待时汇总最后快照，不逐次轮询输出。
+	finishWait := func() {
+		if !waitLogged || waitEnded {
+			return
+		}
+		waitEnded = true
+		outcome := "probe_not_claimed"
+		switch {
+		case targetID > 0:
+			outcome = "candidate_reserved"
+		case stopForStateChange:
+			outcome = "state_changed"
+		case claimed:
+			outcome = "new_probe_started"
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			outcome = "deadline_exceeded"
+		case ctx.Err() != nil:
+			outcome = "canceled"
+		}
+		fields := openAIWSLatencyPoolDiagnosticFields(lastPool, eligibleAccountIDs, expectedUpstreamModels, snapshotAt)
+		fields = append(fields, zap.String("wait_outcome", outcome), zap.Int64("wait_duration_ms", time.Since(waitStarted).Milliseconds()),
+			zap.Int64("pool_snapshot_age_ms", time.Now().UnixMilli()-snapshotAt),
+			zap.Bool("deadline_exceeded", errors.Is(ctx.Err(), context.DeadlineExceeded)), zap.Bool("canceled", errors.Is(ctx.Err(), context.Canceled)))
+		diagnostic("shared_pool_wait_ended", fields...)
+	}
+	defer finishWait()
 	for !claimed && ctx.Err() == nil {
 		pool := s.getOpenAIWSLatencyCandidatePool(ctx, poolKey)
 		now := time.Now().UnixMilli()
+		lastPool, snapshotAt = pool, now
 		validCandidates := false
 		for _, candidate := range pool.Candidates {
 			if candidate.ExpiresAt > now && openAIWSLatencyCandidateAllowed(candidate, eligibleAccountIDs, expectedUpstreamModels) {
@@ -357,12 +391,12 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 			return
 		}
 		if !waitLogged {
-			diagnostic("shared_pool_wait", zap.Int("candidate_count", len(pool.Candidates)), zap.Bool("eligible_candidates_present", validCandidates), zap.Bool("shared_probe_running", pool.ProbeUntil > now))
+			diagnostic("shared_pool_wait", openAIWSLatencyPoolDiagnosticFields(pool, eligibleAccountIDs, expectedUpstreamModels, now)...)
+			waitStarted = time.Now()
 			waitLogged = true
 		}
 		select {
 		case <-ctx.Done():
-			diagnostic("shared_pool_wait_ended", zap.Bool("deadline_exceeded", errors.Is(ctx.Err(), context.DeadlineExceeded)))
 			return
 		case <-time.After(100 * time.Millisecond):
 		}
@@ -371,6 +405,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		diagnostic("probe_not_claimed")
 		return
 	}
+	finishWait()
 	diagnostic("new_probe_started", zap.Int("probe_count", probeCount), zap.Int("eligible_account_count", len(eligibleAccounts)))
 	for round := 1; round <= openAIWSLatencyMaxProbeRounds; round++ {
 		if len(eligibleAccounts) == 0 {
