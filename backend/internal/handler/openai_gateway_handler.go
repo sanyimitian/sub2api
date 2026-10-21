@@ -664,25 +664,39 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	var latencyObservedAccount *service.Account
 	var latencyObservedResult *service.OpenAIForwardResult
 	var latencyObservedErr error
-	if reqStream && isBareOpenAIResponsesPath(c) && requestPlatform == service.PlatformOpenAI && !imageIntent && !nativeV2 {
+	preparedSessionsEnabled := h.gatewayService.OpenAISessionPoolEnabled(c.Request.Context())
+	latencyEntry := reqStream && isBareOpenAIResponsesPath(c) && !nativeV2
+	if preparedSessionsEnabled {
+		latencyEntry = isBareOpenAIResponsesPath(c) || legacyCompact
+	}
+	if latencyEntry && requestPlatform == service.PlatformOpenAI && !imageIntent {
 		latencySession = h.gatewayService.NewOpenAIHTTPResponsesLatencySession(
-			c.Request.Context(), apiKey.GroupID, apiKey, sessionHash, reqModel, forwardModel, requiredCapability, body,
+			c.Request.Context(), apiKey.GroupID, apiKey, sessionHash, reqModel, forwardModel, requiredCapability, body, c,
 		)
 		if latencySession != nil {
-			shouldRetry, prepareErr := latencySession.PrepareHTTP(c.Request.Context(), body)
-			if prepareErr != nil {
-				reqLog.Warn("openai.ws_latency_http_reconnect_context_rejected", zap.Error(prepareErr))
-				h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", prepareErr.Error(), streamStarted)
-				return
+			if nativeV2 || legacyCompact {
+				latencySession.PrepareExistingBinding(legacyCompact)
+			} else {
+				shouldRetry, prepareErr := latencySession.PrepareHTTP(c.Request.Context(), body)
+				if prepareErr != nil {
+					if errors.Is(prepareErr, service.ErrOpenAIPreparedSessionUnavailable) {
+						reqLog.Warn("openai.session_pool_state_unavailable")
+						h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "server_error", "Session temporarily unavailable", streamStarted)
+						return
+					}
+					reqLog.Warn("openai.ws_latency_http_reconnect_context_rejected", zap.Error(prepareErr))
+					h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", prepareErr.Error(), streamStarted)
+					return
+				}
+				if shouldRetry {
+					reqLog.Info("openai.ws_latency_http_retry_requested", zap.String("transport", "http_sse"))
+					h.respondOpenAIResponsesLatencyRetry(c, streamStarted)
+					return
+				}
+				defer func() {
+					latencySession.Observe(context.WithoutCancel(c.Request.Context()), 1, latencyObservedAccount, latencyObservedResult, latencyObservedErr)
+				}()
 			}
-			if shouldRetry {
-				reqLog.Info("openai.ws_latency_http_retry_requested", zap.String("transport", "http_sse"))
-				h.respondOpenAIResponsesLatencyRetry(c, streamStarted)
-				return
-			}
-			defer func() {
-				latencySession.Observe(context.WithoutCancel(c.Request.Context()), 1, latencyObservedAccount, latencyObservedResult, latencyObservedErr)
-			}()
 		}
 	} else {
 		reqLog.Debug("openai.latency_diagnostic", zap.Bool(logger.OpsSystemLogSkipField, true),
@@ -2850,6 +2864,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			var closeErr *service.OpenAIWSClientCloseError
 			if errors.As(prepareErr, &closeErr) {
 				closeOpenAIClientWS(wsConn, closeErr.StatusCode(), closeErr.Reason())
+			} else if errors.Is(prepareErr, service.ErrOpenAIPreparedSessionUnavailable) {
+				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "Session temporarily unavailable")
 			}
 			return
 		}
@@ -3043,7 +3059,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if err := latencySession.BeforeRequest(ctx, turn, account, payload, originalModel); err != nil {
 					return err
 				}
-				if err := latencySession.ApplyUpstreamSessionIdentity(ctx, c, account, originalModel); err != nil {
+				if err := latencySession.ApplyUpstreamSessionIdentity(ctx, c, account, originalModel, turn); err != nil {
 					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "latency-switch session is unavailable", err)
 				}
 				c.Set(securityAuditWSTurnContextKey, turn)

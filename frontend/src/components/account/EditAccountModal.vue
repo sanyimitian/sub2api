@@ -1672,6 +1672,14 @@
         <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
       </div>
 
+      <OpenAISessionPoolFields
+        v-if="account.platform === 'openai' && account.type === 'apikey'"
+        v-model:enabled="openAISessionPoolEnabled"
+        v-model:models="openAISessionPoolModels"
+        :account-id="account.id"
+        :fallback-models="openAISessionPoolAvailableModels"
+      />
+
       <UpstreamRequestIdHeaderField
         v-model="upstreamRequestIdHeader"
         :platform="account.platform"
@@ -3150,6 +3158,8 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
+import OpenAISessionPoolFields from './OpenAISessionPoolFields.vue'
+import { openAISessionPoolModelsForSave, readOpenAISessionPoolModels } from '@/utils/openaiSessionPool'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -3223,6 +3233,7 @@ import {
 } from '@/utils/openaiWsMode'
 import {
   getPresetMappingsByPlatform,
+  getModelsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
   splitModelMappingObject,
@@ -3665,11 +3676,19 @@ const upstreamBillingAutoProbeEnabled = ref(false)
 const upstreamBillingRateSyncEnabled = ref(false)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 // 上游ID：直接上游声明请求标识的响应头名，留空不记录。
+const openAISessionPoolEnabled = ref(false)
+const openAISessionPoolModels = ref<string[]>(['gpt-6-sol'])
 const upstreamRequestIdHeader = ref('')
 const readUpstreamRequestIdHeader = (extra: unknown): string => {
   const value = (extra as Record<string, unknown> | undefined)?.upstream_request_id_header
   return typeof value === 'string' ? value : ''
 }
+const openAISessionPoolAvailableModels = computed(() => [...new Set([
+  ...getModelsByPlatform('openai'),
+  ...allowedModels.value,
+  ...modelMappings.value.flatMap(mapping => [mapping.from, mapping.to])
+    .map(model => model.trim()).filter(Boolean)
+])])
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
 const antigravityProjectId = ref('')
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
@@ -4192,6 +4211,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	const extra = newAccount.extra as Record<string, unknown> | undefined
 	mixedScheduling.value = extra?.mixed_scheduling === true
 	allowOverages.value = extra?.allow_overages === true
+	openAISessionPoolEnabled.value = extra?.openai_session_pool_enabled === true
+	openAISessionPoolModels.value = readOpenAISessionPoolModels(extra)
 	upstreamRequestIdHeader.value = readUpstreamRequestIdHeader(extra)
 	openAIImagesUrlToB64JsonEnabled.value = extra?.images_url_to_b64_json === true
 	autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
@@ -5706,6 +5727,8 @@ const handleSubmit = async () => {
         newExtra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
         newExtra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
       } else if (props.account.type === 'apikey') {
+        newExtra.openai_session_pool_enabled = openAISessionPoolEnabled.value
+        newExtra.openai_session_pool_models = openAISessionPoolModelsForSave(openAISessionPoolEnabled.value, openAISessionPoolModels.value, currentExtra)
         newExtra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
         newExtra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
       }

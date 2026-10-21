@@ -1,5 +1,18 @@
 export default {
     accounts: {
+      sessionPool: {
+        title: '低延迟备用会话探测',
+        hint: '默认关闭，可手动开启或关闭；同时需要开启系统设置中的备用池总开关。有权调用本账号的分组均可共享合格会话；探测会消耗上游额度。',
+        models: '探测模型',
+        modelsHint: '从该账号当前可用模型中选择，最多 20 个；默认选择 gpt-6-sol。新建账号会根据填写的凭据读取上游模型。',
+        searchModels: '搜索可用模型',
+        noModels: '没有匹配的可用模型',
+        noModelsSelected: '请选择探测模型',
+        refreshModels: '刷新可用模型',
+        loadingModels: '正在读取账号可用模型...',
+        loadFailed: '读取失败，当前显示账号模型目录与已保存的模型；可重试刷新。',
+        unavailable: '当前不可用',
+      },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',

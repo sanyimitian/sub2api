@@ -142,6 +142,7 @@ docs/*
 !docs/PLUGIN_DEVELOPMENT.md
 !docs/channel-monitor-v2-safe-defaults.md
 !docs/codex-latency-diagnostics.md
+!docs/openai-prepared-sessions.md
 !docs/codex-credits.md
 !docs/legal/
 !docs/legal/*.md

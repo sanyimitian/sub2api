@@ -519,6 +519,15 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyOpenAIWSLatencySwitchProbeCount] = strconv.Itoa(probeCount)
 	updates[SettingKeyOpenAIWSLatencySwitchWaitSeconds] = strconv.Itoa(waitSeconds)
 	updates[SettingKeyOpenAIWSLatencyProbeReuseSeconds] = strconv.Itoa(probeReuseSeconds)
+	poolSize := settings.OpenAISessionPoolSize
+	if poolSize == 0 {
+		poolSize = 6
+	}
+	if poolSize < 1 || poolSize > 100 {
+		return nil, fmt.Errorf("%s must be between 1 and 100", SettingKeyOpenAISessionPoolSize)
+	}
+	updates[SettingKeyOpenAISessionPoolEnabled] = strconv.FormatBool(settings.OpenAISessionPoolEnabled)
+	updates[SettingKeyOpenAISessionPoolSize] = strconv.Itoa(poolSize)
 	updates[SettingKeyOpenAITTFTMode] = mode
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
@@ -764,6 +773,8 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	})
 	gatewayForwardingSF.Forget("gateway_forwarding")
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
+		sessionPoolEnabled:               settings.OpenAISessionPoolEnabled,
+		sessionPoolSize:                  parseOpenAIWSLatencySwitchInt(strconv.Itoa(settings.OpenAISessionPoolSize), 6, 1, 100),
 		latencySwitch:                    openAIWSLatencySwitchSettingsFromValues(settings.OpenAIWSLatencySwitchEnabled, settings.OpenAIWSLatencySwitchConsecutive, settings.OpenAIWSLatencySwitchSlowMS, settings.OpenAIWSLatencySwitchMinTPS, settings.OpenAIWSLatencySwitchProbeCount, settings.OpenAIWSLatencySwitchWaitSeconds, settings.OpenAIWSLatencyProbeReuseSeconds),
 		openAITTFTMode:                   normalizeOpenAITTFTMode(settings.OpenAITTFTMode),
 		fingerprintUnification:           settings.EnableFingerprintUnification,

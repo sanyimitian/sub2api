@@ -3074,6 +3074,15 @@
         <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
       </div>
 
+      <OpenAISessionPoolFields
+        v-if="form.platform === 'openai' && accountCategory === 'apikey'"
+        v-model:enabled="openAISessionPoolEnabled"
+        v-model:models="openAISessionPoolModels"
+        :fallback-models="openAISessionPoolAvailableModels"
+        :preview-credentials="syncPreviewCredentials"
+        :preserve-unavailable="false"
+      />
+
       <UpstreamRequestIdHeaderField
         v-model="upstreamRequestIdHeader"
         :platform="form.platform"
@@ -3994,6 +4003,8 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
+import OpenAISessionPoolFields from './OpenAISessionPoolFields.vue'
+import { openAISessionPoolModelsForSave, DEFAULT_OPENAI_SESSION_POOL_MODEL } from '@/utils/openaiSessionPool'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -4085,6 +4096,8 @@ const oauthStepTitle = computed(() => {
 
 // Platform-specific hints for API Key type
 // 上游ID：直接上游声明请求标识的响应头名，留空不记录。
+const openAISessionPoolEnabled = ref(false)
+const openAISessionPoolModels = ref<string[]>([DEFAULT_OPENAI_SESSION_POOL_MODEL])
 const upstreamRequestIdHeader = ref('')
 const withUpstreamRequestIdHeader = <T extends Record<string, unknown> | undefined>(extra: T): T | Record<string, unknown> => {
   const name = upstreamRequestIdHeader.value.trim()
@@ -4454,6 +4467,13 @@ const syncPreviewCredentials = computed(() => {
     ...(modelMapping ? { model_mapping: modelMapping } : {})
   }
 })
+
+const openAISessionPoolAvailableModels = computed(() => [...new Set([
+  ...getModelsByPlatform('openai'),
+  ...allowedModels.value,
+  ...modelMappings.value.flatMap(mapping => [mapping.from, mapping.to])
+    .map(model => model.trim()).filter(Boolean)
+])])
 
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
@@ -5434,6 +5454,8 @@ const resetForm = () => {
   adaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '' }
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  openAISessionPoolEnabled.value = false
+  openAISessionPoolModels.value = [DEFAULT_OPENAI_SESSION_POOL_MODEL]
   upstreamRequestIdHeader.value = ''
   upstreamBillingAutoProbeEnabled.value = true
   editQuotaLimit.value = null
@@ -5544,6 +5566,8 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
     extra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
     extra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
   } else if (accountCategory.value === 'apikey') {
+    extra.openai_session_pool_enabled = openAISessionPoolEnabled.value
+    extra.openai_session_pool_models = openAISessionPoolModelsForSave(openAISessionPoolEnabled.value, openAISessionPoolModels.value)
     extra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
     extra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
   }

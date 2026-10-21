@@ -5377,6 +5377,32 @@
                 </p>
               </div>
 
+              <div class="space-y-4 border-b border-gray-100 pb-5 dark:border-dark-700" data-testid="openai-session-pool-settings">
+                <div class="flex items-center justify-between gap-5">
+                  <div>
+                    <label id="openai-session-pool-label" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.sessionPoolTitle") }}</label>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.sessionPoolHint") }}</p>
+                  </div>
+                  <Toggle v-model="form.openai_session_pool_enabled" aria-labelledby="openai-session-pool-label" data-testid="openai-session-pool-enabled" />
+                </div>
+                <div class="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label for="openai-session-pool-size" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.sessionPoolSize") }}</label>
+                    <input id="openai-session-pool-size" v-model.number="form.openai_session_pool_size" type="number" min="1" max="100" step="1" required class="input mt-2 w-full" data-testid="openai-session-pool-size" />
+                  </div>
+                  <div>
+                    <label for="openai-ws-latency-switch-probe-count" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCount") }}</label>
+                    <input id="openai-ws-latency-switch-probe-count" v-model.number="form.openai_ws_latency_switch_probe_count" type="number" min="2" max="20" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-probe-count" />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCountHint") }}</p>
+                  </div>
+                  <div>
+                    <label for="openai-ws-latency-probe-reuse-seconds" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeReuseSeconds") }}</label>
+                    <input id="openai-ws-latency-probe-reuse-seconds" v-model.number="form.openai_ws_latency_probe_reuse_seconds" type="number" min="1" max="3600" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-probe-reuse-seconds" />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeReuseSecondsHint") }}</p>
+                  </div>
+                </div>
+              </div>
+
               <div class="space-y-4 border-b border-gray-100 pb-5 dark:border-dark-700" data-testid="openai-ws-latency-switch-settings">
                 <div class="flex items-center justify-between gap-5">
                   <div>
@@ -5399,21 +5425,13 @@
                     <input id="openai-ws-latency-switch-min-tps" v-model.number="form.openai_ws_latency_switch_min_tps" type="number" min="0" step="0.1" class="input mt-2 w-full" data-testid="openai-ws-latency-switch-min-tps" />
                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchMinTPSHint") }}</p>
                   </div>
-                  <div>
-                    <label for="openai-ws-latency-switch-probe-count" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCount") }}</label>
-                    <input id="openai-ws-latency-switch-probe-count" v-model.number="form.openai_ws_latency_switch_probe_count" type="number" min="2" max="20" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-probe-count" />
-                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCountHint") }}</p>
-                  </div>
+
                   <div>
                     <label for="openai-ws-latency-switch-wait-seconds" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchWaitSeconds") }}</label>
                     <input id="openai-ws-latency-switch-wait-seconds" v-model.number="form.openai_ws_latency_switch_wait_seconds" type="number" min="1" max="3600" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-wait-seconds" />
                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchWaitSecondsHint") }}</p>
                   </div>
-                  <div>
-                    <label for="openai-ws-latency-probe-reuse-seconds" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeReuseSeconds") }}</label>
-                    <input id="openai-ws-latency-probe-reuse-seconds" v-model.number="form.openai_ws_latency_probe_reuse_seconds" type="number" min="1" max="3600" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-probe-reuse-seconds" />
-                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeReuseSecondsHint") }}</p>
-                  </div>
+
                 </div>
               </div>
 
@@ -10076,6 +10094,8 @@ const form = reactive<SettingsForm>({
   openai_ws_latency_switch_consecutive: 3,
   openai_ws_latency_switch_slow_ms: 15000,
   openai_ws_latency_switch_min_tps: "",
+  openai_session_pool_enabled: false,
+  openai_session_pool_size: 6,
   openai_ws_latency_switch_probe_count: 6,
   openai_ws_latency_switch_wait_seconds: 300,
   openai_ws_latency_probe_reuse_seconds: 600,
@@ -11732,6 +11752,8 @@ async function saveSettings() {
       openai_ws_latency_switch_consecutive: Number(form.openai_ws_latency_switch_consecutive),
       openai_ws_latency_switch_slow_ms: Number(form.openai_ws_latency_switch_slow_ms),
       openai_ws_latency_switch_min_tps: Number(form.openai_ws_latency_switch_min_tps) || 0,
+      openai_session_pool_enabled: form.openai_session_pool_enabled,
+      openai_session_pool_size: Number(form.openai_session_pool_size),
       openai_ws_latency_switch_probe_count: Number(form.openai_ws_latency_switch_probe_count),
       openai_ws_latency_switch_wait_seconds: Number(form.openai_ws_latency_switch_wait_seconds),
       openai_ws_latency_probe_reuse_seconds: Number(form.openai_ws_latency_probe_reuse_seconds),

@@ -251,6 +251,8 @@ type UpdateSettingsRequest struct {
 	OpenAIWSLatencySwitchProbeCount        *int     `json:"openai_ws_latency_switch_probe_count"`
 	OpenAIWSLatencySwitchWaitSeconds       *int     `json:"openai_ws_latency_switch_wait_seconds"`
 	OpenAIWSLatencyProbeReuseSeconds       *int     `json:"openai_ws_latency_probe_reuse_seconds"`
+	OpenAISessionPoolEnabled               *bool    `json:"openai_session_pool_enabled"`
+	OpenAISessionPoolSize                  *int     `json:"openai_session_pool_size"`
 	OpenAITTFTMode                         *string  `json:"openai_ttft_mode"`
 	EnableFingerprintUnification           *bool    `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              *bool    `json:"enable_metadata_passthrough"`
@@ -529,6 +531,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if req.OpenAIWSLatencySwitchWaitSeconds != nil && (*req.OpenAIWSLatencySwitchWaitSeconds < service.MinOpenAIWSLatencySwitchWaitSeconds || *req.OpenAIWSLatencySwitchWaitSeconds > service.MaxOpenAIWSLatencySwitchWaitSeconds) {
 		response.BadRequest(c, "openai_ws_latency_switch_wait_seconds must be between 1 and 3600")
+		return
+	}
+	if req.OpenAISessionPoolSize != nil && (*req.OpenAISessionPoolSize < 1 || *req.OpenAISessionPoolSize > 100) {
+		response.BadRequest(c, "备用会话数量必须为 1 至 100")
 		return
 	}
 	if req.OpenAIWSLatencyProbeReuseSeconds != nil && (*req.OpenAIWSLatencyProbeReuseSeconds < service.MinOpenAIWSLatencyProbeReuseSeconds || *req.OpenAIWSLatencyProbeReuseSeconds > service.MaxOpenAIWSLatencyProbeReuseSeconds) {
@@ -1781,6 +1787,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpenAIWSLatencySwitchWaitSeconds
 		}(),
+		OpenAISessionPoolEnabled: func() bool {
+			if req.OpenAISessionPoolEnabled != nil {
+				return *req.OpenAISessionPoolEnabled
+			}
+			return previousSettings.OpenAISessionPoolEnabled
+		}(),
+		OpenAISessionPoolSize: func() int {
+			if req.OpenAISessionPoolSize != nil {
+				return *req.OpenAISessionPoolSize
+			}
+			return previousSettings.OpenAISessionPoolSize
+		}(),
 		OpenAIWSLatencyProbeReuseSeconds: func() int {
 			if req.OpenAIWSLatencyProbeReuseSeconds != nil {
 				return *req.OpenAIWSLatencyProbeReuseSeconds
@@ -2438,6 +2456,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIWSLatencySwitchProbeCount:                        updatedSettings.OpenAIWSLatencySwitchProbeCount,
 		OpenAIWSLatencySwitchWaitSeconds:                       updatedSettings.OpenAIWSLatencySwitchWaitSeconds,
 		OpenAIWSLatencyProbeReuseSeconds:                       updatedSettings.OpenAIWSLatencyProbeReuseSeconds,
+		OpenAISessionPoolEnabled:                               updatedSettings.OpenAISessionPoolEnabled,
+		OpenAISessionPoolSize:                                  updatedSettings.OpenAISessionPoolSize,
 		OpenAITTFTMode:                                         updatedSettings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,

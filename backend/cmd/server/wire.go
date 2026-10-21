@@ -131,6 +131,10 @@ func provideCleanup(
 	promptAudit *securityaudit.PromptService,
 	pluginManager *service.PluginManager,
 ) func() {
+	if openAIGateway != nil {
+		openAIGateway.StartOpenAISessionPool()
+	}
+
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

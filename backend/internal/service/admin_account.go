@@ -411,6 +411,9 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if err := ValidateOpenAISessionPoolExtra(input.Platform, input.Type, accountExtra); err != nil {
+		return nil, err
+	}
 	if input.Platform == PlatformTypeSafe && input.Type != AccountTypeAPIKey {
 		return nil, errors.New("typesafe accounts only support apikey credentials")
 	}
@@ -730,6 +733,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input.Extra == nil {
 		account.Extra = prepareCodexFingerprintExtraForUpdate(account, account.Extra)
 	}
+	if err := ValidateOpenAISessionPoolExtra(account.Platform, account.Type, account.Extra); err != nil {
+		return nil, err
+	}
 	if requestedRateSyncEnabledUpdate != nil && *requestedRateSyncEnabledUpdate {
 		if requestedProbeEnabledUpdate != nil && !*requestedProbeEnabledUpdate {
 			return nil, infraerrors.BadRequest(
@@ -926,6 +932,17 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	_, poolEnabledChanged := updates[OpenAISessionPoolEnabledExtraKey]
+	_, poolModelsChanged := updates[OpenAISessionPoolModelsExtraKey]
+	if poolEnabledChanged || poolModelsChanged {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := ValidateOpenAISessionPoolExtra(account.Platform, account.Type, updates); err != nil {
+			return err
+		}
+	}
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)
@@ -997,10 +1014,13 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 
 	needMixedChannelCheck := input.GroupIDs != nil && !input.SkipMixedChannelCheck
+	_, sessionPoolEnabledChanged := input.Extra[OpenAISessionPoolEnabledExtraKey]
+	_, sessionPoolModelsChanged := input.Extra[OpenAISessionPoolModelsExtraKey]
+	sessionPoolSettingChanged := sessionPoolEnabledChanged || sessionPoolModelsChanged
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil || sessionPoolSettingChanged {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -1019,6 +1039,17 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			return nil, err
 		}
 		result.LongContextInheritedCount = inheritedCount
+	}
+	if sessionPoolSettingChanged {
+		for _, accountID := range input.AccountIDs {
+			account := targetsByID[accountID]
+			if account == nil {
+				return nil, ErrAccountNotFound
+			}
+			if err := ValidateOpenAISessionPoolExtra(account.Platform, account.Type, input.Extra); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if input.ProbeEnabled != nil {
 		for _, accountID := range input.AccountIDs {

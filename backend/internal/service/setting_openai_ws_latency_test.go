@@ -22,6 +22,11 @@ func TestOpenAIWSLatencySettingsDefaultsAndValidation(t *testing.T) {
 	require.Equal(t, 6, defaults.OpenAIWSLatencySwitchProbeCount)
 	require.Equal(t, 300, defaults.OpenAIWSLatencySwitchWaitSeconds)
 	require.Equal(t, 600, defaults.OpenAIWSLatencyProbeReuseSeconds)
+	require.False(t, defaults.OpenAISessionPoolEnabled)
+	require.False(t, svc.IsOpenAISessionPoolEnabled(context.Background()))
+	require.Equal(t, 6, defaults.OpenAISessionPoolSize)
+	defaults.OpenAISessionPoolEnabled = true
+	defaults.OpenAISessionPoolSize = 12
 	defaults.OpenAIWSLatencySwitchEnabled = true
 	defaults.OpenAIWSLatencySwitchConsecutive = 5
 	defaults.OpenAIWSLatencySwitchSlowMS = 20000
@@ -38,13 +43,18 @@ func TestOpenAIWSLatencySettingsDefaultsAndValidation(t *testing.T) {
 	require.Equal(t, "8", updates[SettingKeyOpenAIWSLatencySwitchProbeCount])
 	require.Equal(t, "480", updates[SettingKeyOpenAIWSLatencySwitchWaitSeconds])
 	require.Equal(t, "720", updates[SettingKeyOpenAIWSLatencyProbeReuseSeconds])
+	require.Equal(t, "true", updates[SettingKeyOpenAISessionPoolEnabled])
+	require.Equal(t, "12", updates[SettingKeyOpenAISessionPoolSize])
 	roundTrip := svc.parseSettings(updates)
+	require.Equal(t, 12, roundTrip.OpenAISessionPoolSize)
 	require.Equal(t, defaults.OpenAIWSLatencySwitchConsecutive, roundTrip.OpenAIWSLatencySwitchConsecutive)
 	require.Equal(t, 8, roundTrip.OpenAIWSLatencySwitchProbeCount)
 	require.Equal(t, 480, roundTrip.OpenAIWSLatencySwitchWaitSeconds)
 	require.Equal(t, 720, roundTrip.OpenAIWSLatencyProbeReuseSeconds)
 	require.Equal(t, 42.5, roundTrip.OpenAIWSLatencySwitchMinTPS)
 	svc.refreshCachedSettings(roundTrip)
+	require.True(t, svc.IsOpenAISessionPoolEnabled(context.Background()))
+	require.Equal(t, 12, svc.GetOpenAISessionPoolSize(context.Background()))
 	require.Equal(t, 8, svc.GetOpenAIWSLatencySwitchSettings(context.Background()).ProbeCount)
 	require.Equal(t, 480, svc.GetOpenAIWSLatencySwitchSettings(context.Background()).WaitSeconds)
 	require.Equal(t, 720, svc.GetOpenAIWSLatencySwitchSettings(context.Background()).ProbeReuseSeconds)

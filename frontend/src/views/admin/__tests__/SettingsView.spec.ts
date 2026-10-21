@@ -1527,7 +1527,13 @@ describe("admin SettingsView payment visible method controls", () => {
     const minTPS = card.get('[data-testid="openai-ws-latency-switch-min-tps"]');
     expect((minTPS.element as HTMLInputElement).value).toBe("");
     expect(minTPS.attributes("required")).toBeUndefined();
-    const probeCount = card.get('[data-testid="openai-ws-latency-switch-probe-count"]');
+    const poolToggle = wrapper.get('[data-testid="openai-session-pool-enabled"]');
+    expect((poolToggle.element as HTMLInputElement).checked).toBe(false);
+    await poolToggle.setValue(true);
+    const size = wrapper.get('[data-testid="openai-session-pool-size"]');
+    expect((size.element as HTMLInputElement).value).toBe("6");
+    await size.setValue(12);
+    const probeCount = wrapper.get('[data-testid="openai-ws-latency-switch-probe-count"]');
     expect((probeCount.element as HTMLInputElement).value).toBe("6");
     expect(probeCount.attributes("min")).toBe("2");
     expect(probeCount.attributes("max")).toBe("20");
@@ -1549,6 +1555,12 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(payload.openai_ws_latency_switch_enabled).toBe(true);
     expect(payload.openai_ws_latency_switch_consecutive).toBe(5);
     expect(payload.openai_ws_latency_switch_slow_ms).toBe(20000);
+    expect(payload.openai_session_pool_enabled).toBe(true);
+    await poolToggle.setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls.at(-1)?.[0].openai_session_pool_enabled).toBe(false);
+    expect(payload.openai_session_pool_size).toBe(12);
     expect(payload.openai_ws_latency_switch_probe_count).toBe(4);
     expect(payload.openai_ws_latency_switch_wait_seconds).toBe(600);
     expect(payload.openai_ws_latency_probe_reuse_seconds).toBe(900);
@@ -1568,7 +1580,7 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
     await openGatewayTab(wrapper);
     const card = wrapper.get('[data-testid="openai-ws-latency-switch-settings"]');
-    expect((card.get('[data-testid="openai-ws-latency-switch-probe-count"]').element as HTMLInputElement).value).toBe("8");
+    expect((wrapper.get('[data-testid="openai-ws-latency-switch-probe-count"]').element as HTMLInputElement).value).toBe("8");
     expect((card.get('[data-testid="openai-ws-latency-switch-wait-seconds"]').element as HTMLInputElement).value).toBe("480");
     await card.get('[data-testid="openai-ws-latency-switch-enabled"]').setValue(false);
     await wrapper.find("form").trigger("submit.prevent");

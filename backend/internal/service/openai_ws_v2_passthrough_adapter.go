@@ -17,6 +17,7 @@ import (
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type openAIWSClientFrameConn struct {
@@ -791,6 +792,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, blocked.Message, blocked)
 	}
 	firstClientMessage = updatedFirst
+	if routeID := OpenAIPreparedSessionID(c); routeID != "" {
+		firstClientMessage, policyErr = sjson.SetBytes(firstClientMessage, "prompt_cache_key", routeID)
+		if policyErr != nil {
+			return policyErr
+		}
+		promptCacheKey = routeID
+	}
 
 	// 在 policy filter 之后再提取 service_tier / reasoning_effort 用于
 	// usage 上报：filter 命中时 service_tier 已经从 firstClientMessage 中删除，
@@ -1111,6 +1119,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			//     覆盖（Store(nil)），因为 OpenAI 上游对该帧实际不传
 			//     service_tier 时按 default 处理，billing 应如实反映。
 			if policyErr == nil && blocked == nil && isResponseCreate {
+				if routeID := OpenAIPreparedSessionID(c); routeID != "" {
+					out, policyErr = sjson.SetBytes(out, "prompt_cache_key", routeID)
+					if policyErr != nil {
+						return payload, nil, policyErr
+					}
+				}
 				usageMeta.updateFromResponseCreate(out, model, requestModelForThisFrame)
 				_, actualModel := usageMeta.turnModels(requestModelForThisFrame)
 				SetOpsUpstreamModel(c, actualModel)

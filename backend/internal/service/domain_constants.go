@@ -681,6 +681,8 @@ const (
 	SettingKeyOpenAIWSLatencySwitchProbeCount  = "openai_ws_latency_switch_probe_count"
 	SettingKeyOpenAIWSLatencySwitchWaitSeconds = "openai_ws_latency_switch_wait_seconds"
 	SettingKeyOpenAIWSLatencyProbeReuseSeconds = "openai_ws_latency_probe_reuse_seconds"
+	SettingKeyOpenAISessionPoolEnabled         = "openai_session_pool_enabled"
+	SettingKeyOpenAISessionPoolSize            = "openai_session_pool_size"
 	// SettingKeyOpenAITTFTMode 控制 first_token_ms 的统计口径。
 	SettingKeyOpenAITTFTMode = "openai_ttft_mode"
 	OpenAITTFTModeSemantic   = "semantic"

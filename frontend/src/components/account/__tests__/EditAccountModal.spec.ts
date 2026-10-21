@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import {
   BUILTIN_PLATFORM_CATALOG,
   resetPlatformCatalog,
@@ -60,6 +60,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 import EditAccountModal from '../EditAccountModal.vue'
+import OpenAISessionPoolFields from '../OpenAISessionPoolFields.vue'
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -330,6 +331,43 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it('关闭探测开关后保留已保存模型', async () => {
+    const account = buildAccount()
+    account.extra = { openai_session_pool_enabled: true, openai_session_pool_models: ['model-a'] }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const fields = wrapper.getComponent(OpenAISessionPoolFields)
+    await fields.get('[role="switch"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra?.openai_session_pool_enabled).toBe(false)
+    expect(extra?.openai_session_pool_models).not.toEqual([])
+    wrapper.unmount()
+  })
+
+  it('读取并保存账号备用会话开关及模型列表', async () => {
+    const account = buildAccount()
+    account.extra = { openai_session_pool_enabled: true, openai_session_pool_models: ['model-a', 'model-b'] }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const fields = wrapper.getComponent(OpenAISessionPoolFields)
+    expect(fields.props('enabled')).toBe(true)
+    expect(fields.props('models')).toEqual(['model-a', 'model-b'])
+    await fields.get('[data-testid="openai-session-pool-models"]').trigger('click')
+    const modelA = fields.findAll('label').find(label => label.text().includes('model-a'))
+    expect(modelA).toBeDefined()
+    await modelA!.get('input[type="checkbox"]').setValue(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      openai_session_pool_enabled: true,
+      openai_session_pool_models: ['model-b'],
+    })
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     authIsSimpleMode.value = true
   })

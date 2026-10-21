@@ -473,6 +473,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAIWSLatencySwitchWaitSeconds != after.OpenAIWSLatencySwitchWaitSeconds {
 		changed = append(changed, "openai_ws_latency_switch_wait_seconds")
 	}
+	if before.OpenAISessionPoolEnabled != after.OpenAISessionPoolEnabled {
+		changed = append(changed, "openai_session_pool_enabled")
+	}
+	if before.OpenAISessionPoolSize != after.OpenAISessionPoolSize {
+		changed = append(changed, "openai_session_pool_size")
+	}
 	if before.OpenAIWSLatencyProbeReuseSeconds != after.OpenAIWSLatencyProbeReuseSeconds {
 		changed = append(changed, "openai_ws_latency_probe_reuse_seconds")
 	}

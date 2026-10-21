@@ -466,6 +466,14 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			)
 		}
 		normalized = policyApplied
+		if routeID := OpenAIPreparedSessionID(c); routeID != "" {
+			var routeErr error
+			normalized, routeErr = applyPayloadMutation(normalized, "prompt_cache_key", routeID)
+			if routeErr != nil {
+				return openAIWSClientPayload{}, routeErr
+			}
+			promptCacheKey = routeID
+		}
 		ingressSessionOriginalModel = originalModel
 
 		return openAIWSClientPayload{

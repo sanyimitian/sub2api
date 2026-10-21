@@ -1,5 +1,18 @@
 export default {
     accounts: {
+      sessionPool: {
+        title: 'Prepared low-latency sessions',
+        hint: 'Off by default; enable or disable manually. The global prepared-session switch must also be on. Authorized groups can share qualified sessions; probes consume upstream quota.',
+        models: 'Probe models',
+        modelsHint: 'Choose from this account’s available models, up to 20. gpt-6-sol is selected by default. New accounts load models using the credentials entered here.',
+        searchModels: 'Search available models',
+        noModels: 'No matching models',
+        noModelsSelected: 'Select probe models',
+        refreshModels: 'Refresh available models',
+        loadingModels: 'Loading available models...',
+        loadFailed: 'Could not load models. Showing the account catalog and saved models; retry to refresh.',
+        unavailable: 'Currently unavailable',
+      },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',

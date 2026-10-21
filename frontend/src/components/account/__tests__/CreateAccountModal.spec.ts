@@ -74,6 +74,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 import CreateAccountModal from '../CreateAccountModal.vue'
+import OpenAISessionPoolFields from '../OpenAISessionPoolFields.vue'
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -287,6 +288,45 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(wrapper.find('[data-testid="openai-long-context-billing-toggle"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="create-openai-ws-mode"]').exists()).toBe(true)
+  })
+
+  it('关闭备用会话开关后仍能保存账号', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('prepared account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    const fields = wrapper.getComponent(OpenAISessionPoolFields)
+    await fields.get('[role="switch"]').trigger('click')
+    await fields.get('[data-testid="openai-session-pool-models"]').trigger('click')
+    for (const checkbox of fields.findAll('input[type="checkbox"]')) {
+      if ((checkbox.element as HTMLInputElement).checked) await checkbox.setValue(false)
+    }
+    await fields.get('[role="switch"]').trigger('click')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const extra = createAccountMock.mock.calls[0]?.[0]?.extra
+    expect(extra?.openai_session_pool_enabled).toBe(false)
+    expect(extra?.openai_session_pool_models).not.toEqual([])
+    wrapper.unmount()
+  })
+
+  it('创建接口密钥账号时保存备用会话和默认探测模型', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('prepared account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    const fields = wrapper.getComponent(OpenAISessionPoolFields)
+    await fields.get('[role="switch"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).toMatchObject({
+      openai_session_pool_enabled: true,
+    })
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_session_pool_models.length).toBeGreaterThan(0)
+    wrapper.unmount()
   })
 
   it('sends false explicitly for normal OpenAI account creation by default', async () => {

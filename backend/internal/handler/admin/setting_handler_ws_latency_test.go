@@ -89,3 +89,39 @@ func TestUpdateSettingsWSLatencyRejectsExplicitInvalidNumbers(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 	}
 }
+
+func TestUpdateSettingsPreparedSessionPoolSizePersists(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, nil)
+	for _, count := range []int{1, 12, 100} {
+		rec := doUpdateSettings(t, h, map[string]any{"openai_session_pool_size": count}, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		settings, err := h.settingService.GetAllSettings(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, count, settings.OpenAISessionPoolSize)
+		require.Equal(t, fmt.Sprint(count), repo.values[service.SettingKeyOpenAISessionPoolSize])
+	}
+	rec := doUpdateSettings(t, h, map[string]any{"openai_ws_latency_switch_enabled": false}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "100", repo.values[service.SettingKeyOpenAISessionPoolSize])
+	for _, count := range []int{0, -1, 101} {
+		rec = doUpdateSettings(t, h, map[string]any{"openai_session_pool_size": count}, nil)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestUpdateSettingsPreparedSessionPoolSwitchDefaultsOffAndPersists(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, nil)
+	settings, err := h.settingService.GetAllSettings(context.Background())
+	require.NoError(t, err)
+	require.False(t, settings.OpenAISessionPoolEnabled)
+	for _, enabled := range []bool{true, false} {
+		rec := doUpdateSettings(t, h, map[string]any{"openai_session_pool_enabled": enabled}, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, fmt.Sprint(enabled), repo.values[service.SettingKeyOpenAISessionPoolEnabled])
+		require.Contains(t, rec.Body.String(), fmt.Sprintf(`"openai_session_pool_enabled":%t`, enabled))
+		require.Equal(t, enabled, h.settingService.IsOpenAISessionPoolEnabled(context.Background()))
+		rec = doUpdateSettings(t, h, map[string]any{"openai_session_pool_size": 9}, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, fmt.Sprint(enabled), repo.values[service.SettingKeyOpenAISessionPoolEnabled], "保存其他设置不能改变开关")
+	}
+}

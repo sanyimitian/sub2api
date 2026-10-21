@@ -55,6 +55,8 @@ const backendModeDBTimeout = 5 * time.Second
 // cachedGatewayForwardingSettings 缓存网关转发行为设置（进程内缓存，60s TTL）
 type cachedGatewayForwardingSettings struct {
 	latencySwitch                    OpenAIWSLatencySwitchSettings
+	sessionPoolEnabled               bool
+	sessionPoolSize                  int
 	openAITTFTMode                   string
 	fingerprintUnification           bool
 	metadataPassthrough              bool
@@ -908,6 +910,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyOpenAIWSLatencySwitchProbeCount,
 			SettingKeyOpenAIWSLatencySwitchWaitSeconds,
 			SettingKeyOpenAIWSLatencyProbeReuseSeconds,
+			SettingKeyOpenAISessionPoolEnabled,
+			SettingKeyOpenAISessionPoolSize,
 			SettingKeyOpenAITTFTMode,
 			SettingKeyEnableFingerprintUnification,
 			SettingKeyEnableMetadataPassthrough,
@@ -957,6 +961,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			clientDatelineNormalization = v == "true"
 		}
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
+			sessionPoolEnabled:               values[SettingKeyOpenAISessionPoolEnabled] == "true",
+			sessionPoolSize:                  parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAISessionPoolSize], 6, 1, 100),
 			latencySwitch:                    OpenAIWSLatencySwitchSettings{Enabled: values[SettingKeyOpenAIWSLatencySwitchEnabled] == "true", Consecutive: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchConsecutive], 3, 1, 20), SlowMS: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchSlowMS], 15000, 1000, 300000), MinTPS: parseOpenAIWSLatencyMinTPS(values[SettingKeyOpenAIWSLatencySwitchMinTPS]), ProbeCount: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchProbeCount], defaultOpenAIWSLatencyProbeCount, minOpenAIWSLatencyProbeCount, maxOpenAIWSLatencyProbeCount), WaitSeconds: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchWaitSeconds], DefaultOpenAIWSLatencySwitchWaitSeconds, MinOpenAIWSLatencySwitchWaitSeconds, MaxOpenAIWSLatencySwitchWaitSeconds), ProbeReuseSeconds: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencyProbeReuseSeconds], DefaultOpenAIWSLatencyProbeReuseSeconds, MinOpenAIWSLatencyProbeReuseSeconds, MaxOpenAIWSLatencyProbeReuseSeconds)},
 			openAITTFTMode:                   ttftMode,
 			fingerprintUnification:           fp,
