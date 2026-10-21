@@ -539,17 +539,20 @@ func (session *OpenAIWSLatencySession) reservePreparedCandidate(ctx context.Cont
 		return openAIWSLatencyReusableCandidate{}, "", false
 	}
 	reason, level := "candidate_unavailable", logger.LevelInfo
-	eligibleCount, candidateCount := 0, 0
+	accountCount, eligibleCount, candidateCount := 0, 0, 0
+	accountRejections := make(map[string]int)
 	rejections := make(map[string]int)
 	defer func() {
 		session.poolDiagnostic(ctx, level, "openai.session_pool_reservation", reason,
-			zap.Int("eligible_account_count", eligibleCount), zap.Int("candidate_count", candidateCount), zap.Any("rejections", rejections))
+			zap.Int("schedulable_account_count", accountCount), zap.Int("eligible_account_count", eligibleCount),
+			zap.Any("account_rejections", accountRejections), zap.Int("candidate_count", candidateCount), zap.Any("rejections", rejections))
 	}()
 	accounts, err := s.listSchedulableAccounts(ctx, session.groupID, PlatformOpenAI)
 	if err != nil {
 		reason, level = "account_lookup_failed", logger.LevelWarn
 		return openAIWSLatencyReusableCandidate{}, "", false
 	}
+	accountCount = len(accounts)
 	if s.checkChannelPricingRestriction(ctx, session.groupID, model) {
 		reason = "channel_pricing_restricted"
 		return openAIWSLatencyReusableCandidate{}, "", false
@@ -561,20 +564,40 @@ func (session *OpenAIWSLatencySession) reservePreparedCandidate(ctx context.Cont
 	}
 	checker := &defaultOpenAIAccountScheduler{service: s}
 	req := OpenAIAccountScheduleRequest{GroupID: session.groupID, Platform: PlatformOpenAI, RequestedModel: requested, RequiredTransport: session.requiredTransport, RequiredCapability: session.requiredCapability, RequirePrivacySet: s.openAIGroupRequiresPrivacySet(ctx, session.groupID)}
+	accountRejectionReason := func(account *Account) string {
+		switch {
+		case !account.OpenAISessionPoolEnabled():
+			return "session_pool_disabled"
+		case !account.IsSchedulable():
+			return "account_not_schedulable"
+		case !s.openAIAccountMatchesSchedulingGroup(account, session.groupID):
+			return "group_not_authorized"
+		}
+		if compatible, why := checker.isAccountRequestCompatibleReason(ctx, account, req); !compatible {
+			return why
+		}
+		if !checker.isAccountTransportCompatible(account, session.requiredTransport) {
+			return "transport_mismatch"
+		}
+		return ""
+	}
 	eligible := make(map[int64]*Account)
 	for i := range accounts {
 		account := &accounts[i]
-		if !account.OpenAISessionPoolEnabled() || !account.IsSchedulable() || !s.openAIAccountMatchesSchedulingGroup(account, session.groupID) || !checker.isAccountRequestCompatible(ctx, account, req) || !checker.isAccountTransportCompatible(account, session.requiredTransport) {
+		if why := accountRejectionReason(account); why != "" {
+			accountRejections["snapshot_"+why]++
 			continue
 		}
 		// 不在缓存 CAS 回调里查数据库，避免占用原子更新的短超时窗口。
 		fresh, err := s.accountRepo.GetByID(ctx, account.ID)
 		if err != nil || fresh == nil {
+			accountRejections["fresh_account_lookup_failed"]++
 			continue
 		}
 		snapshot := *fresh
 		fresh = &snapshot
-		if !fresh.OpenAISessionPoolEnabled() || !fresh.IsSchedulable() || !s.openAIAccountMatchesSchedulingGroup(fresh, session.groupID) || !checker.isAccountRequestCompatible(ctx, fresh, req) || !checker.isAccountTransportCompatible(fresh, session.requiredTransport) {
+		if why := accountRejectionReason(fresh); why != "" {
+			accountRejections["fresh_"+why]++
 			continue
 		}
 		account = fresh

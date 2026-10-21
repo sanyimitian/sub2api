@@ -57,6 +57,11 @@ func TestResolveOpenAIWSClientThreadID(t *testing.T) {
 			want: "t-body",
 		},
 		{
+			name: "wrapped response client metadata",
+			body: `{"type":"response.create","response":{"client_metadata":{"thread_id":"t-body"}}}`,
+			want: "t-body",
+		},
+		{
 			name: "body embedded turn metadata",
 			body: `{"client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"t-embedded\"}"}}`,
 			want: "t-embedded",
@@ -94,6 +99,11 @@ func TestResolveOpenAIWSExecutionLane(t *testing.T) {
 			name:    "turn is the main lane",
 			headers: map[string]string{openAIWSTurnMetadataHeader: `{"thread_id":"t","request_kind":"turn"}`},
 			want:    "",
+		},
+		{
+			name: "wrapped memory request stays isolated",
+			body: `{"type":"response.create","response":{"client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"t\",\"request_kind\":\"memory\"}"}}}`,
+			want: "kind=memory",
 		},
 		{
 			name:    "prewarm shares the turn lane",

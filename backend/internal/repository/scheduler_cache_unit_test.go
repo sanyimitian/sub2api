@@ -33,6 +33,45 @@ func newSchedulerCacheUnitWithRedis(t *testing.T) (*schedulerCache, *miniredis.M
 	return cache, mr
 }
 
+func TestSchedulerCacheSnapshotPreservesSessionPoolConfiguration(t *testing.T) {
+	ctx := context.Background()
+	cache := newSchedulerCacheUnit(t)
+	bucket := service.SchedulerBucket{GroupID: 34, Platform: service.PlatformOpenAI, Mode: service.SchedulerModeSingle}
+	account := service.Account{
+		ID: 377, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true, GroupIDs: []int64{34},
+		Extra: map[string]any{
+			service.OpenAISessionPoolEnabledExtraKey: true,
+			service.OpenAISessionPoolModelsExtraKey:  []string{"gpt-6-astra", "gpt-6-sol"},
+			"unused_large_field":                     "drop-me",
+		},
+	}
+	token, err := cache.CaptureBucketWriteToken(ctx, bucket)
+	require.NoError(t, err)
+	require.NoError(t, cache.SetSnapshot(ctx, bucket, token, []service.Account{account}))
+
+	assertConfiguration := func(enabled bool, models []string) {
+		t.Helper()
+		snapshot, hit, err := cache.GetSnapshot(ctx, bucket)
+		require.NoError(t, err)
+		require.True(t, hit)
+		require.Len(t, snapshot, 1)
+		require.Equal(t, enabled, snapshot[0].OpenAISessionPoolEnabled())
+		require.Equal(t, models, snapshot[0].OpenAISessionPoolModels())
+		require.NotContains(t, snapshot[0].Extra, "unused_large_field")
+	}
+	assertConfiguration(true, []string{"gpt-6-astra", "gpt-6-sol"})
+
+	// 保存账号后，两份缓存必须同步更新，不能继续使用旧开关或默认模型。
+	account.Extra[service.OpenAISessionPoolEnabledExtraKey] = false
+	account.Extra[service.OpenAISessionPoolModelsExtraKey] = []string{"gpt-6.1-sol"}
+	require.NoError(t, cache.SetAccount(ctx, &account))
+	assertConfiguration(false, []string{"gpt-6.1-sol"})
+	account.Extra[service.OpenAISessionPoolEnabledExtraKey] = true
+	require.NoError(t, cache.SetAccount(ctx, &account))
+	assertConfiguration(true, []string{"gpt-6.1-sol"})
+}
+
 func TestSchedulerCacheWriteAccountIDsSkipsUnencodableTimes(t *testing.T) {
 	ctx := context.Background()
 	cache := newSchedulerCacheUnit(t)

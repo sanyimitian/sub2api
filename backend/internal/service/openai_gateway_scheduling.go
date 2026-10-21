@@ -153,7 +153,8 @@ func (s *OpenAIGatewayService) GenerateExplicitSessionHash(c *gin.Context, body 
 //  4. Header: x-conversation-id (CodeBuddy)
 //  5. Header: x-grok-conv-id (Grok groups only)
 //  6. Body:   prompt_cache_key
-//  7. Body:   content-based fallback (model + system + tools + first user message)
+//  7. Codex thread identity (header or client_metadata)
+//  8. Body:   content-based fallback (model + system + tools + first user message)
 //
 // Grok sticky affinity is intentionally separate from the upstream
 // prompt_cache_key identity (resolveGrokCacheIdentity): sticky pins an OAuth
@@ -167,6 +168,13 @@ func (s *OpenAIGatewayService) GenerateSessionHash(c *gin.Context, body []byte) 
 	}
 
 	sessionID := explicitOpenAIRequestSessionID(c, body)
+	// 只有线程标识的 Codex 请求（尤其是空输入预热）同样有稳定身份。
+	// 先于内容回退，保证预热、首轮和后续轮次使用同一粘性键。
+	if sessionID == "" && !isGrokRequestContext(c) {
+		if threadID := resolveOpenAIWSClientThreadID(c, body); threadID != "" {
+			sessionID = "openai-thread:" + threadID
+		}
+	}
 	if sessionID == "" && len(body) > 0 {
 		sessionID = deriveOpenAIContentSessionSeed(body)
 	}

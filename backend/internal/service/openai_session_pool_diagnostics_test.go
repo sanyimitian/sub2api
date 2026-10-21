@@ -164,6 +164,52 @@ func TestOpenAISessionPoolDiagnosticReservationReasons(t *testing.T) {
 	}
 }
 
+func TestOpenAISessionPoolDiagnosticAccountRejections(t *testing.T) {
+	tests := []struct {
+		reason string
+		change func(*Account)
+	}{
+		{"session_pool_disabled", func(a *Account) { a.Extra[OpenAISessionPoolEnabledExtraKey] = false }},
+		{"account_not_schedulable", func(a *Account) { a.Schedulable = false }},
+		{"group_not_authorized", func(a *Account) { a.GroupIDs = []int64{2} }},
+		{"model_not_supported", func(a *Account) { a.Credentials["model_mapping"] = map[string]any{"other-model": "other-model"} }},
+	}
+	for _, tt := range tests {
+		for _, stage := range []string{"snapshot", "fresh"} {
+			t.Run(stage+"_"+tt.reason, func(t *testing.T) {
+				svc, _ := newOpenAIWSLatencyTestService(t)
+				snapshot, fresh := preparedTestAccount(11, 1), preparedTestAccount(11, 1)
+				seedPreparedPool(t, svc, fresh, 1)
+				if stage == "snapshot" {
+					tt.change(&snapshot)
+				} else {
+					tt.change(&fresh)
+				}
+				svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{fresh}}
+				svc.schedulerSnapshot = &SchedulerSnapshotService{cache: &openAISnapshotCacheStub{snapshotAccounts: []*Account{&snapshot}}}
+				session := preparedHTTPSession(svc, 1, "private-conversation")
+				ctx, logs := poolDiagnosticTestContext()
+				_, _, ok := session.reservePreparedCandidate(ctx, "gpt-5.1")
+				require.False(t, ok)
+				events := logs.FilterMessage("openai.session_pool_reservation").All()
+				require.Len(t, events, 1)
+				fields := events[0].ContextMap()
+				require.Equal(t, "no_eligible_accounts", fields["reason"])
+				require.EqualValues(t, 1, fields["schedulable_account_count"])
+				require.EqualValues(t, 0, fields["eligible_account_count"])
+				require.Equal(t, map[string]int{stage + "_" + tt.reason: 1}, fields["account_rejections"])
+				pool := svc.getOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey)
+				require.Len(t, pool.Candidates, 1)
+				require.Empty(t, pool.Candidates[0].LeaseID, "过滤失败不能占用共享候选")
+				encoded, err := json.Marshal(fields)
+				require.NoError(t, err)
+				require.NotContains(t, string(encoded), "private-conversation")
+				require.NotContains(t, string(encoded), "test-only")
+			})
+		}
+	}
+}
+
 func TestOpenAISessionPoolDiagnosticProbeReasonsAndPrivacy(t *testing.T) {
 	tests := []struct {
 		name   string

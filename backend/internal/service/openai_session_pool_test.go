@@ -916,8 +916,17 @@ func TestOpenAISessionPoolStableClientIdentityIsRequiredAndThreadsAreIsolated(t 
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	hash := svc.GenerateSessionHash(c, payload)
 	require.NotEmpty(t, hash)
-	missing := svc.NewOpenAIHTTPResponsesLatencySession(ctx, &group, key, hash, "gpt-5.1", "gpt-5.1", OpenAIEndpointCapabilityResponses, payload, c)
+	diagnosticCtx, logs := poolDiagnosticTestContext()
+	missing := svc.NewOpenAIHTTPResponsesLatencySession(diagnosticCtx, &group, key, hash, "gpt-5.1", "gpt-5.1", OpenAIEndpointCapabilityResponses, payload, c)
 	require.Nil(t, missing, "相同文本不能被用作可共享用户状态的会话身份")
+	skipped := logs.FilterMessage("openai.latency_diagnostic").All()
+	require.Len(t, skipped, 1)
+	require.Equal(t, "session_scope_missing", skipped[0].ContextMap()["reason"])
+	pool := svc.getOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey)
+	require.Len(t, pool.Candidates, 2)
+	for _, candidate := range pool.Candidates {
+		require.Empty(t, candidate.LeaseID, "缺少会话身份时走正常调度，不占用共享候选")
+	}
 	c.Request.Header.Set("session-id", "parent-session")
 	ids := make(map[string]bool)
 	for _, thread := range []string{"thread-one", "thread-two"} {
@@ -932,6 +941,45 @@ func TestOpenAISessionPoolStableClientIdentityIsRequiredAndThreadsAreIsolated(t 
 		require.NotEmpty(t, id)
 		require.False(t, ids[id], "共用父会话标识的两个线程必须独占不同候选")
 		ids[id] = true
+	}
+}
+
+func TestOpenAISessionPoolThreadOnlyPrewarmAndContinuation(t *testing.T) {
+	for _, identity := range []string{"header", "body"} {
+		t.Run(identity, func(t *testing.T) {
+			svc, _ := newOpenAIWSLatencyTestService(t)
+			a := preparedTestAccount(11, 1)
+			svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{a}}
+			seedPreparedPool(t, svc, a, 1)
+			ctx := context.Background()
+			group, key := int64(1), &APIKey{ID: 7}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			metadata := ""
+			if identity == "header" {
+				c.Request.Header.Set("thread-id", "private-thread")
+			} else {
+				metadata = `,"client_metadata":{"thread_id":"private-thread"}`
+			}
+			var firstHash, firstScope string
+			for i, input := range []string{`"generate":false,"input":[]`, `"input":"hello"`, `"input":"different follow-up"`} {
+				payload := []byte(`{"model":"gpt-5.1",` + input + metadata + `}`)
+				hash := svc.GenerateSessionHash(c, payload)
+				require.NotEmpty(t, hash, "空输入预热也必须识别已有线程标识")
+				session := svc.NewOpenAIHTTPResponsesLatencySession(ctx, &group, key, hash, "gpt-5.1", "gpt-5.1", OpenAIEndpointCapabilityResponses, payload, c)
+				require.NotNil(t, session)
+				if i == 0 {
+					firstHash, firstScope = hash, session.scope
+				} else {
+					require.Equal(t, firstHash, hash)
+					require.Equal(t, firstScope, session.scope)
+				}
+				_, err := session.PrepareHTTP(ctx, payload)
+				require.NoError(t, err)
+				require.NoError(t, session.ApplyUpstreamSessionIdentity(ctx, c, &a, session.model))
+				require.Equal(t, "prepared-11-0", OpenAIWSLatencyUpstreamSessionID(c))
+			}
+		})
 	}
 }
 
