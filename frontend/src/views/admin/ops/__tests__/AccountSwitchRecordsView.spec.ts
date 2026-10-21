@@ -4,14 +4,14 @@ import AccountSwitchRecordsView from '../AccountSwitchRecordsView.vue'
 
 const { listSystemLogs } = vi.hoisted(() => ({ listSystemLogs: vi.fn() }))
 
-vi.mock('@/api/admin/ops', () => ({ opsAPI: { listSystemLogs } }))
+vi.mock('@/api/admin/ops', () => ({ opsAPI: { listSystemLogs, getOpenAISessionPoolSnapshot: vi.fn().mockResolvedValue({ enabled: false, target_size: 6, candidates: [], observed_at: new Date().toISOString() }) } }))
 vi.mock('@/components/layout/AppLayout.vue', () => ({
   default: { template: '<div><slot /></div>' },
 }))
 vi.mock('@/stores', () => ({ useAppStore: () => ({ showError: vi.fn() }) }))
 vi.mock('vue-i18n', async (importOriginal) => ({
   ...await importOriginal<typeof import('vue-i18n')>(),
-  useI18n: () => ({ t: (key: string) => key }),
+  useI18n: () => ({ t: (key: string) => key, te: () => false }),
 }))
 
 describe('AccountSwitchRecordsView', () => {
@@ -95,7 +95,7 @@ describe('AccountSwitchRecordsView', () => {
     })
     await flushPromises()
 
-    expect(listSystemLogs).toHaveBeenCalledTimes(2)
+    expect(listSystemLogs).toHaveBeenCalledTimes(3)
     expect(listSystemLogs).toHaveBeenCalledWith(expect.objectContaining({ time_range: '1h', q: 'openai.ws_latency_switch_' }))
     expect(listSystemLogs).toHaveBeenCalledWith(expect.objectContaining({ time_range: '1h', q: 'openai.session_pool_' }))
     expect(wrapper.get('[data-testid="toggle-latency-section"]').attributes('aria-expanded')).toBe('false')

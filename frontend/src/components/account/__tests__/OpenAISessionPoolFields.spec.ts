@@ -45,6 +45,30 @@ describe('备用会话配置', () => {
     expect(syncUpstreamModelsPreview).toHaveBeenCalledWith({ platform: 'openai', type: 'apikey', api_key: 'test-key' })
   })
 
+  it.each([
+    [['gpt-6-sol', 'gpt-6.1-sol'], 'gpt-6-sol'],
+    [['custom-model', 'gpt-6.1-sol'], 'gpt-6.1-sol'],
+  ])('编辑账号按可用模型选择默认值：%j', async (available, expected) => {
+    getAvailableModels.mockResolvedValue(available.map(id => ({ id })))
+    const wrapper = mount(OpenAISessionPoolFields, { props: { enabled: true, models: ['gpt-6-sol'], accountId: 7 } })
+    await flushPromises()
+    expect(wrapper.emitted('update:models')?.at(-1)).toEqual([[expected]])
+    wrapper.unmount()
+  })
+
+  it('保留显式选择的自定义模型，读取失败时也保留原值', async () => {
+    getAvailableModels.mockResolvedValue([{ id: 'gpt-6.1-sol' }])
+    const wrapper = mount(OpenAISessionPoolFields, { props: { enabled: true, models: ['custom-model'], accountId: 7 } })
+    await flushPromises()
+    expect(wrapper.emitted('update:models')).toBeUndefined()
+    wrapper.unmount()
+    getAvailableModels.mockRejectedValue(new Error('network'))
+    const failed = mount(OpenAISessionPoolFields, { props: { enabled: true, models: ['gpt-6-sol'], accountId: 7 } })
+    await flushPromises()
+    expect(failed.emitted('update:models')).toBeUndefined()
+    failed.unmount()
+  })
+
   it('模型读取兼容旧账号，保存时去重和去空格', () => {
     expect(readOpenAISessionPoolModels()).toEqual(['gpt-6-sol'])
     expect(readOpenAISessionPoolModels({ openai_session_pool_models: ['model-a', 'model-b'] })).toEqual(['model-a', 'model-b'])

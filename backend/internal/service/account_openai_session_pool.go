@@ -19,6 +19,9 @@ func (a *Account) OpenAISessionPoolModels() []string {
 	}
 	raw, exists := a.Extra[OpenAISessionPoolModelsExtraKey]
 	if !exists {
+		if !a.IsModelSupported(defaultOpenAISessionPoolModel) {
+			return []string{"gpt-6.1-sol"}
+		}
 		return []string{defaultOpenAISessionPoolModel}
 	}
 	var values []string

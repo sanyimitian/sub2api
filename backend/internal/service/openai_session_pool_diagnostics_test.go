@@ -39,7 +39,25 @@ func TestOpenAISessionPoolDiagnosticRefillSummary(t *testing.T) {
 			require.EqualValues(t, 6, fields["target_size"])
 			require.EqualValues(t, 0, fields["available_before"])
 			require.NotEmpty(t, fields["refill_id"])
-			require.Equal(t, true, fields[logger.OpsSystemLogSkipField])
+			require.NotEqual(t, true, fields[logger.OpsSystemLogSkipField])
+			require.True(t, (&OpsSystemLogSink{}).shouldIndex(&logger.LogEvent{Level: "info", Message: summaries[0].Message, Fields: fields}))
+			encoded, err := json.Marshal(fields["probe_results"])
+			require.NoError(t, err)
+			var records []openAISessionPoolProbeRecord
+			require.NoError(t, json.Unmarshal(encoded, &records))
+			require.Len(t, records, int(fields["probe_count"].(int64)))
+			for i, record := range records {
+				require.EqualValues(t, 11, record.AccountID)
+				require.Equal(t, "gpt-5.1", record.Model)
+				require.Equal(t, !fail, record.Published)
+				require.Equal(t, !fail, record.Qualified)
+				if i > 0 {
+					require.GreaterOrEqual(t, record.Round, records[i-1].Round)
+				}
+			}
+			for _, secret := range []string{"upstream_session_id", "test-only", "sub2api-prepared-"} {
+				require.NotContains(t, string(encoded), secret)
+			}
 			if fail {
 				require.Equal(t, zapcore.WarnLevel, summaries[0].Level)
 				require.Equal(t, "probe_rounds_exhausted", fields["reason"])

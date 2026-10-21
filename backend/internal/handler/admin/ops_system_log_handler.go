@@ -29,6 +29,24 @@ type opsSystemLogCleanupRequest struct {
 	Query           string `json:"q"`
 }
 
+// GetOpenAISessionPoolSnapshot 仅返回当前可领取备用会话的安全元数据。
+func (h *OpsHandler) GetOpenAISessionPoolSnapshot(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "备用会话池服务不可用")
+		return
+	}
+	if err := h.opsService.RequireMonitoringEnabled(c.Request.Context()); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	snapshot, err := h.opsService.GetOpenAISessionPoolSnapshot(c.Request.Context())
+	if err != nil {
+		response.Error(c, http.StatusServiceUnavailable, "读取备用会话池失败，请稍后重试")
+		return
+	}
+	response.Success(c, snapshot)
+}
+
 // ListSystemLogs returns indexed system logs.
 // GET /api/v1/admin/ops/system-logs
 func (h *OpsHandler) ListSystemLogs(c *gin.Context) {

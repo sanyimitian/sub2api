@@ -1,5 +1,9 @@
 export const DEFAULT_OPENAI_SESSION_POOL_MODEL = 'gpt-6-sol'
 
+export function defaultOpenAISessionPoolModel(availableModels: string[]): string {
+  return availableModels.includes(DEFAULT_OPENAI_SESSION_POOL_MODEL) ? DEFAULT_OPENAI_SESSION_POOL_MODEL : 'gpt-6.1-sol'
+}
+
 export function parseOpenAISessionPoolModels(value: string): string[] {
   return [...new Set(value.split(/\r?\n/).map(model => model.trim()).filter(Boolean))]
 }

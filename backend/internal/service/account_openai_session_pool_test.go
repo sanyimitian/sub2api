@@ -48,3 +48,20 @@ func TestOpenAISessionPoolModelConfiguration(t *testing.T) {
 		require.Error(t, ValidateOpenAISessionPoolExtra(a.Platform, a.Type, map[string]any{OpenAISessionPoolModelsExtraKey: invalid}))
 	}
 }
+
+func TestOpenAISessionPoolDefaultModelRespectsAccountSupport(t *testing.T) {
+	for _, tc := range []struct {
+		mapping map[string]any
+		want    string
+	}{
+		{nil, "gpt-6-sol"},
+		{map[string]any{"gpt-6-sol": "upstream-sol", "gpt-6.1-sol": "upstream-61"}, "gpt-6-sol"},
+		{map[string]any{"gpt-6.1-sol": "upstream-61"}, "gpt-6.1-sol"},
+		{map[string]any{"gpt-6-*": "upstream"}, "gpt-6-sol"},
+	} {
+		a := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": tc.mapping}}
+		require.Equal(t, []string{tc.want}, a.OpenAISessionPoolModels())
+		a.Extra = map[string]any{OpenAISessionPoolModelsExtraKey: []string{"custom"}}
+		require.Equal(t, []string{"custom"}, a.OpenAISessionPoolModels())
+	}
+}

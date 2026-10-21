@@ -93,6 +93,7 @@ type openAIWSLatencyReusableCandidate struct {
 	ResultID           string                  `json:"result_id,omitempty"`
 	AccountID          int64                   `json:"account_id"`
 	UpstreamModel      string                  `json:"upstream_model,omitempty"`
+	ProbeModel         string                  `json:"probe_model,omitempty"`
 	UpstreamSessionID  string                  `json:"upstream_session_id,omitempty"`
 	FirstTokenMS       int                     `json:"first_token_ms"`
 	ExpiresAt          int64                   `json:"expires_at"`

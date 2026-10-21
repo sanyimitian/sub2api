@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import Select from '@/components/common/Select.vue'
+import OpenAISessionPoolRecords from '@/components/ops/OpenAISessionPoolRecords.vue'
 import { opsAPI, type OpsSystemLog } from '@/api/admin/ops'
 import { useAppStore } from '@/stores'
 
@@ -24,6 +25,7 @@ interface ProbeResultLog {
 const { t } = useI18n()
 const appStore = useAppStore()
 const loading = ref(false)
+const poolRecords = ref<InstanceType<typeof OpenAISessionPoolRecords> | null>(null)
 const timeRange = ref<TimeRange>('1h')
 const modelFilter = ref('')
 const expandedGroups = ref(new Set<string>())
@@ -182,7 +184,7 @@ const fetchRecords = async () => {
   loading.value = true
   const filters = { time_range: timeRange.value, model: modelFilter.value.trim() || undefined }
   try {
-    await Promise.all(categories.map(async (category) => {
+    await Promise.all([poolRecords.value?.refresh(filters), ...categories.map(async (category) => {
       try {
         const batchSize = 200
         const rows: OpsSystemLog[] = []
@@ -206,7 +208,7 @@ const fetchRecords = async () => {
         console.error('[AccountSwitchRecordsView] Failed to fetch records', error)
         appStore.showError(error?.response?.data?.detail || t('admin.ops.switchRecords.loadFailed'))
       }
-    }))
+    })])
     expandedGroups.value = new Set()
   } finally {
     loading.value = false
@@ -262,6 +264,8 @@ onMounted(fetchRecords)
           {{ t('admin.ops.switchRecords.search') }}
         </button>
       </section>
+
+      <OpenAISessionPoolRecords ref="poolRecords" />
 
       <section v-for="section in sections" :key="section.id" class="space-y-3">
         <h2>

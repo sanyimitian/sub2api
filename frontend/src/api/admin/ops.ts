@@ -855,6 +855,37 @@ export interface OpsSystemLog {
 
 export type OpsSystemLogListResponse = PaginatedResponse<OpsSystemLog>
 
+export interface OpenAISessionPoolCandidate {
+  result_id: string
+  account_id: number
+  account_name: string
+  model: string
+  transport: string
+  first_token_ms: number
+  expires_at: string
+}
+
+export interface OpenAISessionPoolSnapshot {
+  enabled: boolean
+  target_size: number
+  observed_at: string
+  candidates: OpenAISessionPoolCandidate[]
+}
+
+export interface OpenAISessionPoolProbeResult {
+  round: number
+  probe_number: number
+  account_id: number
+  account_name: string
+  model: string
+  transport: string
+  first_token_ms: number | null
+  success: boolean
+  qualified: boolean
+  published: boolean
+  reason: string
+}
+
 export interface OpsSystemLogQuery {
   page?: number
   page_size?: number
@@ -1285,6 +1316,11 @@ export async function listSystemLogs(params: OpsSystemLogQuery): Promise<OpsSyst
   return data
 }
 
+export async function getOpenAISessionPoolSnapshot(): Promise<OpenAISessionPoolSnapshot> {
+  const { data } = await apiClient.get<OpenAISessionPoolSnapshot>('/admin/ops/openai-session-pool')
+  return data
+}
+
 export async function cleanupSystemLogs(payload: OpsSystemLogCleanupRequest): Promise<{ deleted: number }> {
   const { data } = await apiClient.post<{ deleted: number }>('/admin/ops/system-logs/cleanup', payload)
   return data
@@ -1366,6 +1402,7 @@ export const opsAPI = {
   getMetricThresholds,
   updateMetricThresholds,
   listSystemLogs,
+  getOpenAISessionPoolSnapshot,
   cleanupSystemLogs,
   getSystemLogSinkHealth
 }

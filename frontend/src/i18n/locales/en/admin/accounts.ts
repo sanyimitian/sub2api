@@ -4,7 +4,7 @@ export default {
         title: 'Prepared low-latency sessions',
         hint: 'Off by default; enable or disable manually. The global prepared-session switch must also be on. Authorized groups can share qualified sessions; probes consume upstream quota.',
         models: 'Probe models',
-        modelsHint: 'Choose from this account’s available models, up to 20. gpt-6-sol is selected by default. New accounts load models using the credentials entered here.',
+        modelsHint: 'Choose from this account’s available models, up to 20. gpt-6-sol is selected by default, or gpt-6.1-sol if unavailable. New accounts load models using the credentials entered here.',
         searchModels: 'Search available models',
         noModels: 'No matching models',
         noModelsSelected: 'Select probe models',

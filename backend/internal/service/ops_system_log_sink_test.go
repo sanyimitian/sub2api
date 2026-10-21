@@ -108,7 +108,7 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 
 func TestOpsSystemLogSink_ShouldIndexSessionPoolLifecycle(t *testing.T) {
 	sink := &OpsSystemLogSink{}
-	for _, message := range []string{"openai.session_pool_assigned", "openai.session_pool_assignment_completed", "openai.session_pool_candidate_discarded"} {
+	for _, message := range []string{"openai.session_pool_assigned", "openai.session_pool_assignment_completed", "openai.session_pool_candidate_discarded", "openai.session_pool_refill_completed"} {
 		t.Run(message, func(t *testing.T) {
 			event := &logger.LogEvent{Level: "info", Message: message}
 			if !sink.shouldIndex(event) {

@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import Toggle from '@/components/common/Toggle.vue'
+import { DEFAULT_OPENAI_SESSION_POOL_MODEL, defaultOpenAISessionPoolModel } from '@/utils/openaiSessionPool'
 
 interface PreviewCredentials {
   platform: string
@@ -68,11 +69,13 @@ async function loadModels() {
     if (request === loadRequest) {
       loadedModels.value = [...new Set(fetched.map(model => model.trim()).filter(Boolean))]
       modelsLoaded.value = true
-      if (!props.preserveUnavailable) {
+      if (models.value.length === 1 && models.value[0] === DEFAULT_OPENAI_SESSION_POOL_MODEL) {
+        models.value = [defaultOpenAISessionPoolModel(loadedModels.value)]
+      } else if (!props.preserveUnavailable) {
         const selected = models.value.filter(model => loadedModels.value.includes(model))
         models.value = selected.length > 0
           ? selected
-          : [loadedModels.value.includes('gpt-6-sol') ? 'gpt-6-sol' : loadedModels.value[0]].filter((model): model is string => Boolean(model))
+          : [defaultOpenAISessionPoolModel(loadedModels.value)]
       }
     }
   } catch {

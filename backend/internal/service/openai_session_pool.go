@@ -278,6 +278,8 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 		type outcome struct {
 			route  openAISessionPoolRoute
 			result openAIWSLatencyProbeResult
+			number int
+			record *openAISessionPoolProbeRecord
 		}
 		results := make(chan outcome, count)
 		publish := func(item outcome) {
@@ -301,10 +303,11 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 					publishReason = "pool_full"
 					return false
 				}
-				pool.Candidates = append(pool.Candidates, openAIWSLatencyReusableCandidate{ResultID: resultID, AccountID: route.account.ID, UpstreamSessionID: result.upstreamSessionID, UpstreamModel: result.upstreamModel, FirstTokenMS: result.ms, ExpiresAt: time.Now().Add(time.Duration(settings.ProbeReuseSeconds) * time.Second).UnixMilli(), AccountFingerprint: route.fingerprint, Transport: route.transport})
+				pool.Candidates = append(pool.Candidates, openAIWSLatencyReusableCandidate{ResultID: resultID, AccountID: route.account.ID, UpstreamSessionID: result.upstreamSessionID, UpstreamModel: result.upstreamModel, ProbeModel: route.model, FirstTokenMS: result.ms, ExpiresAt: time.Now().Add(time.Duration(settings.ProbeReuseSeconds) * time.Second).UnixMilli(), AccountFingerprint: route.fingerprint, Transport: route.transport})
 				return true
 			})
 			if published {
+				item.record.Published = true
 				diagnostic.published++
 				diagnostic.available++
 				publishReason = "candidate_published"
@@ -321,13 +324,21 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 		for i := 0; i < count; i++ {
 			route := routes[(round*settings.ProbeCount+i)%len(routes)]
 			probeCtx := logger.IntoContext(ctx, logger.FromContext(ctx).With(zap.String("refill_id", owner), zap.Int("round", round+1), zap.Int("probe_number", i+1)))
-			go func(route openAISessionPoolRoute, probeCtx context.Context) {
-				results <- outcome{route, s.probeOpenAISessionPoolRoute(probeCtx, route)}
-			}(route, probeCtx)
+			go func(route openAISessionPoolRoute, probeCtx context.Context, number int) {
+				results <- outcome{route: route, result: s.probeOpenAISessionPoolRoute(probeCtx, route), number: number}
+			}(route, probeCtx, i+1)
 		}
 		pending := make([]outcome, 0, count)
 		for i := 0; i < count; i++ {
 			item := <-results
+			item.record = &openAISessionPoolProbeRecord{Round: round + 1, ProbeNumber: item.number,
+				AccountID: item.route.account.ID, AccountName: item.route.account.Name, Model: item.route.model,
+				Transport: item.route.transport, Success: item.result.ok, Qualified: item.result.failure == "qualified", Reason: item.result.failure}
+			if item.result.ok && item.result.ms >= 0 {
+				ms := item.result.ms
+				item.record.FirstTokenMS = &ms
+			}
+			diagnostic.results = append(diagnostic.results, item.record)
 			diagnostic.probes++
 			diagnostic.outcomes[item.result.failure]++
 			if item.result.ok && item.result.ms < openAIWSLatencyFastCandidateMS {

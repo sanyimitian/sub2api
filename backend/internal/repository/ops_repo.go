@@ -1151,7 +1151,11 @@ func buildOpsSystemLogsWhere(filter *service.OpsSystemLogFilter) (string, []any,
 		}
 		if v := strings.TrimSpace(filter.Model); v != "" {
 			args = append(args, v)
-			clauses = append(clauses, "COALESCE(l.model,'') = $"+itoa(len(args)))
+			if filter.Query == "openai.session_pool_refill_completed" {
+				clauses = append(clauses, "COALESCE(l.extra->'probe_results', '[]'::jsonb) @> jsonb_build_array(jsonb_build_object('model', $"+itoa(len(args))+"::text))")
+			} else {
+				clauses = append(clauses, "COALESCE(l.model,'') = $"+itoa(len(args)))
+			}
 			hasConstraint = true
 		}
 		if v := strings.TrimSpace(filter.Query); v != "" {
