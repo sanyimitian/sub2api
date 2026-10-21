@@ -681,11 +681,15 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				return
 			}
 			defer func() {
-				if latencyObservedAccount != nil {
-					latencySession.Observe(context.WithoutCancel(c.Request.Context()), 1, latencyObservedAccount, latencyObservedResult, latencyObservedErr)
-				}
+				latencySession.Observe(context.WithoutCancel(c.Request.Context()), 1, latencyObservedAccount, latencyObservedResult, latencyObservedErr)
 			}()
 		}
+	} else {
+		reqLog.Debug("openai.latency_diagnostic", zap.Bool(logger.OpsSystemLogSkipField, true),
+			zap.String("stage", "entry"), zap.String("reason", "http_entry_excluded"),
+			zap.Bool("stream", reqStream), zap.Bool("bare_responses_path", isBareOpenAIResponsesPath(c)),
+			zap.Bool("openai_platform", requestPlatform == service.PlatformOpenAI),
+			zap.Bool("image_intent", imageIntent), zap.Bool("native_v2", nativeV2))
 	}
 
 	// 分组利润控制：请求级装配定价上下文——pricingAt 固定本请求的

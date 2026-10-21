@@ -15,11 +15,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
+	"go.uber.org/zap"
 )
 
+// 探测目标是创建并筛选可接管的独立上游会话，而非只比较本系统账号的平均速度。
+// 可选账号为当前高延迟对话所属分组有权调用且符合请求要求的所有账号，包括当前账号。
+// 同一账号可以创建多个探测会话；每路都应使用独立的上游会话标识，并把该标识与结果一起保留。
+// 上游可能把这些会话分配到不同内部账号；按用户确认的规则，以实测首字延迟筛选即可，
+// 不要求确认内部 OpenAI 账号编号，也不要求先填满某个内部账号的 15 个并发。
 type openAIWSLatencyProbeResult struct {
 	resultID            string
 	upstreamSessionID   string
@@ -55,6 +62,12 @@ type openAIWSLatencyProbeLogResult struct {
 	Failure             string  `json:"failure,omitempty"`
 }
 
+// 候选速度规则与「用户慢请求的触发阈值」分开：
+// 探测成功且首字严格低于 10 秒才合格，不再要求比原会话快 20% 或至少快 250 毫秒，
+// 也不把用户请求的可选最低输出 TPS（每秒输出词元数）作为候选探测的额外速度门槛。
+// 一轮内优先选最快的合格会话；任何一路低于 5 秒时允许直接选中，无须等待全部返回。
+// 没有合格会话才新建下一轮独立会话，最多探测 5 轮；并发数使用配置值，默认 6，
+// 它表示会话数而非不同账号数。已产生的其余合格会话应按复用保留时间进入共享池。
 const (
 	openAIWSLatencyCandidateMaxFirstTokenMS = 10_000
 	openAIWSLatencyFastCandidateMS          = 5_000
@@ -157,6 +170,14 @@ func writeOpenAIWSLatencyProbeCompleted(actor openAIWSLatencyActor, currentID in
 	})
 }
 
+// probeOpenAIWSLatencyRoutes 遵循「先共享复用，再新建探测」的顺序。
+// 当前分组可用的未过期候选还有剩余时，先独占领取其中的快速会话；候选只是被其他
+// 接管流程暂时占用时，应等待领取结果，不把暂不可领取误判为候选耗尽。
+// 只有对当前请求已无可复用的合格候选（包括候选已过期），才允许发起新一轮探测。
+// 例如一批产生 5 个合格会话，成功接管 1 个后剩余 4 个；后续触发优先继续领取，
+// 不应每触发一次就重新创建 6 个会话。保留时间使用配置，不能固定成默认的 600 秒。
+// 「探测完成」只说明本次探测结束；「待切换」表示已保留目标但尚未确认接管成功，
+// 二者都不能代替真实用户请求在目标会话上接管成功的确认。
 func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, key string, groupID *int64, currentID int64, poolModel, model string, capability OpenAIEndpointCapability, requiredTransport OpenAIUpstreamTransport, probeID string, actor openAIWSLatencyActor) {
 	settings := s.settingService.GetOpenAIWSLatencySwitchSettings(ctx)
 	probeCount := settings.ProbeCount
@@ -174,6 +195,11 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		poolModel = model
 	}
 	poolKey := openAIWSLatencyCandidatePoolKey(groupID, poolModel, requiredTransport)
+	diagnostic := func(reason string, fields ...zap.Field) {
+		base := append(actor.diagnosticFields(), zap.String("stage", "probe"), zap.String("model", model),
+			zap.String("transport", string(requiredTransport)), zap.Int64("account_id", currentID), zap.String("probe_id", probeID))
+		writeOpenAIWSLatencyDiagnostic(ctx, logger.LevelInfo, reason, append(base, fields...)...)
+	}
 	var targetID int64
 	var candidateLeaseID string
 	var targetResultID string
@@ -195,7 +221,12 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		}
 	}()
 	accounts, err := s.listSchedulableAccounts(ctx, groupID, PlatformOpenAI)
-	if err != nil || s.checkChannelPricingRestriction(ctx, groupID, model) {
+	if err != nil {
+		diagnostic("probe_account_lookup_failed")
+		return
+	}
+	if s.checkChannelPricingRestriction(ctx, groupID, model) {
+		diagnostic("probe_channel_pricing_restricted")
 		return
 	}
 	request := OpenAIAccountScheduleRequest{GroupID: groupID, Platform: PlatformOpenAI, RequestedModel: model, RequiredTransport: requiredTransport, RequiredCapability: capability, RequirePrivacySet: s.openAIGroupRequiresPrivacySet(ctx, groupID)}
@@ -219,6 +250,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		currentFound = currentFound || account.ID == currentID
 	}
 	if !currentFound || len(eligibleAccounts) == 0 {
+		diagnostic("probe_no_eligible_accounts", zap.Int("account_count", len(accounts)), zap.Int("eligible_account_count", len(eligibleAccounts)), zap.Bool("current_account_eligible", currentFound))
 		return
 	}
 	pendingRecorded := false
@@ -246,6 +278,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 			candidateLeaseID = leaseID
 			return state.TargetID == candidate.AccountID && state.TargetResultID == candidate.ResultID
 		}
+		diagnostic("pending_state_not_updated", zap.Int64("target_account_id", candidate.AccountID))
 		return false
 	}
 	writePending := func(reused bool) {
@@ -258,6 +291,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		if reused {
 			fields["reused_probe_result"] = true
 		}
+		diagnostic("candidate_reserved", zap.Bool("reused_probe_result", reused), zap.Int64("target_account_id", targetID), zap.String("target_result_id", targetResultID))
 		actor.writeEvent("openai.ws_latency_switch_pending", fields)
 		pendingRecorded = true
 	}
@@ -287,6 +321,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		}
 	}()
 	if !settings.Enabled {
+		diagnostic("probe_feature_disabled")
 		return
 	}
 	if reserveReusableCandidate() {
@@ -297,6 +332,7 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		return
 	}
 	claimed := false
+	waitLogged := false
 	for !claimed && ctx.Err() == nil {
 		pool := s.getOpenAIWSLatencyCandidatePool(ctx, poolKey)
 		now := time.Now().UnixMilli()
@@ -320,15 +356,22 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 		if stopForStateChange {
 			return
 		}
+		if !waitLogged {
+			diagnostic("shared_pool_wait", zap.Int("candidate_count", len(pool.Candidates)), zap.Bool("eligible_candidates_present", validCandidates), zap.Bool("shared_probe_running", pool.ProbeUntil > now))
+			waitLogged = true
+		}
 		select {
 		case <-ctx.Done():
+			diagnostic("shared_pool_wait_ended", zap.Bool("deadline_exceeded", errors.Is(ctx.Err(), context.DeadlineExceeded)))
 			return
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
 	if !claimed {
+		diagnostic("probe_not_claimed")
 		return
 	}
+	diagnostic("new_probe_started", zap.Int("probe_count", probeCount), zap.Int("eligible_account_count", len(eligibleAccounts)))
 	for round := 1; round <= openAIWSLatencyMaxProbeRounds; round++ {
 		if len(eligibleAccounts) == 0 {
 			break
@@ -458,9 +501,11 @@ func (s *OpenAIGatewayService) probeOpenAIWSLatencyRoutes(ctx context.Context, k
 			return
 		}
 		if ctx.Err() != nil || stopForStateChange {
+			diagnostic("probe_interrupted", zap.Bool("context_done", ctx.Err() != nil), zap.Bool("state_changed", stopForStateChange))
 			return
 		}
 	}
+	diagnostic("probe_rounds_exhausted", zap.Int("max_probe_rounds", openAIWSLatencyMaxProbeRounds))
 }
 
 func chooseOpenAIWSLatencyTargetResult(results []openAIWSLatencyProbeResult) *openAIWSLatencyProbeResult {
@@ -574,8 +619,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, 
 	observed := openAIWSLatencyProbeResult{accountID: account.ID, upstreamSessionID: openAIWSLatencyProbeSessionID(ctx)}
 	probeCtx, cancel := context.WithTimeout(ctx, openAIWSLatencyProbeTimeout)
 	defer cancel()
-	// Synthetic input never copies user messages, tools, response references or
-	// session IDs. Probes consume upstream quota but are not billed to a user.
+	// 探测只发送合成测试输入，不复制真实用户消息、工具结果、旧响应引用或旧会话标识。
+	// 使用本路新生成的会话标识发送探测，并保留该标识供用户接管；本地结果编号不能替代它。
+	// 探测会占用上游额度，但不计入用户账单；接管时必须另行发送用户的完整有效上下文。
 	probeBody := map[string]any{"model": model, "stream": true, "store": false, "max_output_tokens": 64, "input": []any{map[string]any{"role": "user", "content": "Reply with the single word OK."}}}
 	if observed.upstreamSessionID != "" {
 		probeBody["prompt_cache_key"] = observed.upstreamSessionID
