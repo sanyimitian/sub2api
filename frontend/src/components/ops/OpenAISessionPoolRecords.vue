@@ -8,6 +8,7 @@ const { t, te } = useI18n()
 const snapshot = ref<OpenAISessionPoolSnapshot | null>(null)
 const groups = ref<OpsSystemLog[]>([])
 const expanded = ref(false)
+const poolExpanded = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
@@ -103,31 +104,36 @@ onUnmounted(() => {
   <section class="min-w-0 space-y-3" data-testid="session-pool-section" :aria-busy="poolLoading">
     <header class="flex flex-wrap items-baseline justify-between gap-2">
       <h2 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.ops.switchRecords.pool.title') }} <span v-if="snapshot" class="ml-2 font-normal text-gray-600 dark:text-gray-300">{{ candidates.length }} / {{ snapshot.target_size }}</span></h2>
-      <p class="text-xs text-gray-600 dark:text-gray-300">{{ t('admin.ops.switchRecords.pool.liveHint') }}</p>
+      <button type="button" class="btn btn-secondary btn-sm" :aria-expanded="poolExpanded" aria-controls="pool-candidates" data-testid="toggle-session-pool" @click="poolExpanded = !poolExpanded">
+        {{ poolExpanded ? t('admin.ops.switchRecords.pool.collapse') : t('admin.ops.switchRecords.pool.expand') }}
+      </button>
     </header>
-    <p v-if="poolError" role="alert" class="text-sm text-red-700 dark:text-red-300">{{ t('admin.ops.switchRecords.pool.loadFailed') }}</p>
-    <p v-else-if="!snapshot" class="text-sm text-gray-600 dark:text-gray-300">{{ t('common.loading') }}</p>
-    <p v-else-if="!snapshot.enabled" class="text-sm text-gray-600 dark:text-gray-300">{{ t('admin.ops.switchRecords.pool.disabled') }}</p>
-    <div v-else class="overflow-x-auto rounded-lg border border-gray-200 dark:border-dark-700">
-      <table class="w-full min-w-[640px] text-left text-sm">
-        <thead class="bg-gray-50 text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"><tr>
-          <th class="px-4 py-3">{{ t('admin.ops.switchRecords.pool.account') }}</th>
-          <th class="px-4 py-3">{{ t('admin.ops.switchRecords.model') }}</th>
-          <th class="px-4 py-3">{{ t('admin.ops.switchRecords.pool.transport') }}</th>
-          <th class="px-4 py-3">{{ t('admin.ops.switchRecords.probeLatency') }}</th>
-          <th class="px-4 py-3">{{ t('admin.ops.switchRecords.pool.expiresAt') }}</th>
-        </tr></thead>
-        <tbody class="divide-y divide-gray-100 bg-white text-gray-800 dark:divide-dark-700 dark:bg-dark-900 dark:text-gray-200">
-          <tr v-for="candidate in candidates" :key="candidate.result_id" data-testid="pool-candidate">
-            <td class="px-4 py-3">{{ candidate.account_name || '—' }} <span class="ml-1 text-xs text-gray-600 dark:text-gray-300">#{{ candidate.account_id }}</span></td>
-            <td class="px-4 py-3">{{ candidate.model }}</td>
-            <td class="px-4 py-3">{{ transportLabel(candidate.transport) }}</td>
-            <td class="whitespace-nowrap px-4 py-3 font-mono">{{ candidate.first_token_ms }} ms</td>
-            <td class="whitespace-nowrap px-4 py-3"><time :datetime="candidate.expires_at">{{ formatTime(candidate.expires_at) }}</time></td>
-          </tr>
-          <tr v-if="!candidates.length"><td colspan="5" class="px-4 py-6 text-center text-gray-600 dark:text-gray-300">{{ t('admin.ops.switchRecords.pool.empty') }}</td></tr>
-        </tbody>
-      </table>
+    <div v-if="poolExpanded" id="pool-candidates" class="space-y-3">
+      <p class="text-xs text-gray-600 dark:text-gray-300">{{ t('admin.ops.switchRecords.pool.liveHint') }}</p>
+      <p v-if="poolError" role="alert" class="text-sm text-red-700 dark:text-red-300">{{ t('admin.ops.switchRecords.pool.loadFailed') }}</p>
+      <p v-else-if="!snapshot" class="text-sm text-gray-600 dark:text-gray-300">{{ t('common.loading') }}</p>
+      <p v-else-if="!snapshot.enabled" class="text-sm text-gray-600 dark:text-gray-300">{{ t('admin.ops.switchRecords.pool.disabled') }}</p>
+      <div v-else class="overflow-x-auto rounded-lg border border-gray-200 dark:border-dark-700">
+        <table class="w-full min-w-[640px] text-left text-sm">
+          <thead class="bg-gray-50 text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"><tr>
+            <th class="px-4 py-3">{{ t('admin.ops.switchRecords.pool.account') }}</th>
+            <th class="px-4 py-3">{{ t('admin.ops.switchRecords.model') }}</th>
+            <th class="px-4 py-3">{{ t('admin.ops.switchRecords.pool.transport') }}</th>
+            <th class="px-4 py-3">{{ t('admin.ops.switchRecords.probeLatency') }}</th>
+            <th class="px-4 py-3">{{ t('admin.ops.switchRecords.pool.expiresAt') }}</th>
+          </tr></thead>
+          <tbody class="divide-y divide-gray-100 bg-white text-gray-800 dark:divide-dark-700 dark:bg-dark-900 dark:text-gray-200">
+            <tr v-for="candidate in candidates" :key="candidate.result_id" data-testid="pool-candidate">
+              <td class="px-4 py-3">{{ candidate.account_name || '—' }} <span class="ml-1 text-xs text-gray-600 dark:text-gray-300">#{{ candidate.account_id }}</span></td>
+              <td class="px-4 py-3">{{ candidate.model }}</td>
+              <td class="px-4 py-3">{{ transportLabel(candidate.transport) }}</td>
+              <td class="whitespace-nowrap px-4 py-3 font-mono">{{ candidate.first_token_ms }} ms</td>
+              <td class="whitespace-nowrap px-4 py-3"><time :datetime="candidate.expires_at">{{ formatTime(candidate.expires_at) }}</time></td>
+            </tr>
+            <tr v-if="!candidates.length"><td colspan="5" class="px-4 py-6 text-center text-gray-600 dark:text-gray-300">{{ t('admin.ops.switchRecords.pool.empty') }}</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </section>
 

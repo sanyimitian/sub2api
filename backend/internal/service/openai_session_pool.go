@@ -135,7 +135,7 @@ func (s *OpenAIGatewayService) openAISessionPoolRoutes(ctx context.Context) ([]o
 }
 
 func openAISessionPoolCandidateMatchesRoute(candidate openAIWSLatencyReusableCandidate, route openAISessionPoolRoute) bool {
-	return candidate.AccountID == route.account.ID && candidate.UpstreamModel == route.upstreamModel && candidate.Transport == route.transport && candidate.AccountFingerprint == route.fingerprint
+	return candidate.AccountID == route.account.ID && candidate.UpstreamModel == route.upstreamModel && candidate.Transport == route.transport && candidate.AccountFingerprint == route.fingerprint && (candidate.ProbeModel == "" || candidate.ProbeModel == route.model)
 }
 
 func pruneOpenAISessionPool(pool *openAIWSLatencyCandidatePool, routes []openAISessionPoolRoute, now int64) int {
@@ -148,6 +148,10 @@ func pruneOpenAISessionPool(pool *openAIWSLatencyCandidatePool, routes []openAIS
 		valid := false
 		for _, route := range routes {
 			if openAISessionPoolCandidateMatchesRoute(candidate, route) {
+				// 兼容尚未保存探测模型的旧候选，按仍然有效的配置归类。
+				if candidate.ProbeModel == "" {
+					candidate.ProbeModel = route.model
+				}
 				valid = true
 				break
 			}
@@ -164,25 +168,110 @@ func pruneOpenAISessionPool(pool *openAIWSLatencyCandidatePool, routes []openAIS
 	return available
 }
 
-// 租约归还或管理员调低目标时，只裁剪空闲候选，保留正在接管的线路。
+func openAISessionPoolIdle(candidate openAIWSLatencyReusableCandidate, now int64) bool {
+	return !candidate.Committed && (candidate.LeaseID == "" || candidate.LeaseUntil <= now)
+}
+
+func openAISessionPoolModelCounts(pool *openAIWSLatencyCandidatePool, now int64) map[string]int {
+	counts := make(map[string]int)
+	for _, candidate := range pool.Candidates {
+		if openAISessionPoolIdle(candidate, now) {
+			counts[candidate.ProbeModel]++
+		}
+	}
+	return counts
+}
+
+// 名额按勾选的模型型号均分，同型号的多个账号或协议不增加权重。
+// 余数优先沿用已有会话，避免每次补充都丢弃可用结果；其余按本次随机线路顺序分配。
+func openAISessionPoolModelTargets(routes []openAISessionPoolRoute, counts map[string]int, target int) map[string]int {
+	models := make([]string, 0)
+	quotas := make(map[string]int)
+	for _, route := range routes {
+		if _, exists := quotas[route.model]; !exists {
+			models = append(models, route.model)
+			quotas[route.model] = 0
+		}
+	}
+	if len(models) == 0 {
+		return quotas
+	}
+	sort.SliceStable(models, func(i, j int) bool { return counts[models[i]] > counts[models[j]] })
+	for i, model := range models {
+		quotas[model] = target / len(models)
+		if i < target%len(models) {
+			quotas[model]++
+		}
+	}
+	return quotas
+}
+
+// 既有偏斜、租约归还或管理员调低目标时，按模型只保留最快的空闲候选。
+// 正在接管或已独占的线路不占空闲配额，也不会被裁剪。
 func trimOpenAISessionPool(pool *openAIWSLatencyCandidatePool, routes []openAISessionPoolRoute, now int64, target int) int {
 	available := pruneOpenAISessionPool(pool, routes, now)
-	if available <= target {
+	counts := openAISessionPoolModelCounts(pool, now)
+	quotas := openAISessionPoolModelTargets(routes, counts, target)
+	excess := false
+	for model, count := range counts {
+		if count > quotas[model] {
+			excess = true
+			break
+		}
+	}
+	if !excess {
 		return available
 	}
 	sort.SliceStable(pool.Candidates, func(i, j int) bool { return pool.Candidates[i].FirstTokenMS < pool.Candidates[j].FirstTokenMS })
+	counts = make(map[string]int)
 	kept, count := pool.Candidates[:0], 0
 	for _, candidate := range pool.Candidates {
-		if !candidate.Committed && (candidate.LeaseID == "" || candidate.LeaseUntil <= now) {
-			if count >= target {
+		if openAISessionPoolIdle(candidate, now) {
+			if counts[candidate.ProbeModel] >= quotas[candidate.ProbeModel] {
 				continue
 			}
+			counts[candidate.ProbeModel]++
 			count++
 		}
 		kept = append(kept, candidate)
 	}
 	pool.Candidates = kept
 	return count
+}
+
+// 每轮重新按空闲缺口安排；候选数量相同时优先较少尝试的模型，避免失败模型阻塞其他模型。
+func planOpenAISessionPoolProbes(pool *openAIWSLatencyCandidatePool, routes []openAISessionPoolRoute, now int64, target, limit int, attempts map[string]int) []openAISessionPoolRoute {
+	counts := openAISessionPoolModelCounts(pool, now)
+	quotas := openAISessionPoolModelTargets(routes, counts, target)
+	byModel := make(map[string][]openAISessionPoolRoute)
+	models := make([]string, 0)
+	for _, route := range routes {
+		if len(byModel[route.model]) == 0 {
+			models = append(models, route.model)
+		}
+		byModel[route.model] = append(byModel[route.model], route)
+	}
+	var planned []openAISessionPoolRoute
+	for len(planned) < limit {
+		selected := ""
+		found := false
+		for _, model := range models {
+			if counts[model] >= quotas[model] {
+				continue
+			}
+			if !found || counts[model] < counts[selected] || (counts[model] == counts[selected] && attempts[model] < attempts[selected]) {
+				selected, found = model, true
+			}
+		}
+		if !found {
+			break
+		}
+		choices := byModel[selected]
+		planned = append(planned, choices[attempts[selected]%len(choices)])
+		counts[selected]++
+		attempts[selected]++
+	}
+	return planned
 }
 
 // 全局补充租约覆盖所有账号、模型和协议，避免多副本各自准备一整池。
@@ -197,6 +286,16 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 	}
 	target := s.settingService.GetOpenAISessionPoolSize(ctx)
 	settings := s.settingService.GetOpenAIWSLatencySwitchSettings(ctx)
+	rand.Shuffle(len(routes), func(i, j int) { routes[i], routes[j] = routes[j], routes[i] })
+	// 型号单独随机排序，避免多账号或多协议的型号更容易获得余数名额。
+	modelOrder := make(map[string]int)
+	for _, route := range routes {
+		if _, exists := modelOrder[route.model]; !exists {
+			modelOrder[route.model] = len(modelOrder)
+		}
+	}
+	order := rand.Perm(len(modelOrder))
+	sort.SliceStable(routes, func(i, j int) bool { return order[modelOrder[routes[i].model]] < order[modelOrder[routes[j].model]] })
 	owner := uuid.NewString()
 	claimed := false
 	availableBefore, skipReason := 0, "cache_update_failed"
@@ -249,10 +348,10 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 			return true
 		})
 	}()
-	rand.Shuffle(len(routes), func(i, j int) { routes[i], routes[j] = routes[j], routes[i] })
+	attempts := make(map[string]int)
 	for round := 0; round < openAIWSLatencyMaxProbeRounds && ctx.Err() == nil && s.OpenAISessionPoolEnabled(ctx); round++ {
 		available, owned, leaseChecked := 0, false, false
-		_, ok := s.updateOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey, func(pool *openAIWSLatencyCandidatePool) bool {
+		pool, ok := s.updateOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey, func(pool *openAIWSLatencyCandidatePool) bool {
 			leaseChecked = true
 			owned = pool.ProbeID == owner
 			if !owned {
@@ -274,7 +373,8 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 			return
 		}
 		diagnostic.rounds = round + 1
-		count := min(target-available, settings.ProbeCount)
+		planned := planOpenAISessionPoolProbes(&pool, routes, time.Now().UnixMilli(), target, settings.ProbeCount, attempts)
+		count := len(planned)
 		type outcome struct {
 			route  openAISessionPoolRoute
 			result openAIWSLatencyProbeResult
@@ -303,6 +403,11 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 					publishReason = "pool_full"
 					return false
 				}
+				counts := openAISessionPoolModelCounts(pool, time.Now().UnixMilli())
+				if counts[route.model] >= openAISessionPoolModelTargets(routes, counts, target)[route.model] {
+					publishReason = "model_quota_full"
+					return false
+				}
 				pool.Candidates = append(pool.Candidates, openAIWSLatencyReusableCandidate{ResultID: resultID, AccountID: route.account.ID, UpstreamSessionID: result.upstreamSessionID, UpstreamModel: result.upstreamModel, ProbeModel: route.model, FirstTokenMS: result.ms, ExpiresAt: time.Now().Add(time.Duration(settings.ProbeReuseSeconds) * time.Second).UnixMilli(), AccountFingerprint: route.fingerprint, Transport: route.transport})
 				return true
 			})
@@ -321,8 +426,7 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 				zap.Int64("account_id", route.account.ID), zap.String("model", route.model), zap.String("transport", string(route.transport)),
 				zap.String("upstream_session_hash", sessionHash), zap.Int("first_token_ms", result.ms), zap.Bool("published", published))
 		}
-		for i := 0; i < count; i++ {
-			route := routes[(round*settings.ProbeCount+i)%len(routes)]
+		for i, route := range planned {
 			probeCtx := logger.IntoContext(ctx, logger.FromContext(ctx).With(zap.String("refill_id", owner), zap.Int("round", round+1), zap.Int("probe_number", i+1)))
 			go func(route openAISessionPoolRoute, probeCtx context.Context, number int) {
 				results <- outcome{route: route, result: s.probeOpenAISessionPoolRoute(probeCtx, route), number: number}

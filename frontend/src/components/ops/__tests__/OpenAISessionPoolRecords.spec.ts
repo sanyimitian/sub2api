@@ -30,9 +30,12 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks() })
 
 describe('备用会话池与探测记录', () => {
-  it('默认展示会话池及过期时间，最近一组展开为十组并支持翻页', async () => {
+  it('会话池默认折叠，展开后展示过期时间；探测记录支持展开与翻页', async () => {
     const wrapper = createWrapper()
     await wrapper.vm.refresh({ time_range: '24h', model: 'gpt-6-sol' })
+    expect(wrapper.get('[data-testid="toggle-session-pool"]').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.findAll('[data-testid="pool-candidate"]')).toHaveLength(0)
+    await wrapper.get('[data-testid="toggle-session-pool"]').trigger('click')
     expect(wrapper.findAll('[data-testid="pool-candidate"]')).toHaveLength(1)
     expect(wrapper.get('[data-testid="pool-candidate"] time').attributes('datetime')).toBe(candidate.expires_at)
     expect(wrapper.findAll('[data-testid="pool-probe-group"]')).toHaveLength(1)
@@ -55,6 +58,7 @@ describe('备用会话池与探测记录', () => {
     vi.setSystemTime(new Date('2026-10-22T12:00:00Z'))
     const wrapper = createWrapper()
     await wrapper.vm.refresh()
+    await wrapper.get('[data-testid="toggle-session-pool"]').trigger('click')
     expect(wrapper.findAll('[data-testid="pool-candidate"]')).toHaveLength(1)
     getSnapshot.mockImplementation(() => new Promise(() => {}))
     await vi.advanceTimersByTimeAsync(61000)
@@ -67,6 +71,7 @@ describe('备用会话池与探测记录', () => {
     getSnapshot.mockRejectedValue(new Error('cache unavailable'))
     const wrapper = createWrapper()
     await wrapper.vm.refresh()
+    await wrapper.get('[data-testid="toggle-session-pool"]').trigger('click')
     expect(wrapper.get('[role="alert"]').text()).toBe('admin.ops.switchRecords.pool.loadFailed')
     expect(wrapper.findAll('[data-testid="pool-probe-group"]')).toHaveLength(1)
     wrapper.unmount()

@@ -303,10 +303,11 @@ func TestOpenAISessionPoolSlowSwitchOnlyReservesSharedCandidates(t *testing.T) {
 
 type preparedProbeUpstream struct {
 	HTTPUpstream
-	calls   atomic.Int32
-	active  atomic.Int32
-	maximum atomic.Int32
-	fail    bool
+	calls     atomic.Int32
+	active    atomic.Int32
+	maximum   atomic.Int32
+	fail      bool
+	failModel string
 }
 
 func (u *preparedProbeUpstream) Do(r *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
@@ -318,13 +319,13 @@ func (u *preparedProbeUpstream) Do(r *http.Request, _ string, _ int64, _ int) (*
 			break
 		}
 	}
-	if u.fail {
-		return nil, errors.New("synthetic probe failure")
-	}
-	time.Sleep(2 * time.Millisecond)
 	body, _ := io.ReadAll(r.Body)
 	_ = r.Body.Close()
 	model := gjson.GetBytes(body, "model").String()
+	if u.fail || (u.failModel != "" && u.failModel == model) {
+		return nil, errors.New("synthetic probe failure")
+	}
+	time.Sleep(2 * time.Millisecond)
 	data := fmt.Sprintf(`data: {"type":"response.output_text.delta","delta":"OK"}
 
 data: {"type":"response.completed","response":{"id":"probe","model":%q,"status":"completed"}}
