@@ -305,9 +305,84 @@ func TestOpenAISessionPoolFailoverWriteFailureStopsBeforeSending(t *testing.T) {
 	require.NoError(t, session.ApplyUpstreamSessionIdentity(ctx, c, &b, session.model))
 }
 
+func TestOpenAISessionPoolPendingSwitchKeepsOrdinaryContinuation(t *testing.T) {
+	for _, sameAccount := range []bool{false, true} {
+		t.Run(map[bool]string{false: "other_account", true: "same_account"}[sameAccount], func(t *testing.T) {
+			for _, payload := range []string{
+				`{"input":[{"role":"user","content":"question"},{"type":"reasoning","summary":[]}]}`,
+				`{"input":[{"type":"function_call_output","call_id":"call-1","output":"done"}],"previous_response_id":"resp-old"}`,
+			} {
+				t.Run(openAIWSLatencyRequestKind([]byte(payload)), func(t *testing.T) {
+					svc, _ := newOpenAIWSLatencyTestService(t)
+					ctx := context.Background()
+					original, target := preparedTestAccount(11, 1), preparedTestAccount(22, 1)
+					if sameAccount {
+						target = original
+					}
+					svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{target}}
+					seedPreparedPool(t, svc, target, 1)
+					trigger := preparedHTTPSession(svc, 1, "pending-ordinary-continuation")
+					_, saved := svc.updateOpenAIWSLatencyState(ctx, trigger.key(trigger.model), func(state *openAIWSLatencyState) bool {
+						*state = openAIWSLatencyState{AccountID: original.ID, InitialDecisionMade: true}
+						return true
+					})
+					require.True(t, saved)
+					require.True(t, trigger.assignPreparedCandidate(ctx, trigger.model, original.ID, false))
+					pending := trigger.state(ctx)
+					pool := svc.getOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey)
+
+					for attempt := 0; attempt < 2; attempt++ {
+						next := preparedHTTPSession(svc, 1, "pending-ordinary-continuation")
+						retry, err := next.PrepareHTTP(ctx, []byte(payload))
+						require.NoError(t, err)
+						require.False(t, retry)
+						selection, _, err := next.SelectTarget(ctx, map[int64]struct{}{}, OpenAIUpstreamTransportHTTPSSE)
+						require.NoError(t, err)
+						require.Nil(t, selection, "尚未确认恢复上下文时不能接管候选")
+						require.NoError(t, next.BeforeRequest(ctx, 1, &original, []byte(payload), next.model))
+						c, _ := gin.CreateTestContext(httptest.NewRecorder())
+						require.NoError(t, next.ApplyUpstreamSessionIdentity(ctx, c, &original, next.model))
+						require.Empty(t, OpenAIWSLatencyUpstreamSessionID(c), "原普通线路不能使用待切换候选的会话标识")
+						next.Observe(ctx, 1, &original, &OpenAIForwardResult{}, nil)
+						require.Equal(t, pending, next.state(ctx))
+						require.Equal(t, pool, svc.getOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey))
+					}
+
+					// 后续真正的用户轮次仍可恢复完整上下文并消费原先预留的候选。
+					complete := []byte(`{"input":[{"role":"user","content":"complete context"}]}`)
+					reconnect := preparedHTTPSession(svc, 1, "pending-ordinary-continuation")
+					needRetry, err := reconnect.PrepareHTTP(ctx, complete)
+					require.NoError(t, err)
+					require.True(t, needRetry)
+					resumed := preparedHTTPSession(svc, 1, "pending-ordinary-continuation")
+					needRetry, err = resumed.PrepareHTTP(ctx, complete)
+					require.NoError(t, err)
+					require.False(t, needRetry)
+					c, _ := gin.CreateTestContext(httptest.NewRecorder())
+					require.NoError(t, resumed.ApplyUpstreamSessionIdentity(ctx, c, &target, resumed.model))
+					require.Equal(t, pending.UpstreamSessionID, OpenAIWSLatencyUpstreamSessionID(c))
+					resumed.Observe(ctx, 1, &target, &OpenAIForwardResult{}, nil)
+					require.Zero(t, resumed.state(ctx).TargetID)
+					require.Equal(t, pending.UpstreamSessionID, resumed.state(ctx).ActiveUpstreamSessionID)
+				})
+			}
+		})
+	}
+}
+
 func TestOpenAISessionPoolFailoverRechecksConcurrentRoute(t *testing.T) {
-	for _, sameRoute := range []bool{false, true} {
-		t.Run(map[bool]string{false: "conflicting_route", true: "same_route"}[sameRoute], func(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		winner    string
+		wantError bool
+	}{
+		{"conflicting_route", `{"account_id":33,"initial_decision_made":true,"active_upstream_session_id":"new-private","upstream_session_id":"new-private"}`, true},
+		{"same_route", `{"account_id":22,"initial_decision_made":true}`, false},
+		{"pending_on_same_route", `{"account_id":22,"initial_decision_made":true,"target_id":33,"upstream_session_id":"candidate"}`, false},
+		{"committed_on_same_route", `{"account_id":22,"initial_decision_made":true,"target_id":22,"upstream_session_id":"candidate","candidate_committed":true}`, true},
+		{"committed_on_other_account", `{"account_id":22,"initial_decision_made":true,"target_id":33,"upstream_session_id":"candidate","candidate_committed":true}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			svc, cache := newOpenAIWSLatencyTestService(t)
 			ctx := context.Background()
 			session := preparedHTTPSession(svc, 1, "concurrent-failover")
@@ -316,24 +391,23 @@ func TestOpenAISessionPoolFailoverRechecksConcurrentRoute(t *testing.T) {
 				return true
 			})
 			require.True(t, saved)
-			winner := []byte(`{"account_id":33,"initial_decision_made":true,"active_upstream_session_id":"new-private","upstream_session_id":"new-private"}`)
-			if sameRoute {
-				winner = []byte(`{"account_id":22,"initial_decision_made":true}`)
-			}
 			svc.cache = &preparedReviewCache{openAIWSLatencyMemoryCache: cache, beforeStateWrite: func() {
 				cache.mu.Lock()
-				cache.states[session.key(session.model)] = winner
+				cache.states[session.key(session.model)] = []byte(tc.winner)
 				cache.mu.Unlock()
 			}}
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			b := preparedTestAccount(22, 1)
 			err := session.ApplyUpstreamSessionIdentity(ctx, c, &b, session.model)
-			if sameRoute {
-				require.NoError(t, err, "另一个请求已保存同一普通线路时可继续")
-			} else {
+			if tc.wantError {
 				require.ErrorIs(t, err, ErrOpenAIPreparedSessionUnavailable)
-				require.Equal(t, int64(33), session.state(ctx).AccountID, "不能覆盖并发请求已确认的线路")
+			} else {
+				require.NoError(t, err, "另一个请求已保存同一普通线路时可继续")
 			}
+			require.Empty(t, OpenAIWSLatencyUpstreamSessionID(c))
+			raw, err := cache.GetOpenAIWSLatencyState(ctx, session.key(session.model))
+			require.NoError(t, err)
+			require.JSONEq(t, tc.winner, string(raw), "不能覆盖并发请求已确认的线路或待切换候选")
 		})
 	}
 }
