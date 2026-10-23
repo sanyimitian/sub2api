@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountTestModal from '../AccountTestModal.vue'
+import AccountTokenInjectionPanel from '@/components/account/AccountTokenInjectionPanel.vue'
+import Select from '@/components/common/Select.vue'
 
 const { getAvailableModels, copyToClipboard } = vi.hoisted(() => ({
   getAvailableModels: vi.fn(),
@@ -83,7 +85,8 @@ function mountModal(account: Record<string, unknown> = {
           emits: ['update:modelValue'],
           template: '<textarea class="textarea-stub" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
         },
-        Icon: true
+        Icon: true,
+        AccountTokenInjectionPanel: true
       }
     }
   })
@@ -117,6 +120,33 @@ describe('AccountTestModal', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('exposes token diagnostics in the modal used by the admin accounts page', async () => {
+    getAvailableModels.mockResolvedValue([{ id: 'gpt-test', display_name: 'GPT Test' }])
+    const wrapper = mountModal({ id: 42, name: 'OpenAI', platform: 'openai', type: 'apikey', status: 'active' })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    const selects = wrapper.findAllComponents(Select)
+    expect(selects[1].attributes('options')).toBeDefined()
+    expect((wrapper.vm as any).openAITestModeOptions).toEqual(expect.arrayContaining([expect.objectContaining({ value: 'injection' })]))
+    selects[1].vm.$emit('update:modelValue', 'injection')
+    selects[0].vm.$emit('update:modelValue', 'custom-model')
+    await flushPromises()
+    const panel = wrapper.getComponent(AccountTokenInjectionPanel)
+    expect(panel.props('account').id).toBe(42)
+    expect(panel.props('model')).toBe('custom-model')
+    expect(selects[0].attributes('creatable')).toBe('true')
+    expect(wrapper.text()).not.toContain('admin.accounts.startTest')
+    panel.vm.$emit('running', true)
+    await flushPromises()
+    expect(selects.every(select => select.attributes('disabled') !== undefined)).toBe(true)
+    await wrapper.setProps({ account: { id: 43, name: 'Other', platform: 'anthropic', type: 'apikey', status: 'active' } as any })
+    await flushPromises()
+    expect(wrapper.findComponent(AccountTokenInjectionPanel).exists()).toBe(false)
+    expect(getAvailableModels).toHaveBeenCalledWith(43)
+    expect(global.fetch).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('gemini 图片模型测试会携带提示词并渲染图片预览', async () => {

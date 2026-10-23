@@ -1,4 +1,5 @@
 import { buildApiUrl } from '@/api/client'
+import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 
 export interface TokenInjectionSample {
   index: number
@@ -50,6 +51,7 @@ export async function streamTokenInjectionTest(
     method: 'POST',
     headers: {
       Authorization: 'Bearer ' + (localStorage.getItem('auth_token') || ''),
+      [ADMIN_UI_REQUEST_HEADER]: '1',
       'Content-Type': 'application/json',
       Accept: 'text/event-stream'
     },
