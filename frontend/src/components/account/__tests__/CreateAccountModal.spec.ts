@@ -336,6 +336,28 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(true)
   })
 
+  it('restores enabled long-context billing when opening a new account after opting out', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    const toggle = '[data-testid="openai-long-context-billing-toggle"]'
+    expect(wrapper.get(toggle).attributes('aria-checked')).toBe('true')
+    await wrapper.get(toggle).trigger('click')
+    expect(wrapper.get(toggle).attributes('aria-checked')).toBe('false')
+
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    await selectButtonByText(wrapper, 'OpenAI')
+    expect(wrapper.get(toggle).attributes('aria-checked')).toBe('true')
+    await selectButtonByText(wrapper, 'API Key')
+    expect(wrapper.get(toggle).attributes('aria-checked')).toBe('true')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('reopened account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(true)
+    wrapper.unmount()
+  })
+
   it('omits the upstream request id header from extra when left empty', async () => {
     await submitApiKeyAccount('openai')
 
