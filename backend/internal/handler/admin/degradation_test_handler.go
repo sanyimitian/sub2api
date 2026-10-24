@@ -41,6 +41,16 @@ type updateDegradationTestPlanRequest struct {
 	MaxResults      *int    `json:"max_results"` // Accepted for older clients; retention is fixed at 24.
 }
 
+// ListStatus GET /admin/degradation-test-plans/status
+func (h *DegradationTestHandler) ListStatus(c *gin.Context) {
+	statuses, err := h.degradationTestSvc.ListStatus(c.Request.Context())
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, statuses)
+}
+
 // ListByAccount GET /admin/accounts/:id/degradation-test-plans
 func (h *DegradationTestHandler) ListByAccount(c *gin.Context) {
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)

@@ -14,6 +14,9 @@ describe('independent model quality test API', () => {
   })
 
   it('uses separate account plan and result endpoints from connectivity tests', async () => {
+    const controller = new AbortController()
+    await degradationTestsAPI.listStatus(controller.signal)
+    expect(get).toHaveBeenLastCalledWith('/admin/degradation-test-plans/status', { signal: controller.signal })
     await scheduledTestsAPI.listByAccount(7)
     expect(get).toHaveBeenLastCalledWith('/admin/accounts/7/scheduled-test-plans')
     await degradationTestsAPI.listByAccount(7)

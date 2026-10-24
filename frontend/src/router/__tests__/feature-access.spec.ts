@@ -8,6 +8,7 @@ type NavigationGuard = (
 
 const routerHarness = vi.hoisted(() => ({
   guard: null as NavigationGuard | null,
+  routes: [] as Array<{ path: string; meta?: Record<string, unknown> }>,
 }))
 
 const authStore = vi.hoisted(() => ({
@@ -33,13 +34,16 @@ const appStore = vi.hoisted(() => ({
 
 vi.mock('vue-router', () => ({
   createWebHistory: vi.fn(() => ({})),
-  createRouter: vi.fn(() => ({
-    beforeEach: vi.fn((guard: NavigationGuard) => {
-      routerHarness.guard = guard
-    }),
-    afterEach: vi.fn(),
-    onError: vi.fn(),
-  })),
+  createRouter: vi.fn((options: { routes: typeof routerHarness.routes }) => {
+    routerHarness.routes = options.routes
+    return {
+      beforeEach: vi.fn((guard: NavigationGuard) => {
+        routerHarness.guard = guard
+      }),
+      afterEach: vi.fn(),
+      onError: vi.fn(),
+    }
+  }),
 }))
 
 vi.mock('@/stores/auth', () => ({
@@ -179,8 +183,54 @@ describe('feature route guard', () => {
   })
 })
 
+describe('intelligence status administrator access', () => {
+  beforeAll(async () => { await import('@/router') })
+
+  beforeEach(() => {
+    authStore.isAuthenticated = true
+    authStore.isAdmin = false
+    authStore.isSimpleMode = false
+    appStore.backendModeEnabled = false
+    appStore.publicSettingsLoaded = true
+    appStore.cachedPublicSettings = null
+  })
+
+  function statusRoute() {
+    const route = routerHarness.routes.find(route => route.path === '/admin/intelligence-status')
+    expect(route).toBeDefined()
+    expect(route?.meta?.requiresAuth).toBe(true)
+    expect(route?.meta?.requiresAdmin).toBe(true)
+    return route!
+  }
+
+  it('redirects a regular user away from the actual registered route', async () => {
+    const route = statusRoute()
+    const { navigation, next } = runGuard(route.meta!, route.path)
+    await navigation
+    expect(next).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('allows an administrator in simple mode', async () => {
+    authStore.isAdmin = true
+    authStore.isSimpleMode = true
+    const route = statusRoute()
+    const { navigation, next } = runGuard(route.meta!, route.path)
+    await navigation
+    expect(next).toHaveBeenCalledWith()
+  })
+
+  it('requires login for anonymous visitors', async () => {
+    authStore.isAuthenticated = false
+    const route = statusRoute()
+    const { navigation, next } = runGuard(route.meta!, route.path)
+    await navigation
+    expect(next).toHaveBeenCalledWith({ path: '/login', query: { redirect: route.path } })
+  })
+})
+
 describe('subscription route guard (opt-out flag)', () => {
   beforeEach(() => {
+    authStore.isAuthenticated = true
     authStore.isAdmin = false
     authStore.isSimpleMode = false
     appStore.publicSettingsLoaded = true

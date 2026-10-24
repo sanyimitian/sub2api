@@ -38,6 +38,24 @@ describe('scheduled test result selection', () => {
     listByAccount.mockResolvedValue([1, 2].map(id => ({ id, model_id: `model-${id}`, enabled: true })))
   })
 
+  it('opens the exact requested plan history and keeps it collapsed after the user closes it', async () => {
+    listResults.mockResolvedValue([result(22)])
+    const wrapper = shallowMount(DegradationTestsPanel, {
+      props: { show: true, accountId: 1, modelOptions: [], initialPlanId: 2 },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' } } }
+    })
+    await flushPromises()
+    expect(listResults).toHaveBeenCalledTimes(1)
+    expect(listResults).toHaveBeenCalledWith(2, 10)
+    expect(wrapper.get('[data-testid="toggle-results-2"]').attributes('aria-expanded')).toBe('true')
+    await wrapper.get('[data-testid="toggle-results-2"]').trigger('click')
+    expect(wrapper.get('[data-testid="toggle-results-2"]').attributes('aria-expanded')).toBe('false')
+    await wrapper.setProps({ initialPlanId: 1 })
+    await flushPromises()
+    expect(listResults).toHaveBeenLastCalledWith(1, 10)
+    expect(wrapper.get('[data-testid="toggle-results-1"]').attributes('aria-expanded')).toBe('true')
+  })
+
   it('provides an explicit accessible result button that expands and collapses the plan history', async () => {
     listResults.mockResolvedValue([result(11)])
     const wrapper = await openPanel()

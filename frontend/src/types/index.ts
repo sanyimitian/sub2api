@@ -2537,6 +2537,13 @@ export interface DegradationTestResult {
   created_at: string
 }
 
+export interface DegradationTestStatus {
+  plan: DegradationTestPlan
+  account_name: string
+  account_platform: string
+  latest_result: DegradationTestResult | null
+}
+
 export interface CreateDegradationTestPlanRequest {
   account_id: number
   model_id: string

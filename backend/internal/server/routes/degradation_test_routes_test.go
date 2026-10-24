@@ -37,5 +37,7 @@ func TestDegradationTestRoutesRemainIndependentFromScheduledTests(t *testing.T) 
 		require.Contains(t, registered["GET /admin/accounts/:id/"+feature.path], feature.handlerName)
 	}
 	require.Contains(t, registered["POST /admin/degradation-test-plans/:id/run"], "DegradationTestHandler")
+	require.Contains(t, registered["GET /admin/degradation-test-plans/status"], "DegradationTestHandler")
+	require.Contains(t, registered["GET /admin/degradation-test-plans/status"], ".ListStatus")
 	require.NotContains(t, registered, "POST /admin/scheduled-test-plans/:id/run")
 }

@@ -24,7 +24,7 @@
       </div>
 
       <div v-else class="space-y-3">
-        <section v-for="plan in plans" :key="plan.id" class="rounded-xl border border-l-4 border-gray-200 bg-white dark:border-dark-600 dark:bg-dark-800" :class="expandedPlanId === plan.id && results.length ? (results[0]?.status === 'success' ? '!border-l-emerald-500' : '!border-l-amber-500') : ''">
+        <section v-for="plan in plans" :id="`degradation-plan-${plan.id}`" :key="plan.id" class="rounded-xl border border-l-4 border-gray-200 bg-white dark:border-dark-600 dark:bg-dark-800" :class="expandedPlanId === plan.id && results.length ? (results[0]?.status === 'success' ? '!border-l-emerald-500' : '!border-l-amber-500') : ''">
           <div class="flex cursor-pointer flex-wrap items-center justify-between gap-3 px-4 py-3" @click="toggleExpand(plan.id)">
             <button class="min-w-0 text-left" :aria-expanded="expandedPlanId === plan.id" :aria-controls="`degradation-results-${plan.id}`" @click.stop="toggleExpand(plan.id)">
               <span class="block break-all text-sm font-semibold">{{ plan.model_id }}</span>
@@ -90,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -104,7 +104,7 @@ import type { DegradationTestPlan, DegradationTestResult } from '@/types'
 import DegradationTestPlanForm, { type DegradationTestPlanFormValue } from './DegradationTestPlanForm.vue'
 import DegradationTestResultsGallery from './DegradationTestResultsGallery.vue'
 
-const props = defineProps<{ show: boolean; accountId: number | null; accountName?: string; modelOptions: SelectOption[] }>()
+const props = defineProps<{ show: boolean; accountId: number | null; accountName?: string; modelOptions: SelectOption[]; initialPlanId?: number | null }>()
 const emit = defineEmits<{ close: [] }>()
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -130,6 +130,7 @@ let resultsRequestId = 0
 let detailsRequestId = 0
 let pollTimer: ReturnType<typeof setInterval> | undefined
 let polling = false
+let pendingInitialPlanId: number | null = null
 
 function errorMessage(error: unknown): string {
   const err = error as { message?: string; response?: { data?: { message?: string } } }
@@ -162,6 +163,17 @@ async function loadPlans(quiet = false) {
     if (!isCurrent(token) || request !== plansRequestId) return
     plans.value = data
     panelError.value = ''
+    if (pendingInitialPlanId !== null) {
+      const initialPlanId = pendingInitialPlanId
+      pendingInitialPlanId = null
+      if (data.some(plan => plan.id === initialPlanId)) {
+        expandedPlanId.value = initialPlanId
+        void loadResults(initialPlanId)
+        void nextTick(() => {
+          if (isCurrent(token) && expandedPlanId.value === initialPlanId) document.getElementById(`degradation-plan-${initialPlanId}`)?.scrollIntoView?.({ block: 'start' })
+        })
+      }
+    }
     if (expandedPlanId.value && !data.some(plan => plan.id === expandedPlanId.value)) expandedPlanId.value = null
     if (detailsPlanId.value && !data.some(plan => plan.id === detailsPlanId.value)) closeDetails()
   } catch (error) {
@@ -322,7 +334,7 @@ async function runNow(plan: DegradationTestPlan) {
   }
 }
 
-watch(() => [props.show, props.accountId] as const, ([visible, accountId]) => {
+watch(() => [props.show, props.accountId, props.initialPlanId] as const, ([visible, accountId]) => {
   scope++
   plansRequestId++
   resultsRequestId++
@@ -339,6 +351,7 @@ watch(() => [props.show, props.accountId] as const, ([visible, accountId]) => {
   loadingResults.value = false
   panelError.value = ''
   resultsError.value = ''
+  pendingInitialPlanId = props.initialPlanId ?? null
   if (!visible || !accountId) return
   void loadPlans()
   pollTimer = setInterval(async () => {

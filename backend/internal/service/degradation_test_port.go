@@ -38,11 +38,21 @@ type DegradationTestResult struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+// DegradationTestStatus keeps each plan visible even before its first execution.
+// LatestResult is the latest execution, including failures, never a stale success.
+type DegradationTestStatus struct {
+	Plan            *DegradationTestPlan   `json:"plan"`
+	AccountName     string                 `json:"account_name"`
+	AccountPlatform string                 `json:"account_platform"`
+	LatestResult    *DegradationTestResult `json:"latest_result"`
+}
+
 // DegradationTestPlanRepository defines the data access interface for test plans.
 type DegradationTestPlanRepository interface {
 	Create(ctx context.Context, plan *DegradationTestPlan) (*DegradationTestPlan, error)
 	GetByID(ctx context.Context, id int64) (*DegradationTestPlan, error)
 	ListByAccountID(ctx context.Context, accountID int64) ([]*DegradationTestPlan, error)
+	ListStatus(ctx context.Context) ([]*DegradationTestStatus, error)
 	ListDue(ctx context.Context, now time.Time) ([]*DegradationTestPlan, error)
 	Update(ctx context.Context, plan *DegradationTestPlan) (*DegradationTestPlan, error)
 	Delete(ctx context.Context, id int64) error

@@ -7,9 +7,19 @@ import { apiClient } from '../client'
 import type {
   DegradationTestPlan,
   DegradationTestResult,
+  DegradationTestStatus,
   CreateDegradationTestPlanRequest,
   UpdateDegradationTestPlanRequest
 } from '@/types'
+
+/** Latest execution for every plan, including disabled and untested plans. */
+export async function listStatus(signal?: AbortSignal): Promise<DegradationTestStatus[]> {
+  const { data } = await apiClient.get<DegradationTestStatus[]>(
+    '/admin/degradation-test-plans/status',
+    { signal }
+  )
+  return data ?? []
+}
 
 /**
  * List all scheduled test plans for an account
@@ -85,6 +95,7 @@ export async function run(planId: number): Promise<DegradationTestResult> {
 }
 
 export const degradationTestsAPI = {
+  listStatus,
   listByAccount,
   create,
   update,

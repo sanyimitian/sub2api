@@ -558,6 +558,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/intelligence-status',
+    name: 'AdminIntelligenceStatus',
+    component: () => import('@/views/admin/IntelligenceStatusView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Intelligence Status',
+      titleKey: 'admin.intelligenceStatus.title',
+      descriptionKey: 'admin.intelligenceStatus.description'
+    }
+  },
+  {
     path: '/admin/accounts',
     name: 'AdminAccounts',
     component: () => import('@/views/admin/AccountsView.vue'),

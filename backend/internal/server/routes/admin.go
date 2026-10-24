@@ -909,6 +909,7 @@ func channelMonitorModeV2Guard(settingService *service.SettingService) gin.Handl
 func registerDegradationTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	plans := admin.Group("/degradation-test-plans")
 	{
+		plans.GET("/status", h.Admin.DegradationTest.ListStatus)
 		plans.POST("", h.Admin.DegradationTest.Create)
 		plans.PUT("/:id", h.Admin.DegradationTest.Update)
 		plans.DELETE("/:id", h.Admin.DegradationTest.Delete)

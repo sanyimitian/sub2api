@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,8 +16,10 @@ import (
 
 type degradationHandlerPlanRepo struct {
 	service.DegradationTestPlanRepository
-	plan    *service.DegradationTestPlan
-	results *degradationHandlerResultRepo
+	plan      *service.DegradationTestPlan
+	results   *degradationHandlerResultRepo
+	statuses  []*service.DegradationTestStatus
+	statusErr error
 }
 
 type degradationHandlerResultRepo struct {
@@ -33,6 +36,13 @@ func (r *degradationHandlerPlanRepo) Create(_ context.Context, plan *service.Deg
 	plan.ID = 1
 	r.plan = plan
 	return plan, nil
+}
+
+func (r *degradationHandlerPlanRepo) ListStatus(context.Context) ([]*service.DegradationTestStatus, error) {
+	if r.statuses == nil {
+		return []*service.DegradationTestStatus{}, r.statusErr
+	}
+	return r.statuses, r.statusErr
 }
 
 func (r *degradationHandlerPlanRepo) GetByID(context.Context, int64) (*service.DegradationTestPlan, error) {
@@ -53,7 +63,43 @@ func newDegradationHandlerTest() (*gin.Engine, *degradationHandlerPlanRepo) {
 	router.POST("/plans", handler.Create)
 	router.PUT("/plans/:id", handler.Update)
 	router.GET("/plans/:id/results", handler.ListResults)
+	router.GET("/plans/status", handler.ListStatus)
 	return router, repo
+}
+
+func TestDegradationTestStatusReturnsPlanAndActualLatestResult(t *testing.T) {
+	router, repo := newDegradationHandlerTest()
+	repo.statuses = []*service.DegradationTestStatus{
+		{Plan: &service.DegradationTestPlan{ID: 1, Enabled: false, ModelID: "current-model", ReasoningEffort: "xhigh"}, AccountName: "xzp-0.12", AccountPlatform: "openai",
+			LatestResult: &service.DegradationTestResult{ID: 7, PlanID: 1, Status: "failed", ModelID: "original-model", ReasoningEffort: "high", ErrorMessage: "timeout"}},
+		{Plan: &service.DegradationTestPlan{ID: 2, Enabled: true}, AccountName: "xzp-0.12", AccountPlatform: "openai"},
+	}
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/plans/status", nil))
+	require.Equal(t, http.StatusOK, response.Code)
+	var rows []service.DegradationTestStatus
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &rows))
+	require.Len(t, rows, 2)
+	require.False(t, rows[0].Plan.Enabled)
+	require.Equal(t, "xzp-0.12", rows[0].AccountName)
+	require.Equal(t, "openai", rows[0].AccountPlatform)
+	require.Equal(t, "failed", rows[0].LatestResult.Status)
+	require.Equal(t, "original-model", rows[0].LatestResult.ModelID)
+	require.Equal(t, "high", rows[0].LatestResult.ReasoningEffort)
+	require.Nil(t, rows[1].LatestResult)
+	require.Contains(t, response.Body.String(), `"latest_result":null`)
+}
+
+func TestDegradationTestStatusEmptyAndFailure(t *testing.T) {
+	router, repo := newDegradationHandlerTest()
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/plans/status", nil))
+	require.Equal(t, http.StatusOK, response.Code)
+	require.JSONEq(t, `[]`, response.Body.String())
+	repo.statusErr = errors.New("database unavailable")
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/plans/status", nil))
+	require.Equal(t, http.StatusInternalServerError, response.Code)
 }
 
 func TestDegradationTestCreateDefaultAndCustomPrompt(t *testing.T) {

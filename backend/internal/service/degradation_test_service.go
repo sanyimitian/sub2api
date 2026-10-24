@@ -65,6 +65,11 @@ func (s *DegradationTestService) ListPlansByAccount(ctx context.Context, account
 	return s.planRepo.ListByAccountID(ctx, accountID)
 }
 
+// ListStatus returns all generation plans and their latest execution in one query.
+func (s *DegradationTestService) ListStatus(ctx context.Context) ([]*DegradationTestStatus, error) {
+	return s.planRepo.ListStatus(ctx)
+}
+
 // UpdatePlan validates cron and updates the plan.
 func (s *DegradationTestService) UpdatePlan(ctx context.Context, plan *DegradationTestPlan) (*DegradationTestPlan, error) {
 	if plan != nil {
