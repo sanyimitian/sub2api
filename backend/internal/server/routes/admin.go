@@ -111,6 +111,7 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
+		registerDegradationTestRoutes(admin, h)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
@@ -902,4 +903,17 @@ func channelMonitorModeV2Guard(settingService *service.SettingService) gin.Handl
 		}
 		c.Next()
 	}
+}
+
+// registerDegradationTestRoutes exposes prompt generation tests independently.
+func registerDegradationTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	plans := admin.Group("/degradation-test-plans")
+	{
+		plans.POST("", h.Admin.DegradationTest.Create)
+		plans.PUT("/:id", h.Admin.DegradationTest.Update)
+		plans.DELETE("/:id", h.Admin.DegradationTest.Delete)
+		plans.GET("/:id/results", h.Admin.DegradationTest.ListResults)
+		plans.POST("/:id/run", h.Admin.DegradationTest.RunNow)
+	}
+	admin.GET("/accounts/:id/degradation-test-plans", h.Admin.DegradationTest.ListByAccount)
 }

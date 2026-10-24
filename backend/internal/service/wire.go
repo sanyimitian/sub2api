@@ -661,6 +661,17 @@ func ProvideScheduledTestRunnerService(
 	return svc
 }
 
+// ProvideDegradationTestService keeps generation tests separate from health checks.
+func ProvideDegradationTestService(planRepo DegradationTestPlanRepository, resultRepo DegradationTestResultRepository) *DegradationTestService {
+	return NewDegradationTestService(planRepo, resultRepo)
+}
+
+func ProvideDegradationTestRunnerService(planRepo DegradationTestPlanRepository, degradationSvc *DegradationTestService, accountTestSvc *AccountTestService, cfg *config.Config) *DegradationTestRunnerService {
+	svc := NewDegradationTestRunnerService(planRepo, degradationSvc, accountTestSvc, cfg)
+	svc.Start()
+	return svc
+}
+
 // ProvideOpsScheduledReportService creates and starts OpsScheduledReportService.
 func ProvideOpsScheduledReportService(
 	opsService *OpsService,
@@ -961,6 +972,8 @@ var ProviderSet = wire.NewSet(
 	ProvideIdempotencyCleanupService,
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
+	ProvideDegradationTestService,
+	ProvideDegradationTestRunnerService,
 	NewGroupCapacityService,
 	NewChannelService,
 	wire.Bind(new(ChannelCacheInvalidator), new(*ChannelService)),

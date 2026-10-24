@@ -370,6 +370,11 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
 	bindAccountTestPlatform(c, account)
+	if accountTestGenerationPrompt(c) != "" {
+		if err := validateAccountTestGeneration(account, modelID); err != nil {
+			return s.sendErrorAndEnd(c, err.Error())
+		}
+	}
 
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
 	// interactions, but intentionally do not send their placeholder credentials
@@ -390,6 +395,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if account.RoutesProtocolByInbound() {
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:
+			if accountTestGenerationPrompt(c) != "" {
+				return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+			}
 			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
 		case APIProtocolResponses:
 			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
@@ -565,6 +573,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
+	applyAccountTestGenerationPayload(c, payload, APIProtocolAnthropic, false)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event
@@ -643,6 +652,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
+	applyAccountTestGenerationPayload(c, payload, APIProtocolAnthropic, false)
 	payloadBytes, _ := json.Marshal(payload)
 	vertexBody, err := buildVertexAnthropicRequestBody(payloadBytes)
 	if err != nil {
@@ -727,6 +737,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 		"max_tokens":  256,
 		"temperature": 1,
 	}
+	applyAccountTestGenerationPayload(c, bedrockPayload, APIProtocolAnthropic, false)
 	bedrockBody, _ := json.Marshal(bedrockPayload)
 
 	// Use non-streaming endpoint (response is standard Claude JSON)
@@ -768,10 +779,20 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, _ := io.ReadAll(resp.Body)
+	var responseReader io.Reader = resp.Body
+	if accountTestGenerationPrompt(c) != "" {
+		responseReader = io.LimitReader(resp.Body, accountTestGenerationMaxBytes+1)
+	}
+	body, readErr := io.ReadAll(responseReader)
+	if readErr != nil && accountTestGenerationPrompt(c) != "" {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to read response: %s", readErr))
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
+	}
+	if accountTestGenerationPrompt(c) != "" {
+		return s.processAccountTestGenerationJSON(c, body, APIProtocolAnthropic)
 	}
 
 	// Bedrock non-streaming response is standard Claude JSON, extract the text
@@ -892,6 +913,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
+	applyAccountTestGenerationPayload(c, payload, APIProtocolResponses, isOAuth)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -1257,6 +1279,11 @@ func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx con
 	payloadBytes, err := buildGrokQuotaProbeBody(testModelID)
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create Grok test payload")
+	}
+	if accountTestGenerationPrompt(c) != "" {
+		payload := createOpenAITestPayload(testModelID, false)
+		applyAccountTestGenerationPayload(c, payload, APIProtocolResponses, false)
+		payloadBytes, _ = json.Marshal(payload)
 	}
 
 	if !agentIdentityTaskRecoveryWasTried(ctx) {
@@ -2134,6 +2161,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	c.Writer.Flush()
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
+	applyAccountTestGenerationPayload(c, payload, APIProtocolChatCompletions, false)
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2412,6 +2440,13 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 
 	// Create test payload (Gemini format)
 	payload := createGeminiTestPayload(testModelID, prompt)
+	if accountTestGenerationPrompt(c) != "" {
+		var generationPayload map[string]any
+		_ = json.Unmarshal(payload, &generationPayload)
+		generationPayload["contents"] = []map[string]any{{"role": "user", "parts": []map[string]any{{"text": accountTestGenerationPrompt(c)}}}}
+		generationPayload["generationConfig"] = map[string]any{"maxOutputTokens": accountTestGenerationMaxTokens}
+		payload, _ = json.Marshal(generationPayload)
+	}
 
 	// Build request based on account type
 	var req *http.Request
@@ -2471,6 +2506,9 @@ func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Accou
 // testAntigravityAccountConnection tests an Antigravity account's connection
 // 支持 Claude 和 Gemini 两种协议，使用非流式请求
 func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string) error {
+	if accountTestGenerationPrompt(c) != "" {
+		return s.testAntigravityGeneration(c, account, antigravityConnectionTestModel(modelID))
+	}
 	ctx := c.Request.Context()
 
 	testModelID := antigravityConnectionTestModel(modelID)
@@ -2693,6 +2731,9 @@ func createGeminiTestPayload(modelID string, prompt string) []byte {
 
 // processGeminiStream processes SSE stream from Gemini API
 func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader) error {
+	if accountTestGenerationPrompt(c) != "" {
+		return s.processAccountTestGenerationStream(c, body, "gemini")
+	}
 	reader := bufio.NewReader(body)
 
 	for {
@@ -2821,6 +2862,9 @@ func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[s
 
 // processClaudeStream processes the SSE stream from Claude API
 func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader) error {
+	if accountTestGenerationPrompt(c) != "" {
+		return s.processAccountTestGenerationStream(c, body, APIProtocolAnthropic)
+	}
 	reader := bufio.NewReader(body)
 
 	for {
@@ -2876,6 +2920,9 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 // processOpenAIChatCompletionsStream processes SSE chunks from the
 // OpenAI-compatible Chat Completions API.
 func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, body io.Reader) error {
+	if accountTestGenerationPrompt(c) != "" {
+		return s.processAccountTestGenerationStream(c, body, APIProtocolChatCompletions)
+	}
 	reader := bufio.NewReader(body)
 	seenJSON := false
 	seenFinish := false
@@ -2951,6 +2998,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 
 // processOpenAIStream processes the SSE stream from OpenAI Responses API
 func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader) error {
+	if accountTestGenerationPrompt(c) != "" {
+		return s.processAccountTestGenerationStream(c, body, APIProtocolResponses)
+	}
 	reader := bufio.NewReader(body)
 	seenCompleted := false
 
