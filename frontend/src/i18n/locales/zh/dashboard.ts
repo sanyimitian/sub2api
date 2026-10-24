@@ -584,6 +584,11 @@ export default {
   channelStatus: {
     title: '渠道状态',
     description: '查看渠道可用性、延迟和近期状态',
+    publicChannels: '公开渠道',
+    adminChannels: '管理员渠道',
+    adminChannelsHint: '以下渠道仅管理员可见。',
+    channelCount: '{count} 个渠道',
+    noPublicChannels: '暂无公开渠道',
     searchPlaceholder: '搜索渠道...',
     allProviders: '全部供应商',
     loadError: '加载渠道状态失败',

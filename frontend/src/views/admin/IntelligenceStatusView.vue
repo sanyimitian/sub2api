@@ -25,7 +25,7 @@
       <div v-if="loading" role="status" class="rounded-2xl border border-gray-200 bg-white py-16 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-800">{{ t('common.loading') }}</div>
       <div v-else-if="!items.length && !loadError" class="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-16 text-center dark:border-dark-700 dark:bg-dark-800"><Icon name="lightbulb" size="lg" class="mx-auto mb-3 text-gray-400" /><p class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.intelligenceStatus.empty') }}</p><p class="mt-2 text-xs text-gray-500">{{ t('admin.intelligenceStatus.emptyHelp') }}</p></div>
       <div v-else class="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" data-testid="intelligence-grid">
-        <IntelligenceStatusCard v-for="item in items" :key="item.plan.id" :item="item" :running="isRunning(item)" :error="runErrors[item.plan.id]" @run="runNow(item)" @history="openHistory(item)" />
+        <IntelligenceStatusCard v-for="item in items" :key="item.plan.id" :item="item" :running="isRunning(item)" :error="runErrors[item.plan.id]" :toggling="togglingIds.has(item.plan.id)" :toggle-error="toggleErrors[item.plan.id]" @run="runNow(item)" @history="openHistory(item)" @toggle-enabled="toggleEnabled(item, $event)" />
       </div>
     </div>
 
@@ -57,6 +57,8 @@ const loadError = ref('')
 const updatedAt = ref('')
 const runningIds = reactive(new Set<number>())
 const runErrors = reactive<Record<number, string>>({})
+const togglingIds = reactive(new Set<number>())
+const toggleErrors = reactive<Record<number, string>>({})
 const historyTarget = ref<DegradationTestStatus | null>(null)
 const historyModels = ref<SelectOption[]>([])
 const now = ref(Date.now())
@@ -70,6 +72,13 @@ let pollTimer: ReturnType<typeof setInterval> | undefined
 
 function isRunning(item: DegradationTestStatus): boolean {
   return runningIds.has(item.plan.id) || (!!item.plan.running_until && new Date(item.plan.running_until).getTime() > now.value)
+}
+
+function invalidateStatusRequest() {
+  statusController?.abort()
+  statusController = null
+  statusRequestId++
+  refreshing.value = false
 }
 
 async function loadStatuses() {
@@ -103,9 +112,7 @@ async function runNow(item: DegradationTestStatus) {
   runningIds.add(planId)
   delete runErrors[planId]
   // An earlier status response must not replace this newly completed execution.
-  statusController?.abort()
-  statusRequestId++
-  refreshing.value = false
+  invalidateStatusRequest()
   try {
     const result = await adminAPI.degradationTests.run(planId)
     if (!active) return
@@ -120,6 +127,32 @@ async function runNow(item: DegradationTestStatus) {
     if (active) {
       runningIds.delete(planId)
       // Also reconcile saved results when the execution response was lost.
+      await loadStatuses()
+    }
+  }
+}
+
+async function toggleEnabled(item: DegradationTestStatus, enabled: boolean) {
+  const planId = item.plan.id
+  const current = items.value.find(status => status.plan.id === planId)
+  if (!active || togglingIds.has(planId) || !current || current.plan.enabled === enabled) return
+  togglingIds.add(planId)
+  delete toggleErrors[planId]
+  invalidateStatusRequest()
+  try {
+    const plan = await adminAPI.degradationTests.update(planId, { enabled })
+    if (!active) return
+    // A refresh started while saving must not restore the previous enabled state.
+    invalidateStatusRequest()
+    items.value = items.value.map(status => status.plan.id === planId ? { ...status, plan } : status)
+    appStore.showSuccess(t(`admin.intelligenceStatus.${plan.enabled ? 'scheduleEnabled' : 'scheduleDisabled'}`))
+  } catch (error) {
+    if (!active) return
+    toggleErrors[planId] = extractApiErrorMessage(error, t('admin.intelligenceStatus.scheduleUpdateFailed'))
+    appStore.showError(toggleErrors[planId])
+  } finally {
+    if (active) {
+      togglingIds.delete(planId)
       await loadStatuses()
     }
   }
@@ -150,7 +183,7 @@ onMounted(() => {
   void loadStatuses()
   pollTimer = setInterval(() => {
     now.value = Date.now()
-    if (autoRefresh.value && !document.hidden && !refreshing.value && !historyTarget.value) void loadStatuses()
+    if (autoRefresh.value && !document.hidden && !refreshing.value && !historyTarget.value && !togglingIds.size) void loadStatuses()
   }, 15000)
 })
 

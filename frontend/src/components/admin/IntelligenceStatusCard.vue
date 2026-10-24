@@ -23,7 +23,13 @@
       <dt class="text-gray-500">{{ t('admin.intelligenceStatus.reasoningEffort') }}</dt>
       <dd class="break-words text-right text-gray-700 dark:text-gray-300">{{ t(`admin.degradationTests.effort.${effort || 'default'}`) }}</dd>
       <dt class="text-gray-500">{{ t('admin.intelligenceStatus.schedule') }}</dt>
-      <dd class="break-words text-right text-gray-700 dark:text-gray-300">{{ item.plan.enabled ? t('admin.intelligenceStatus.enabled') : t('admin.intelligenceStatus.disabled') }} · {{ item.plan.cron_expression }}</dd>
+      <dd class="min-w-0 text-right text-gray-700 dark:text-gray-300">
+        <div class="flex items-center justify-end gap-2">
+          <span aria-live="polite">{{ toggling ? t('common.saving') : item.plan.enabled ? t('admin.intelligenceStatus.enabled') : t('admin.intelligenceStatus.disabled') }}</span>
+          <Toggle :model-value="item.plan.enabled" :disabled="toggling" :aria-busy="!!toggling" :aria-label="t('admin.intelligenceStatus.toggleSchedule', { model: item.plan.model_id })" :aria-describedby="toggleError ? `schedule-error-${item.plan.id}` : undefined" :data-testid="`toggle-schedule-${item.plan.id}`" @update:model-value="emit('toggleEnabled', $event)" />
+        </div>
+        <p class="mt-1 break-words">{{ item.plan.cron_expression }}</p>
+      </dd>
       <template v-if="item.latest_result?.model_id && item.latest_result.model_id !== item.plan.model_id">
         <dt class="text-gray-500">{{ t('admin.intelligenceStatus.currentModel') }}</dt>
         <dd class="break-all text-right text-gray-700 dark:text-gray-300">{{ item.plan.model_id }}</dd>
@@ -33,6 +39,7 @@
         <dd class="text-right tabular-nums text-gray-700 dark:text-gray-300">{{ (item.latest_result.latency_ms / 1000).toFixed(1) }} s</dd>
       </template>
     </dl>
+    <p v-if="toggleError" :id="`schedule-error-${item.plan.id}`" role="alert" class="mx-4 mb-3 whitespace-pre-wrap break-words text-xs text-red-600 dark:text-red-400">{{ toggleError }}</p>
     <p v-if="error" role="alert" class="mx-4 mb-3 whitespace-pre-wrap break-words text-xs text-red-600 dark:text-red-400">{{ error }}</p>
     <div class="mt-auto flex gap-2 border-t border-gray-100 p-4 dark:border-dark-700">
       <button type="button" class="btn btn-primary min-w-0 flex-1 gap-1.5 text-xs" :data-testid="`run-status-${item.plan.id}`" :disabled="running" @click="emit('run')"><Icon :name="running ? 'refresh' : 'play'" size="sm" :class="running ? 'animate-spin' : ''" aria-hidden="true" />{{ t(`admin.intelligenceStatus.${running ? 'running' : 'runNow'}`) }}</button>
@@ -45,12 +52,13 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
+import Toggle from '@/components/common/Toggle.vue'
 import type { DegradationTestStatus } from '@/types'
 import { formatDateTime } from '@/utils/format'
 import { buildDegradationTestPreview, extractDegradationTestHtml } from '@/utils/degradationTestPreview'
 
-const props = defineProps<{ item: DegradationTestStatus; running?: boolean; error?: string }>()
-const emit = defineEmits<{ run: []; history: [] }>()
+const props = defineProps<{ item: DegradationTestStatus; running?: boolean; error?: string; toggling?: boolean; toggleError?: string }>()
+const emit = defineEmits<{ run: []; history: []; toggleEnabled: [enabled: boolean] }>()
 const { t } = useI18n()
 const status = computed(() => props.running ? 'running' : props.item.latest_result?.status === 'success' ? 'success' : props.item.latest_result ? 'failed' : 'notTested')
 const effort = computed(() => props.item.latest_result ? (props.item.latest_result.reasoning_effort ?? '') : (props.item.plan.reasoning_effort ?? ''))

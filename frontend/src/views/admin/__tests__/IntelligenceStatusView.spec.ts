@@ -3,12 +3,12 @@ import { enableAutoUnmount, flushPromises, shallowMount } from '@vue/test-utils'
 import IntelligenceStatusView from '../IntelligenceStatusView.vue'
 import IntelligenceStatusCard from '@/components/admin/IntelligenceStatusCard.vue'
 import DegradationTestsPanel from '@/components/admin/account/DegradationTestsPanel.vue'
-import type { DegradationTestStatus } from '@/types'
+import type { DegradationTestPlan, DegradationTestStatus } from '@/types'
 
-const { listStatus, run, getAvailableModels, showSuccess, showError } = vi.hoisted(() => ({
-  listStatus: vi.fn(), run: vi.fn(), getAvailableModels: vi.fn(), showSuccess: vi.fn(), showError: vi.fn()
+const { listStatus, run, update, getAvailableModels, showSuccess, showError } = vi.hoisted(() => ({
+  listStatus: vi.fn(), run: vi.fn(), update: vi.fn(), getAvailableModels: vi.fn(), showSuccess: vi.fn(), showError: vi.fn()
 }))
-vi.mock('@/api/admin', () => ({ adminAPI: { degradationTests: { listStatus, run }, accounts: { getAvailableModels } } }))
+vi.mock('@/api/admin', () => ({ adminAPI: { degradationTests: { listStatus, run, update }, accounts: { getAvailableModels } } }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showSuccess, showError }) }))
 vi.mock('vue-i18n', async importOriginal => ({ ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string) => key }) }))
 enableAutoUnmount(afterEach)
@@ -78,6 +78,151 @@ describe('intelligence status overview', () => {
     await flushPromises()
     expect(card.props('error')).toBe('execution response lost')
     expect(listStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it('disables and re-enables a schedule while preserving its latest result and the auto-refresh preference', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = await openView()
+      const card = wrapper.findAllComponents(IntelligenceStatusCard)[0]
+      const latestResult = card.props('item').latest_result
+      await wrapper.get('[data-testid="auto-refresh"]').setValue(false)
+
+      for (const enabled of [false, true]) {
+        const refreshed = deferred<DegradationTestStatus[]>()
+        const savedPlan = { ...item(1).plan, enabled, next_run_at: '2026-10-25T01:00:00Z' }
+        update.mockResolvedValueOnce(savedPlan)
+        listStatus.mockReturnValueOnce(refreshed.promise)
+        card.vm.$emit('toggleEnabled', enabled)
+        await flushPromises()
+        expect(update).toHaveBeenLastCalledWith(1, { enabled })
+        expect(card.props('item').plan).toEqual(savedPlan)
+        expect(card.props('item').latest_result).toEqual(latestResult)
+        refreshed.resolve([{ ...item(1), plan: savedPlan }, item(2, 'failed'), item(3, null)])
+        await flushPromises()
+        expect(card.props('toggling')).toBe(false)
+      }
+
+      expect(update).toHaveBeenCalledTimes(2)
+      expect(listStatus).toHaveBeenCalledTimes(3)
+      expect((wrapper.get('[data-testid="auto-refresh"]').element as HTMLInputElement).checked).toBe(false)
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(listStatus).toHaveBeenCalledTimes(3)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('deduplicates pending changes per card without locking other schedules', async () => {
+    const first = deferred<DegradationTestPlan>()
+    const second = deferred<DegradationTestPlan>()
+    update.mockImplementation((id: number) => id === 1 ? first.promise : second.promise)
+    const wrapper = await openView()
+    const cards = wrapper.findAllComponents(IntelligenceStatusCard)
+    cards[0].vm.$emit('toggleEnabled', false)
+    cards[0].vm.$emit('toggleEnabled', false)
+    cards[1].vm.$emit('toggleEnabled', true)
+    await flushPromises()
+    expect(update.mock.calls).toEqual([[1, { enabled: false }], [2, { enabled: true }]])
+    expect(cards[0].props('toggling')).toBe(true)
+    expect(cards[1].props('toggling')).toBe(true)
+    expect(cards[2].props('toggling')).toBe(false)
+
+    const disabled = { ...item(1), plan: { ...item(1).plan, enabled: false } }
+    const enabled = { ...item(2, 'failed'), plan: { ...item(2).plan, enabled: true } }
+    listStatus.mockResolvedValue([disabled, enabled, item(3, null)])
+    first.resolve(disabled.plan)
+    second.resolve(enabled.plan)
+    await flushPromises()
+    expect(cards[0].props('item').plan.enabled).toBe(false)
+    expect(cards[1].props('item').plan.enabled).toBe(true)
+    expect(cards[0].props('toggling')).toBe(false)
+    expect(cards[1].props('toggling')).toBe(false)
+    expect(cards[2].props('item')).toEqual(item(3, null))
+  })
+
+  it('keeps the saved schedule when a change fails, shows its error, and allows retry', async () => {
+    update.mockRejectedValueOnce(new Error('schedule update rejected'))
+    const wrapper = await openView()
+    const cards = wrapper.findAllComponents(IntelligenceStatusCard)
+    cards[0].vm.$emit('toggleEnabled', false)
+    await flushPromises()
+    expect(cards[0].props('item')).toEqual(item(1))
+    expect(cards[0].props('toggleError')).toBe('schedule update rejected')
+    expect(cards[0].props('toggling')).toBe(false)
+    expect(cards[1].props('toggleError')).toBeFalsy()
+    expect(showError).toHaveBeenCalledWith('schedule update rejected')
+
+    const disabled = { ...item(1), plan: { ...item(1).plan, enabled: false } }
+    update.mockResolvedValueOnce(disabled.plan)
+    listStatus.mockResolvedValue([disabled, item(2, 'failed'), item(3, null)])
+    cards[0].vm.$emit('toggleEnabled', false)
+    await flushPromises()
+    expect(cards[0].props('item').plan.enabled).toBe(false)
+    expect(cards[0].props('toggleError')).toBeFalsy()
+  })
+
+  it.each(['pending', 'completed'] as const)('ignores an older status response when a schedule change is %s', async phase => {
+    const stale = deferred<DegradationTestStatus[]>()
+    const changing = deferred<DegradationTestPlan>()
+    const wrapper = await openView()
+    const card = wrapper.findAllComponents(IntelligenceStatusCard)[0]
+    listStatus.mockReturnValueOnce(stale.promise)
+    await wrapper.get('[data-testid="refresh-status"]').trigger('click')
+    update.mockReturnValueOnce(changing.promise)
+    card.vm.$emit('toggleEnabled', false)
+    await flushPromises()
+
+    if (phase === 'pending') {
+      stale.resolve([{ ...item(1), plan: { ...item(1).plan, enabled: false } }])
+      await flushPromises()
+      expect(card.props('item').plan.enabled).toBe(true)
+      expect(wrapper.findAllComponents(IntelligenceStatusCard)).toHaveLength(3)
+    }
+
+    const disabled = { ...item(1), plan: { ...item(1).plan, enabled: false } }
+    listStatus.mockResolvedValue([disabled, item(2, 'failed'), item(3, null)])
+    changing.resolve(disabled.plan)
+    await flushPromises()
+    if (phase === 'completed') {
+      stale.resolve([item(1)])
+      await flushPromises()
+    }
+    expect(card.props('item').plan.enabled).toBe(false)
+    expect(wrapper.findAllComponents(IntelligenceStatusCard)).toHaveLength(3)
+  })
+
+  it('pauses automatic polling during updates and rejects an intervening manual refresh after the save completes', async () => {
+    vi.useFakeTimers()
+    try {
+      const changing = deferred<DegradationTestPlan>()
+      const staleRefresh = deferred<DegradationTestStatus[]>()
+      const reconciliation = deferred<DegradationTestStatus[]>()
+      update.mockReturnValueOnce(changing.promise)
+      const wrapper = await openView()
+      const card = wrapper.findAllComponents(IntelligenceStatusCard)[0]
+      card.vm.$emit('toggleEnabled', false)
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(15000)
+      expect(listStatus).toHaveBeenCalledTimes(1)
+
+      listStatus.mockReturnValueOnce(staleRefresh.promise).mockReturnValueOnce(reconciliation.promise)
+      await wrapper.get('[data-testid="refresh-status"]').trigger('click')
+      const disabled = { ...item(1), plan: { ...item(1).plan, enabled: false } }
+      changing.resolve(disabled.plan)
+      await flushPromises()
+      staleRefresh.resolve([item(1)])
+      await flushPromises()
+      expect(card.props('item').plan.enabled).toBe(false)
+      expect(wrapper.findAllComponents(IntelligenceStatusCard)).toHaveLength(3)
+
+      const saved = [disabled, item(2, 'failed'), item(3, null)]
+      listStatus.mockResolvedValue(saved)
+      reconciliation.resolve(saved)
+      await flushPromises()
+      expect((wrapper.get('[data-testid="auto-refresh"]').element as HTMLInputElement).checked).toBe(true)
+      await vi.advanceTimersByTimeAsync(15000)
+      expect(listStatus).toHaveBeenCalledTimes(4)
+      expect(card.props('item').plan.enabled).toBe(false)
+    } finally { vi.useRealTimers() }
   })
 
   it('opens the requested plan history and ignores models from a previously selected account', async () => {

@@ -62,4 +62,37 @@ describe('intelligence status cards', () => {
     expect(wrapper.emitted('run')).toHaveLength(1)
     expect(wrapper.emitted('history')).toHaveLength(1)
   })
+
+  it('exposes an accessible schedule switch and emits both requested states', async () => {
+    const item = statusItem()
+    const wrapper = mount(IntelligenceStatusCard, { props: { item } })
+    const toggle = wrapper.get('[data-testid="toggle-schedule-1"]')
+    expect(toggle.attributes('role')).toBe('switch')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(toggle.attributes('aria-label')).toBeTruthy()
+    await toggle.trigger('click')
+    expect(wrapper.emitted('toggleEnabled')).toEqual([[true]])
+    expect(toggle.attributes('aria-checked')).toBe('false')
+
+    await wrapper.setProps({ item: { ...item, plan: { ...item.plan, enabled: true } } })
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    await toggle.trigger('click')
+    expect(wrapper.emitted('toggleEnabled')).toEqual([[true], [false]])
+  })
+
+  it('blocks the schedule switch while saving, displays failures, and keeps manual execution available', async () => {
+    const wrapper = mount(IntelligenceStatusCard, { props: { item: statusItem(), toggling: true } })
+    const toggle = wrapper.get('[data-testid="toggle-schedule-1"]')
+    expect(toggle.attributes('disabled')).toBeDefined()
+    await toggle.trigger('click')
+    expect(wrapper.emitted('toggleEnabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="run-status-1"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-testid="run-status-1"]').trigger('click')
+    expect(wrapper.emitted('run')).toHaveLength(1)
+
+    await wrapper.setProps({ toggling: false, toggleError: 'schedule update rejected' })
+    expect(toggle.attributes('disabled')).toBeUndefined()
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(wrapper.findAll('[role="alert"]').some(alert => alert.text() === 'schedule update rejected')).toBe(true)
+  })
 })

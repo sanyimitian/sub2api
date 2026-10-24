@@ -10,14 +10,45 @@
       @refresh="manualReload"
     />
 
-    <MonitorCardGrid
-      :items="items"
-      :window="currentWindow"
-      :countdown-seconds="countdown"
-      :loading="loading"
-      :detail-cache="detailCache"
-      @card-click="openDetail"
-    />
+    <div class="space-y-8 pb-8">
+      <section aria-labelledby="public-channels-heading" data-testid="public-channels-section">
+        <div class="mb-4 flex flex-wrap items-center gap-2">
+          <h2 id="public-channels-heading" class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ t('channelStatus.publicChannels') }}</h2>
+          <span v-if="!loading" class="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500 dark:bg-dark-700 dark:text-gray-400">{{ t('channelStatus.channelCount', { count: publicItems.length }) }}</span>
+        </div>
+        <MonitorCardGrid
+          v-if="publicItems.length || !adminItems.length"
+          :items="publicItems"
+          :window="currentWindow"
+          :countdown-seconds="countdown"
+          :loading="loading"
+          :detail-cache="detailCache"
+          @card-click="openDetail"
+        />
+        <p v-else class="rounded-2xl border border-dashed border-gray-200 px-5 py-8 text-center text-sm text-gray-500 dark:border-dark-700 dark:text-gray-400">{{ t('channelStatus.noPublicChannels') }}</p>
+      </section>
+
+      <section v-if="adminItems.length" aria-labelledby="admin-channels-heading" class="border-t-2 border-amber-200 pt-6 dark:border-amber-800" data-testid="admin-channels-section">
+        <header class="mb-5 flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 dark:border-amber-900/60 dark:bg-amber-900/15 sm:px-5">
+          <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"><Icon name="shield" size="md" aria-hidden="true" /></span>
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <h2 id="admin-channels-heading" class="text-base font-semibold text-amber-900 dark:text-amber-200">{{ t('channelStatus.adminChannels') }}</h2>
+              <span class="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{{ t('channelStatus.channelCount', { count: adminItems.length }) }}</span>
+            </div>
+            <p class="mt-1 text-xs text-amber-700 dark:text-amber-300/80">{{ t('channelStatus.adminChannelsHint') }}</p>
+          </div>
+        </header>
+        <MonitorCardGrid
+          :items="adminItems"
+          :window="currentWindow"
+          :countdown-seconds="countdown"
+          :loading="loading"
+          :detail-cache="detailCache"
+          @card-click="openDetail"
+        />
+      </section>
+    </div>
 
     <MonitorDetailDialog
       :show="showDetail"
@@ -40,6 +71,7 @@ import {
   type UserMonitorDetail,
 } from '@/api/channelMonitor'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import { Icon } from '@/components/icons'
 import MonitorHero, {
   type MonitorWindow,
   type OverallStatus,
@@ -73,6 +105,9 @@ const autoRefresh = useAutoRefresh({
 const countdown = autoRefresh.countdown
 
 // ── Computed ──
+const publicItems = computed(() => items.value.filter(item => !item.admin_only))
+const adminItems = computed(() => items.value.filter(item => item.admin_only))
+
 const overallStatus = computed<OverallStatus>(() => {
   if (items.value.length === 0) return 'operational'
   for (const it of items.value) {
