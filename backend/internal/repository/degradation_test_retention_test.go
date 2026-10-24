@@ -125,3 +125,40 @@ func TestDegradationTestMigrationCreatesIndependentTablesAndCascades(t *testing.
 	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM scheduled_test_results").Scan(&count))
 	require.Equal(t, 1, count)
 }
+
+func TestDegradationTestReasoningEffortMigrationPreservesDefaultsAndHistory(t *testing.T) {
+	content, err := dbmigrations.FS.ReadFile("246_degradation_test_reasoning_effort.sql")
+	require.NoError(t, err)
+	migration := string(content)
+	require.NotContains(t, migration, "scheduled_test_")
+	db, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err)
+	defer db.Close()
+	_, err = db.Exec(`CREATE TABLE degradation_test_plans (id INTEGER PRIMARY KEY, model_id TEXT NOT NULL);
+		CREATE TABLE degradation_test_results (id INTEGER PRIMARY KEY, plan_id INTEGER NOT NULL, response_text TEXT NOT NULL);
+		INSERT INTO degradation_test_plans VALUES (1, 'gpt-5');
+		INSERT INTO degradation_test_results VALUES (1, 1, '<svg/>')`)
+	require.NoError(t, err)
+	// SQLite supports the same default/check semantics without this PG guard.
+	migration = strings.ReplaceAll(migration, "ADD COLUMN IF NOT EXISTS", "ADD COLUMN")
+	_, err = db.Exec(migration)
+	require.NoError(t, err)
+	var model, text, effort string
+	require.NoError(t, db.QueryRow("SELECT model_id, reasoning_effort FROM degradation_test_plans WHERE id=1").Scan(&model, &effort))
+	require.Equal(t, "gpt-5", model)
+	require.Empty(t, effort)
+	require.NoError(t, db.QueryRow("SELECT response_text, reasoning_effort FROM degradation_test_results WHERE id=1").Scan(&text, &effort))
+	require.Equal(t, "<svg/>", text)
+	require.Empty(t, effort)
+	_, err = db.Exec("UPDATE degradation_test_plans SET reasoning_effort='xhigh' WHERE id=1")
+	require.NoError(t, err)
+	// Updating a plan cannot rewrite the effort of an earlier execution.
+	require.NoError(t, db.QueryRow("SELECT reasoning_effort FROM degradation_test_results WHERE id=1").Scan(&effort))
+	require.Empty(t, effort)
+	_, err = db.Exec("UPDATE degradation_test_plans SET reasoning_effort='extreme' WHERE id=1")
+	require.Error(t, err)
+	_, err = db.Exec("INSERT INTO degradation_test_results (id, plan_id, response_text, reasoning_effort) VALUES (2, 1, '<html/>', 'high')")
+	require.NoError(t, err)
+	require.NoError(t, db.QueryRow("SELECT reasoning_effort FROM degradation_test_results WHERE id=2").Scan(&effort))
+	require.Equal(t, "high", effort)
+}

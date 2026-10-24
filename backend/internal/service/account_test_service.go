@@ -573,7 +573,9 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
-	applyAccountTestGenerationPayload(c, payload, APIProtocolAnthropic, false)
+	if err := applyAccountTestGenerationPayload(c, payload, APIProtocolAnthropic, false); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event
@@ -652,7 +654,9 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
-	applyAccountTestGenerationPayload(c, payload, APIProtocolAnthropic, false)
+	if err := applyAccountTestGenerationPayload(c, payload, APIProtocolAnthropic, false); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 	payloadBytes, _ := json.Marshal(payload)
 	vertexBody, err := buildVertexAnthropicRequestBody(payloadBytes)
 	if err != nil {
@@ -737,7 +741,9 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 		"max_tokens":  256,
 		"temperature": 1,
 	}
-	applyAccountTestGenerationPayload(c, bedrockPayload, APIProtocolAnthropic, false)
+	if err := applyAccountTestGenerationPayload(c, bedrockPayload, APIProtocolAnthropic, false); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 	bedrockBody, _ := json.Marshal(bedrockPayload)
 
 	// Use non-streaming endpoint (response is standard Claude JSON)
@@ -913,7 +919,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
-	applyAccountTestGenerationPayload(c, payload, APIProtocolResponses, isOAuth)
+	if err := applyAccountTestGenerationPayload(c, payload, APIProtocolResponses, isOAuth); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -1282,7 +1290,9 @@ func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx con
 	}
 	if accountTestGenerationPrompt(c) != "" {
 		payload := createOpenAITestPayload(testModelID, false)
-		applyAccountTestGenerationPayload(c, payload, APIProtocolResponses, false)
+		if err := applyAccountTestGenerationPayload(c, payload, APIProtocolResponses, false); err != nil {
+			return s.sendErrorAndEnd(c, err.Error())
+		}
 		payloadBytes, _ = json.Marshal(payload)
 	}
 
@@ -2161,7 +2171,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	c.Writer.Flush()
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
-	applyAccountTestGenerationPayload(c, payload, APIProtocolChatCompletions, false)
+	if err := applyAccountTestGenerationPayload(c, payload, APIProtocolChatCompletions, false); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2445,6 +2457,9 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 		_ = json.Unmarshal(payload, &generationPayload)
 		generationPayload["contents"] = []map[string]any{{"role": "user", "parts": []map[string]any{{"text": accountTestGenerationPrompt(c)}}}}
 		generationPayload["generationConfig"] = map[string]any{"maxOutputTokens": accountTestGenerationMaxTokens}
+		if err := applyAccountTestGenerationReasoningEffort(c, generationPayload, "gemini"); err != nil {
+			return s.sendErrorAndEnd(c, err.Error())
+		}
 		payload, _ = json.Marshal(generationPayload)
 	}
 

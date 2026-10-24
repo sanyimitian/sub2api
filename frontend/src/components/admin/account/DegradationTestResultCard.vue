@@ -10,6 +10,7 @@
       <time class="text-gray-500">{{ formatDateTime(result.started_at) }}</time>
     </div>
     <p v-if="result.model_id" class="mt-2 break-all text-xs text-gray-500">{{ t('admin.degradationTests.model') }}: {{ result.model_id }}</p>
+    <p class="mt-1 text-xs text-gray-500" data-testid="result-reasoning-effort">{{ t('admin.degradationTests.reasoningEffortSnapshot') }}: {{ t(`admin.degradationTests.effort.${result.reasoning_effort || 'default'}`) }}</p>
     <pre v-if="result.error_message" role="alert" class="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-red-50 p-3 text-xs text-red-700 dark:bg-red-900/20 dark:text-red-300">{{ result.error_message }}</pre>
     <details v-if="result.prompt" class="mt-3 text-xs text-gray-500">
       <summary class="select-none">{{ t('admin.degradationTests.promptSnapshot') }}</summary>

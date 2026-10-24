@@ -2504,10 +2504,13 @@ export interface UpdateScheduledTestPlanRequest {
 
 // ==================== Degradation Test Types ====================
 
+export type DegradationTestReasoningEffort = '' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+
 export interface DegradationTestPlan {
   id: number
   account_id: number
   model_id: string
+  reasoning_effort?: DegradationTestReasoningEffort
   prompt: string
   cron_expression: string
   enabled: boolean
@@ -2523,6 +2526,7 @@ export interface DegradationTestResult {
   id: number
   plan_id: number
   model_id: string
+  reasoning_effort?: DegradationTestReasoningEffort
   prompt: string
   status: string
   response_text: string
@@ -2536,6 +2540,7 @@ export interface DegradationTestResult {
 export interface CreateDegradationTestPlanRequest {
   account_id: number
   model_id: string
+  reasoning_effort?: DegradationTestReasoningEffort
   prompt?: string
   cron_expression: string
   enabled?: boolean
@@ -2544,6 +2549,7 @@ export interface CreateDegradationTestPlanRequest {
 
 export interface UpdateDegradationTestPlanRequest {
   model_id?: string
+  reasoning_effort?: DegradationTestReasoningEffort
   prompt?: string
   cron_expression?: string
   enabled?: boolean

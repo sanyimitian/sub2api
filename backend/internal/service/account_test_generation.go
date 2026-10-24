@@ -19,6 +19,7 @@ import (
 
 const (
 	accountTestGenerationPromptKey = "account_test_generation_prompt"
+	accountTestGenerationEffortKey = "account_test_generation_reasoning_effort"
 	accountTestGenerationMaxTokens = 8192
 	accountTestGenerationMaxBytes  = 4 << 20
 )
@@ -47,10 +48,13 @@ func validateAccountTestGeneration(account *Account, modelID string) error {
 
 // Only scheduled generation requests get the larger output budget. Ordinary
 // connectivity and media probes retain their existing requests and limits.
-func applyAccountTestGenerationPayload(c *gin.Context, payload map[string]any, protocol string, isOAuth bool) {
+func applyAccountTestGenerationPayload(c *gin.Context, payload map[string]any, protocol string, isOAuth bool) error {
 	prompt := accountTestGenerationPrompt(c)
 	if prompt == "" {
-		return
+		return nil
+	}
+	if err := applyAccountTestGenerationReasoningEffort(c, payload, protocol); err != nil {
+		return err
 	}
 	switch protocol {
 	case APIProtocolAnthropic:
@@ -74,6 +78,29 @@ func applyAccountTestGenerationPayload(c *gin.Context, payload map[string]any, p
 			payload["max_output_tokens"] = accountTestGenerationMaxTokens
 		}
 	}
+	return nil
+}
+
+// Only explicitly supported protocols get a requested level. Reject unsupported
+// combinations before sending a request so a successful test never implies an
+// effort that was silently ignored. Empty retains the upstream's default.
+func applyAccountTestGenerationReasoningEffort(c *gin.Context, payload map[string]any, protocol string) error {
+	effort := c.GetString(accountTestGenerationEffortKey)
+	if err := validateDegradationTestReasoningEffort(effort); err != nil {
+		return err
+	}
+	if effort == "" {
+		return nil
+	}
+	switch protocol {
+	case APIProtocolResponses:
+		payload["reasoning"] = map[string]any{"effort": effort}
+	case APIProtocolChatCompletions:
+		payload["reasoning_effort"] = effort
+	default:
+		return fmt.Errorf("Explicit reasoning effort %q is not supported for %s generation tests; select model default or use an OpenAI Responses/Chat Completions endpoint", effort, protocol)
+	}
+	return nil
 }
 
 func accountTestUsesMaxCompletionTokens(model string) bool {
@@ -289,6 +316,9 @@ func (s *AccountTestService) processAccountTestGenerationJSON(c *gin.Context, bo
 // Antigravity's normal test deliberately requests a single token. Generation
 // retains its native envelope, credentials and retry handling with a real prompt.
 func (s *AccountTestService) testAntigravityGeneration(c *gin.Context, account *Account, modelID string) error {
+	if err := applyAccountTestGenerationReasoningEffort(c, nil, "antigravity"); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 	gateway := s.antigravityGatewayService
 	ctx := c.Request.Context()
 	if gateway == nil || gateway.tokenProvider == nil || gateway.httpUpstream == nil {
@@ -357,7 +387,7 @@ func (s *AccountTestService) testAntigravityGeneration(c *gin.Context, account *
 }
 
 // RunGenerationBackground executes a full prompt for an independent degradation test.
-func (s *AccountTestService) RunGenerationBackground(ctx context.Context, accountID int64, modelID string, prompt string) (*DegradationTestResult, error) {
+func (s *AccountTestService) RunGenerationBackground(ctx context.Context, accountID int64, modelID string, prompt string, reasoningEffort ...string) (*DegradationTestResult, error) {
 	startedAt := time.Now()
 
 	w := httptest.NewRecorder()
@@ -365,6 +395,11 @@ func (s *AccountTestService) RunGenerationBackground(ctx context.Context, accoun
 	ginCtx.Request = (&http.Request{}).WithContext(ctx)
 	ginCtx.Set(accountTestBackgroundKey, true)
 	ginCtx.Set(accountTestGenerationPromptKey, prompt)
+	effort := ""
+	if len(reasoningEffort) > 0 {
+		effort = reasoningEffort[0]
+	}
+	ginCtx.Set(accountTestGenerationEffortKey, effort)
 
 	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, prompt, AccountTestModeDefault)
 
@@ -387,12 +422,13 @@ func (s *AccountTestService) RunGenerationBackground(ctx context.Context, accoun
 	}
 
 	return &DegradationTestResult{
-		Status:       status,
-		ResponseText: responseText,
-		ErrorMessage: errMsg,
-		LatencyMs:    finishedAt.Sub(startedAt).Milliseconds(),
-		StartedAt:    startedAt,
-		FinishedAt:   finishedAt,
+		ReasoningEffort: effort,
+		Status:          status,
+		ResponseText:    responseText,
+		ErrorMessage:    errMsg,
+		LatencyMs:       finishedAt.Sub(startedAt).Milliseconds(),
+		StartedAt:       startedAt,
+		FinishedAt:      finishedAt,
 	}, nil
 }
 

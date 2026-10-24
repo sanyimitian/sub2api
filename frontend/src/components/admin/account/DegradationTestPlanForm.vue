@@ -10,6 +10,13 @@
         <p class="mt-1 text-xs text-gray-500">{{ t('admin.degradationTests.modelHelp') }}</p>
       </div>
       <div>
+        <label :for="`${formId}-effort`" class="mb-1 block text-sm font-medium">{{ t('admin.degradationTests.reasoningEffort') }}</label>
+        <select :id="`${formId}-effort`" v-model="form.reasoning_effort" class="input w-full" data-testid="reasoning-effort">
+          <option v-for="effort in reasoningEfforts" :key="effort" :value="effort">{{ t(`admin.degradationTests.effort.${effort || 'default'}`) }}</option>
+        </select>
+        <p class="mt-1 text-xs text-gray-500">{{ t('admin.degradationTests.reasoningEffortHelp') }}</p>
+      </div>
+      <div>
         <label :for="`${formId}-mode`" class="mb-1 block text-sm font-medium">{{ t('admin.degradationTests.scheduleType') }}</label>
         <select :id="`${formId}-mode`" v-model="scheduleMode" class="input w-full">
           <option value="interval">{{ t('admin.degradationTests.interval') }}</option>
@@ -63,11 +70,12 @@ import { computed, getCurrentInstance, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
-import type { DegradationTestPlan } from '@/types'
+import type { DegradationTestPlan, DegradationTestReasoningEffort } from '@/types'
 import { DEFAULT_DEGRADATION_TEST_PROMPT } from '@/utils/degradationTestPreview'
 
 export interface DegradationTestPlanFormValue {
   model_id: string
+  reasoning_effort: DegradationTestReasoningEffort
   cron_expression: string
   prompt: string
   max_results: number
@@ -77,6 +85,7 @@ export interface DegradationTestPlanFormValue {
 const props = defineProps<{ initial?: DegradationTestPlan; modelOptions: SelectOption[]; busy?: boolean }>()
 const emit = defineEmits<{ submit: [value: DegradationTestPlanFormValue]; cancel: [] }>()
 const { t } = useI18n()
+const reasoningEfforts: DegradationTestReasoningEffort[] = ['', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh']
 const formId = `degradation-test-${getCurrentInstance()?.uid ?? 'form'}`
 const initialInterval = props.initial?.cron_expression.match(/^@every\s+(\d+)(m|h)$/)
 const scheduleMode = ref<'interval' | 'cron'>(!props.initial || initialInterval ? 'interval' : 'cron')
@@ -86,6 +95,7 @@ const intervalMaximum = computed(() => intervalUnit.value === 'd' ? 30 : interva
 const validationError = ref('')
 const form = reactive<DegradationTestPlanFormValue>({
   model_id: props.initial?.model_id ?? '',
+  reasoning_effort: props.initial?.reasoning_effort ?? '',
   cron_expression: props.initial?.cron_expression ?? '*/30 * * * *',
   prompt: props.initial ? (props.initial.prompt ?? '') : DEFAULT_DEGRADATION_TEST_PROMPT,
   max_results: 24,

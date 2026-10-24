@@ -24,7 +24,7 @@ var (
 )
 
 type degradationAccountTester interface {
-	RunGenerationBackground(context.Context, int64, string, string) (*DegradationTestResult, error)
+	RunGenerationBackground(context.Context, int64, string, string, ...string) (*DegradationTestResult, error)
 }
 
 // DegradationTestRunnerService periodically scans due test plans and executes them.
@@ -187,6 +187,7 @@ func (s *DegradationTestRunnerService) runOnePlan(parentCtx context.Context, pla
 		}
 	}
 	result.ModelID, result.Prompt = plan.ModelID, plan.Prompt
+	result.ReasoningEffort = plan.ReasoningEffort
 	result.StartedAt, result.FinishedAt = startedAt, finishedAt
 	result.LatencyMs = finishedAt.Sub(startedAt).Milliseconds()
 
@@ -220,5 +221,5 @@ func (s *DegradationTestRunnerService) invokeTest(ctx context.Context, plan *Deg
 			err = fmt.Errorf("account test panicked: %v", panicValue)
 		}
 	}()
-	return s.accountTestSvc.RunGenerationBackground(ctx, plan.AccountID, plan.ModelID, plan.Prompt)
+	return s.accountTestSvc.RunGenerationBackground(ctx, plan.AccountID, plan.ModelID, plan.Prompt, plan.ReasoningEffort)
 }

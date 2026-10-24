@@ -38,6 +38,27 @@ describe('scheduled test result selection', () => {
     listByAccount.mockResolvedValue([1, 2].map(id => ({ id, model_id: `model-${id}`, enabled: true })))
   })
 
+  it('provides an explicit accessible result button that expands and collapses the plan history', async () => {
+    listResults.mockResolvedValue([result(11)])
+    const wrapper = await openPanel()
+    const button = wrapper.get('[data-testid="toggle-results-1"]')
+    expect(button.text()).toBe('admin.degradationTests.viewResults')
+    expect(button.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('#degradation-results-1').exists()).toBe(false)
+    await button.trigger('click')
+    await flushPromises()
+    expect(button.text()).toBe('admin.degradationTests.hideResults')
+    expect(button.attributes('aria-expanded')).toBe('true')
+    expect(button.attributes('aria-controls')).toBe('degradation-results-1')
+    expect(wrapper.find('#degradation-results-1').exists()).toBe(true)
+    expect(listResults).toHaveBeenCalledTimes(1)
+    expect(listResults).toHaveBeenCalledWith(1, 10)
+    await button.trigger('click')
+    expect(button.text()).toBe('admin.degradationTests.viewResults')
+    expect(button.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('#degradation-results-1').exists()).toBe(false)
+  })
+
   it.each(['resolve', 'reject'] as const)('ignores an old plan request that later %ss', async outcome => {
     const old = deferred<ReturnType<typeof result>[]>()
     listResults.mockReturnValueOnce(old.promise).mockResolvedValueOnce([result(22)])

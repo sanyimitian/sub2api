@@ -2,17 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { enableAutoUnmount, flushPromises, shallowMount } from '@vue/test-utils'
 import DegradationTestsPanel from '../DegradationTestsPanel.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import DegradationTestPlanForm from '../DegradationTestPlanForm.vue'
 import DegradationTestResultsGallery from '../DegradationTestResultsGallery.vue'
 
 vi.mock('vue-i18n', async (importOriginal) => ({
   ...await importOriginal<typeof import('vue-i18n')>(),
-  useI18n: () => ({ t: (key: string) => key })
+  useI18n: () => ({ t: (key: string, params?: Record<string, unknown>) => params ? `${key}: ${JSON.stringify(params)}` : key })
 }))
-const { listByAccount, listResults, run, create, showSuccess, showError } = vi.hoisted(() => ({
-  listByAccount: vi.fn(), listResults: vi.fn(), run: vi.fn(), create: vi.fn(), showSuccess: vi.fn(), showError: vi.fn()
+const { listByAccount, listResults, run, create, deletePlan, showSuccess, showError } = vi.hoisted(() => ({
+  listByAccount: vi.fn(), listResults: vi.fn(), run: vi.fn(), create: vi.fn(), deletePlan: vi.fn(), showSuccess: vi.fn(), showError: vi.fn()
 }))
-vi.mock('@/api/admin', () => ({ adminAPI: { degradationTests: { listByAccount, listResults, run, create } } }))
+vi.mock('@/api/admin', () => ({ adminAPI: { degradationTests: { listByAccount, listResults, run, create, delete: deletePlan } } }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showSuccess, showError }) }))
 enableAutoUnmount(afterEach)
 
@@ -36,6 +37,36 @@ describe('scheduled test immediate runs', () => {
     vi.resetAllMocks()
     listByAccount.mockResolvedValue([{ id: 1, model_id: 'model-1', enabled: false, cron_expression: '@every 30m' }])
     listResults.mockResolvedValue([])
+    deletePlan.mockResolvedValue(undefined)
+  })
+
+  it('identifies the model and plan in deletion confirmation and never deletes on cancel', async () => {
+    const wrapper = await openPanel()
+    const button = wrapper.get('[data-testid="delete-plan-1"]')
+    expect(button.text()).toContain('common.delete')
+    await button.trigger('click')
+    const confirmation = wrapper.getComponent(ConfirmDialog)
+    expect(confirmation.props('show')).toBe(true)
+    expect(confirmation.props('message')).toContain('"model":"model-1"')
+    expect(confirmation.props('message')).toContain('"id":1')
+    expect(deletePlan).not.toHaveBeenCalled()
+    confirmation.vm.$emit('cancel')
+    await flushPromises()
+    expect(confirmation.props('show')).toBe(false)
+    expect(deletePlan).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="run-plan-1"]').exists()).toBe(true)
+  })
+
+  it('deletes only the confirmed plan while keeping another model plan visible', async () => {
+    listByAccount.mockResolvedValue([1, 2].map(id => ({ id, model_id: `model-${id}`, enabled: true, cron_expression: '@every 30m' })))
+    const wrapper = await openPanel()
+    await wrapper.get('[data-testid="delete-plan-2"]').trigger('click')
+    wrapper.getComponent(ConfirmDialog).vm.$emit('confirm')
+    await flushPromises()
+    expect(deletePlan).toHaveBeenCalledTimes(1)
+    expect(deletePlan).toHaveBeenCalledWith(2)
+    expect(wrapper.find('[data-testid="run-plan-1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="run-plan-2"]').exists()).toBe(false)
   })
 
   it('runs a disabled plan once, disables duplicate clicks, and displays the returned failure', async () => {
@@ -58,7 +89,7 @@ describe('scheduled test immediate runs', () => {
     create.mockResolvedValue({ id: 2 })
     const wrapper = await openPanel()
     await wrapper.get('[data-testid="add-plan"]').trigger('click')
-    const value = { model_id: 'chosen-model', prompt: 'custom prompt', cron_expression: '@every 2h', max_results: 24, enabled: true }
+    const value = { model_id: 'chosen-model', reasoning_effort: 'xhigh' as const, prompt: 'custom prompt', cron_expression: '@every 2h', max_results: 24, enabled: true }
     wrapper.getComponent(DegradationTestPlanForm).vm.$emit('submit', value)
     await flushPromises()
     expect(create).toHaveBeenCalledTimes(1)

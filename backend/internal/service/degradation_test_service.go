@@ -133,6 +133,9 @@ func validateDegradationTestPlan(plan *DegradationTestPlan) error {
 	if plan == nil || plan.AccountID <= 0 {
 		return fmt.Errorf("account_id must be positive")
 	}
+	if err := validateDegradationTestReasoningEffort(plan.ReasoningEffort); err != nil {
+		return err
+	}
 	if utf8.RuneCountInString(plan.ModelID) > 100 {
 		return fmt.Errorf("model_id must not exceed 100 characters")
 	}
@@ -149,4 +152,13 @@ func validateDegradationTestPlan(plan *DegradationTestPlan) error {
 		return fmt.Errorf("schedule must not exceed 100 characters")
 	}
 	return nil
+}
+
+func validateDegradationTestReasoningEffort(effort string) error {
+	switch effort {
+	case "", "none", "minimal", "low", "medium", "high", "xhigh":
+		return nil
+	default:
+		return fmt.Errorf("reasoning_effort must be empty, none, minimal, low, medium, high or xhigh")
+	}
 }

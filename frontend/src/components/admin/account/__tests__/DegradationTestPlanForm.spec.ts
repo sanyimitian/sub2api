@@ -8,6 +8,33 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 enableAutoUnmount(afterEach)
 
 describe('scheduled generation plan form', () => {
+  it.each(['high', 'xhigh'])('saves the selected %s reasoning effort with the plan', async effort => {
+    const wrapper = mount(DegradationTestPlanForm, { props: { modelOptions: [] } })
+    await wrapper.get('input[list]').setValue('reasoning-model')
+    await wrapper.get('[data-testid="reasoning-effort"]').setValue(effort)
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('submit')?.[0]?.[0]).toMatchObject({ model_id: 'reasoning-model', reasoning_effort: effort })
+  })
+
+  it('preserves the saved effort when editing and can explicitly return to the model default', async () => {
+    const initial = { model_id: 'model', prompt: 'Draw SVG', cron_expression: '@every 30m', reasoning_effort: 'xhigh' } as DegradationTestPlan
+    const wrapper = mount(DegradationTestPlanForm, { props: { modelOptions: [], initial } })
+    expect(wrapper.get<HTMLSelectElement>('[data-testid="reasoning-effort"]').element.value).toBe('xhigh')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('submit')?.[0]?.[0]).toMatchObject({ reasoning_effort: 'xhigh' })
+    await wrapper.get('[data-testid="reasoning-effort"]').setValue('')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('submit')?.[1]?.[0]).toMatchObject({ reasoning_effort: '' })
+  })
+
+  it('keeps older plans without a reasoning effort on the model default', async () => {
+    const initial = { model_id: 'old-model', prompt: 'Draw SVG', cron_expression: '@every 30m' } as DegradationTestPlan
+    const wrapper = mount(DegradationTestPlanForm, { props: { modelOptions: [], initial } })
+    expect(wrapper.get<HTMLSelectElement>('[data-testid="reasoning-effort"]').element.value).toBe('')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('submit')?.[0]?.[0]).toMatchObject({ reasoning_effort: '' })
+  })
+
   it('starts with the pelican prompt and saves edited prompt/model with a daily interval', async () => {
     const wrapper = mount(DegradationTestPlanForm, { props: { modelOptions: [{ value: 'model-a', label: 'Model A' }] } })
     expect(wrapper.get('textarea').element.value).toBe(DEFAULT_DEGRADATION_TEST_PROMPT)

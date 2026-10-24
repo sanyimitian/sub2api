@@ -168,7 +168,7 @@ func TestDegradationTestResultLimitDefaultsToTenAndClampsToTwentyFour(t *testing
 
 type degradationTesterFunc func(context.Context, int64, string, string) (*DegradationTestResult, error)
 
-func (f degradationTesterFunc) RunGenerationBackground(ctx context.Context, id int64, model string, prompt string) (*DegradationTestResult, error) {
+func (f degradationTesterFunc) RunGenerationBackground(ctx context.Context, id int64, model string, prompt string, _ ...string) (*DegradationTestResult, error) {
 	return f(ctx, id, model, prompt)
 }
 

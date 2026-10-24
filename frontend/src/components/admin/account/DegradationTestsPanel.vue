@@ -5,6 +5,7 @@
         <div>
           <p class="font-medium text-gray-900 dark:text-gray-100">{{ t('admin.degradationTests.account') }}: {{ accountName || `#${accountId}` }}</p>
           <p class="mt-1 text-sm text-gray-500">{{ t('admin.degradationTests.description') }}</p>
+          <p v-if="!loading" class="mt-1 text-xs font-medium text-gray-600 dark:text-gray-300">{{ t('admin.degradationTests.planCount', { count: plans.length }) }}</p>
         </div>
         <button class="btn btn-primary" data-testid="add-plan" @click="showAddForm = !showAddForm">
           {{ t('admin.degradationTests.addPlan') }}
@@ -25,11 +26,15 @@
       <div v-else class="space-y-3">
         <section v-for="plan in plans" :key="plan.id" class="rounded-xl border border-l-4 border-gray-200 bg-white dark:border-dark-600 dark:bg-dark-800" :class="expandedPlanId === plan.id && results.length ? (results[0]?.status === 'success' ? '!border-l-emerald-500' : '!border-l-amber-500') : ''">
           <div class="flex cursor-pointer flex-wrap items-center justify-between gap-3 px-4 py-3" @click="toggleExpand(plan.id)">
-            <button class="min-w-0 text-left" :aria-expanded="expandedPlanId === plan.id" @click.stop="toggleExpand(plan.id)">
+            <button class="min-w-0 text-left" :aria-expanded="expandedPlanId === plan.id" :aria-controls="`degradation-results-${plan.id}`" @click.stop="toggleExpand(plan.id)">
               <span class="block break-all text-sm font-semibold">{{ plan.model_id }}</span>
               <span class="mt-1 block text-xs text-gray-500">{{ scheduleLabel(plan.cron_expression) }}</span>
             </button>
             <div class="flex flex-wrap items-center gap-2" @click.stop>
+              <button class="btn btn-secondary gap-1.5 text-xs" :data-testid="`toggle-results-${plan.id}`" :aria-expanded="expandedPlanId === plan.id" :aria-controls="`degradation-results-${plan.id}`" @click="toggleExpand(plan.id)">
+                <Icon :name="expandedPlanId === plan.id ? 'chevronUp' : 'chevronDown'" size="sm" aria-hidden="true" />
+                {{ t(`admin.degradationTests.${expandedPlanId === plan.id ? 'hideResults' : 'viewResults'}`) }}
+              </button>
               <label class="flex items-center gap-1.5 text-xs text-gray-500">
                 <Toggle :model-value="plan.enabled" :disabled="saving" @update:model-value="handleToggleEnabled(plan, $event)" />
                 {{ plan.enabled ? t('admin.degradationTests.enabled') : t('admin.degradationTests.disabled') }}
@@ -38,21 +43,24 @@
                 {{ isRunning(plan) ? t('admin.degradationTests.running') : t('admin.degradationTests.runNow') }}
               </button>
               <button class="btn btn-secondary text-xs" :disabled="saving" @click="editingPlanId = editingPlanId === plan.id ? null : plan.id">{{ t('common.edit') }}</button>
-              <button class="rounded-lg p-2 text-gray-400 hover:text-red-600" :title="t('admin.degradationTests.deletePlan')" :aria-label="t('admin.degradationTests.deletePlan')" :disabled="isRunning(plan) || saving" @click="deletingPlan = plan">
-                <Icon name="trash" size="sm" />
+              <button class="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-900/20" :data-testid="`delete-plan-${plan.id}`" :title="t('admin.degradationTests.deletePlan')" :disabled="isRunning(plan) || saving" @click="deletingPlan = plan">
+                <Icon name="trash" size="sm" aria-hidden="true" />
+                {{ t('common.delete') }}
               </button>
             </div>
           </div>
           <div class="flex flex-wrap gap-x-5 gap-y-1 px-4 pb-3 text-xs text-gray-500">
+            <span>{{ t('admin.degradationTests.reasoningEffort') }}: {{ t(`admin.degradationTests.effort.${plan.reasoning_effort || 'default'}`) }}</span>
             <span v-if="plan.last_run_at">{{ t('admin.degradationTests.lastRun') }}: {{ formatDateTime(plan.last_run_at) }}</span>
             <span v-if="plan.enabled && plan.next_run_at">{{ t('admin.degradationTests.nextRun') }}: {{ formatDateTime(plan.next_run_at) }}</span>
           </div>
 
           <div v-if="editingPlanId === plan.id" class="border-t border-gray-100 p-4 dark:border-dark-700">
+            <h3 class="mb-3 break-all text-sm font-medium">{{ t('admin.degradationTests.editPlan') }} · {{ plan.model_id }}</h3>
             <DegradationTestPlanForm :key="plan.id" :initial="plan" :model-options="modelOptions" :busy="saving" @submit="handleEdit(plan.id, $event)" @cancel="editingPlanId = null" />
           </div>
 
-          <div v-if="expandedPlanId === plan.id" class="border-t border-gray-100 p-4 dark:border-dark-700">
+          <div v-if="expandedPlanId === plan.id" :id="`degradation-results-${plan.id}`" class="border-t border-gray-100 p-4 dark:border-dark-700">
             <div class="mb-3 flex items-center justify-between">
               <h3 class="text-sm font-medium">{{ t('admin.degradationTests.recentResults') }}</h3>
               <button class="text-xs text-primary-600 hover:underline" :disabled="loadingResults" @click="loadResults(plan.id)">{{ t('admin.degradationTests.refresh') }}</button>
@@ -78,7 +86,7 @@
       <DegradationTestResultsGallery v-else :key="detailsPlanId" :results="detailsResults" :display-limit="24" :show-details-button="false" wrap />
     </div>
   </BaseDialog>
-  <ConfirmDialog :show="!!deletingPlan" :title="t('admin.degradationTests.deletePlan')" :message="t('admin.degradationTests.confirmDelete')" danger @confirm="handleDelete" @cancel="deletingPlan = null" />
+  <ConfirmDialog :show="!!deletingPlan" :title="t('admin.degradationTests.deletePlan')" :message="deletingPlan ? t('admin.degradationTests.confirmDeletePlan', { model: deletingPlan.model_id, id: deletingPlan.id }) : ''" danger @confirm="handleDelete" @cancel="deletingPlan = null" />
 </template>
 
 <script setup lang="ts">

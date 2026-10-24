@@ -13,6 +13,12 @@ enableAutoUnmount(afterEach)
 describe('generated HTML results', () => {
   const html = '<!DOCTYPE html><html><head><base href="https://example.org"><meta http-equiv="refresh" content="0;url=https://example.org"></head><body><svg><circle r="5" /></svg><script>animate()</script></body></html>'
 
+  it.each([undefined, '', 'high', 'xhigh'] as const)('shows the saved reasoning effort snapshot %s', effort => {
+    const result = { id: 7, model_id: 'model', reasoning_effort: effort, status: 'success', latency_ms: 123, started_at: '2026-10-24T00:00:00Z' } as DegradationTestResult
+    const wrapper = mount(DegradationTestResultCard, { props: { result } })
+    expect(wrapper.get('[data-testid="result-reasoning-effort"]').text()).toBe(`admin.degradationTests.reasoningEffortSnapshot: admin.degradationTests.effort.${effort || 'default'}`)
+  })
+
   it('extracts complete HTML from fenced prose and preserves raw text separately', () => {
     expect(extractDegradationTestHtml(`生成结果：\n\`\`\`html\n${html}\n\`\`\`\n以上是代码。`)).toBe(html)
     expect(extractDegradationTestHtml('ordinary text response')).toBeNull()

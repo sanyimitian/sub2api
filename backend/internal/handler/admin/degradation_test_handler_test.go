@@ -98,6 +98,7 @@ func TestDegradationTestRejectsInvalidCreateInputs(t *testing.T) {
 		{"account_id": -1},
 		{"prompt": ""}, {"prompt": "  "}, {"model_id": ""},
 		{"prompt": strings.Repeat("a", 20001)}, {"cron_expression": "@every 5s"},
+		{"reasoning_effort": "extreme"},
 	} {
 		router, repo := newDegradationHandlerTest()
 		body := map[string]any{"account_id": 1, "model_id": "selected", "cron_expression": "@every 30m"}
@@ -112,6 +113,26 @@ func TestDegradationTestRejectsInvalidCreateInputs(t *testing.T) {
 		router.ServeHTTP(response, request)
 		require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
 		require.Nil(t, repo.plan)
+	}
+}
+
+func TestDegradationTestReasoningEffortCreateUpdateAndClear(t *testing.T) {
+	router, repo := newDegradationHandlerTest()
+	for _, tc := range []struct{ method, path, body, want string }{
+		{http.MethodPost, "/plans", `{"account_id":1,"model_id":"gpt-5","cron_expression":"@every 30m","reasoning_effort":"xhigh"}`, "xhigh"},
+		{http.MethodPut, "/plans/1", `{"prompt":"new prompt"}`, "xhigh"},
+		{http.MethodPut, "/plans/1", `{"reasoning_effort":"high"}`, "high"},
+		{http.MethodPut, "/plans/1", `{"reasoning_effort":""}`, ""},
+	} {
+		request := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		require.Equal(t, tc.want, repo.plan.ReasoningEffort)
+		var returned service.DegradationTestPlan
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &returned))
+		require.Equal(t, tc.want, returned.ReasoningEffort)
 	}
 }
 

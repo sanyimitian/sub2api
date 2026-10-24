@@ -23,20 +23,22 @@ func NewDegradationTestHandler(degradationTestSvc *service.DegradationTestServic
 }
 
 type createDegradationTestPlanRequest struct {
-	AccountID      int64   `json:"account_id" binding:"required"`
-	ModelID        string  `json:"model_id"`
-	Prompt         *string `json:"prompt"`
-	CronExpression string  `json:"cron_expression" binding:"required"`
-	Enabled        *bool   `json:"enabled"`
-	MaxResults     *int    `json:"max_results"` // Accepted for older clients; retention is fixed at 24.
+	AccountID       int64   `json:"account_id" binding:"required"`
+	ModelID         string  `json:"model_id"`
+	ReasoningEffort string  `json:"reasoning_effort"`
+	Prompt          *string `json:"prompt"`
+	CronExpression  string  `json:"cron_expression" binding:"required"`
+	Enabled         *bool   `json:"enabled"`
+	MaxResults      *int    `json:"max_results"` // Accepted for older clients; retention is fixed at 24.
 }
 
 type updateDegradationTestPlanRequest struct {
-	ModelID        *string `json:"model_id"`
-	Prompt         *string `json:"prompt"`
-	CronExpression *string `json:"cron_expression"`
-	Enabled        *bool   `json:"enabled"`
-	MaxResults     *int    `json:"max_results"` // Accepted for older clients; retention is fixed at 24.
+	ModelID         *string `json:"model_id"`
+	ReasoningEffort *string `json:"reasoning_effort"`
+	Prompt          *string `json:"prompt"`
+	CronExpression  *string `json:"cron_expression"`
+	Enabled         *bool   `json:"enabled"`
+	MaxResults      *int    `json:"max_results"` // Accepted for older clients; retention is fixed at 24.
 }
 
 // ListByAccount GET /admin/accounts/:id/degradation-test-plans
@@ -64,12 +66,13 @@ func (h *DegradationTestHandler) Create(c *gin.Context) {
 	}
 
 	plan := &service.DegradationTestPlan{
-		AccountID:      req.AccountID,
-		ModelID:        req.ModelID,
-		Prompt:         service.DefaultDegradationTestPrompt,
-		CronExpression: req.CronExpression,
-		Enabled:        true,
-		MaxResults:     service.DegradationTestMaxResults,
+		AccountID:       req.AccountID,
+		ModelID:         req.ModelID,
+		ReasoningEffort: req.ReasoningEffort,
+		Prompt:          service.DefaultDegradationTestPrompt,
+		CronExpression:  req.CronExpression,
+		Enabled:         true,
+		MaxResults:      service.DegradationTestMaxResults,
 	}
 	if req.Prompt != nil {
 		plan.Prompt = *req.Prompt
@@ -111,6 +114,9 @@ func (h *DegradationTestHandler) Update(c *gin.Context) {
 	}
 	if req.Prompt != nil {
 		existing.Prompt = *req.Prompt
+	}
+	if req.ReasoningEffort != nil {
+		existing.ReasoningEffort = *req.ReasoningEffort
 	}
 	if req.CronExpression != nil {
 		existing.CronExpression = *req.CronExpression
