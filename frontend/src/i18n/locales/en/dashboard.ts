@@ -507,6 +507,7 @@ export default {
 
   // Shared keys for channel monitor (admin + user views)
   monitorCommon: {
+    adminOnly: 'Administrators Only',
     status: {
       operational: 'Operational',
       degraded: 'Degraded',

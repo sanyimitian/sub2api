@@ -129,10 +129,12 @@ func (r *degradationTestPlanRepository) ListDue(ctx context.Context, now time.Ti
 
 func (r *degradationTestPlanRepository) Update(ctx context.Context, plan *service.DegradationTestPlan) (*service.DegradationTestPlan, error) {
 	plan.MaxResults = service.DegradationTestMaxResults
+	// The schedule is used both in a varchar assignment and a text comparison.
+	// Explicit casts keep PostgreSQL from inferring conflicting types for $3.
 	row := r.db.QueryRowContext(ctx, `
 		UPDATE degradation_test_plans
-		SET model_id = $2, cron_expression = $3, enabled = $4, max_results = $5,
-		    next_run_at = CASE WHEN cron_expression <> $3 OR (NOT enabled AND $4) THEN $6 ELSE next_run_at END,
+		SET model_id = $2, cron_expression = $3::text, enabled = $4, max_results = $5,
+		    next_run_at = CASE WHEN cron_expression <> $3::text OR (NOT enabled AND $4) THEN $6 ELSE next_run_at END,
 		    prompt = $7, reasoning_effort = $8, updated_at = NOW()
 		WHERE id = $1
 		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort

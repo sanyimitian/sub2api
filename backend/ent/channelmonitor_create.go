@@ -159,6 +159,20 @@ func (_c *ChannelMonitorCreate) SetNillableEnabled(v *bool) *ChannelMonitorCreat
 	return _c
 }
 
+// SetAdminOnly sets the "admin_only" field.
+func (_c *ChannelMonitorCreate) SetAdminOnly(v bool) *ChannelMonitorCreate {
+	_c.mutation.SetAdminOnly(v)
+	return _c
+}
+
+// SetNillableAdminOnly sets the "admin_only" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableAdminOnly(v *bool) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetAdminOnly(*v)
+	}
+	return _c
+}
+
 // SetIntervalSeconds sets the "interval_seconds" field.
 func (_c *ChannelMonitorCreate) SetIntervalSeconds(v int) *ChannelMonitorCreate {
 	_c.mutation.SetIntervalSeconds(v)
@@ -351,6 +365,10 @@ func (_c *ChannelMonitorCreate) defaults() {
 		v := channelmonitor.DefaultEnabled
 		_c.mutation.SetEnabled(v)
 	}
+	if _, ok := _c.mutation.AdminOnly(); !ok {
+		v := channelmonitor.DefaultAdminOnly
+		_c.mutation.SetAdminOnly(v)
+	}
 	if _, ok := _c.mutation.JitterSeconds(); !ok {
 		v := channelmonitor.DefaultJitterSeconds
 		_c.mutation.SetJitterSeconds(v)
@@ -439,6 +457,9 @@ func (_c *ChannelMonitorCreate) check() error {
 	}
 	if _, ok := _c.mutation.Enabled(); !ok {
 		return &ValidationError{Name: "enabled", err: errors.New(`ent: missing required field "ChannelMonitor.enabled"`)}
+	}
+	if _, ok := _c.mutation.AdminOnly(); !ok {
+		return &ValidationError{Name: "admin_only", err: errors.New(`ent: missing required field "ChannelMonitor.admin_only"`)}
 	}
 	if _, ok := _c.mutation.IntervalSeconds(); !ok {
 		return &ValidationError{Name: "interval_seconds", err: errors.New(`ent: missing required field "ChannelMonitor.interval_seconds"`)}
@@ -548,6 +569,10 @@ func (_c *ChannelMonitorCreate) createSpec() (*ChannelMonitor, *sqlgraph.CreateS
 	if value, ok := _c.mutation.Enabled(); ok {
 		_spec.SetField(channelmonitor.FieldEnabled, field.TypeBool, value)
 		_node.Enabled = value
+	}
+	if value, ok := _c.mutation.AdminOnly(); ok {
+		_spec.SetField(channelmonitor.FieldAdminOnly, field.TypeBool, value)
+		_node.AdminOnly = value
 	}
 	if value, ok := _c.mutation.IntervalSeconds(); ok {
 		_spec.SetField(channelmonitor.FieldIntervalSeconds, field.TypeInt, value)
@@ -837,6 +862,18 @@ func (u *ChannelMonitorUpsert) SetEnabled(v bool) *ChannelMonitorUpsert {
 // UpdateEnabled sets the "enabled" field to the value that was provided on create.
 func (u *ChannelMonitorUpsert) UpdateEnabled() *ChannelMonitorUpsert {
 	u.SetExcluded(channelmonitor.FieldEnabled)
+	return u
+}
+
+// SetAdminOnly sets the "admin_only" field.
+func (u *ChannelMonitorUpsert) SetAdminOnly(v bool) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldAdminOnly, v)
+	return u
+}
+
+// UpdateAdminOnly sets the "admin_only" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateAdminOnly() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldAdminOnly)
 	return u
 }
 
@@ -1203,6 +1240,20 @@ func (u *ChannelMonitorUpsertOne) SetEnabled(v bool) *ChannelMonitorUpsertOne {
 func (u *ChannelMonitorUpsertOne) UpdateEnabled() *ChannelMonitorUpsertOne {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.UpdateEnabled()
+	})
+}
+
+// SetAdminOnly sets the "admin_only" field.
+func (u *ChannelMonitorUpsertOne) SetAdminOnly(v bool) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetAdminOnly(v)
+	})
+}
+
+// UpdateAdminOnly sets the "admin_only" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateAdminOnly() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateAdminOnly()
 	})
 }
 
@@ -1757,6 +1808,20 @@ func (u *ChannelMonitorUpsertBulk) SetEnabled(v bool) *ChannelMonitorUpsertBulk 
 func (u *ChannelMonitorUpsertBulk) UpdateEnabled() *ChannelMonitorUpsertBulk {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.UpdateEnabled()
+	})
+}
+
+// SetAdminOnly sets the "admin_only" field.
+func (u *ChannelMonitorUpsertBulk) SetAdminOnly(v bool) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetAdminOnly(v)
+	})
+}
+
+// UpdateAdminOnly sets the "admin_only" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateAdminOnly() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateAdminOnly()
 	})
 }
 

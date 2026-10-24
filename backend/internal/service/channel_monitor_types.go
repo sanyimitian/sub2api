@@ -42,6 +42,7 @@ type ChannelMonitor struct {
 	ExtraModels     []string
 	GroupName       string
 	Enabled         bool
+	AdminOnly       bool
 	IntervalSeconds int
 	JitterSeconds   int // 每次调度 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔
 	LastCheckedAt   *time.Time
@@ -91,6 +92,7 @@ type ChannelMonitorCreateParams struct {
 	ExtraModels      []string
 	GroupName        string
 	Enabled          bool
+	AdminOnly        bool
 	IntervalSeconds  int
 	JitterSeconds    int
 	CreatedBy        int64
@@ -115,6 +117,7 @@ type ChannelMonitorUpdateParams struct {
 	ExtraModels     *[]string
 	GroupName       *string
 	Enabled         *bool
+	AdminOnly       *bool
 	IntervalSeconds *int
 	JitterSeconds   *int
 	// 自定义快照字段：指针为 nil 表示不更新，非 nil 覆盖
@@ -147,6 +150,7 @@ type CheckResult struct {
 // UserMonitorView 用户只读视图：监控概览（含主模型最近状态 + 7d 可用率 + 附加模型最近状态）。
 type UserMonitorView struct {
 	ID                   int64
+	AdminOnly            bool
 	Name                 string
 	Provider             string
 	GroupName            string
@@ -180,6 +184,7 @@ type ExtraModelStatus struct {
 // UserMonitorDetail 用户只读视图：监控详情（含全部模型 7d/15d/30d 可用率与平均延迟）。
 type UserMonitorDetail struct {
 	ID        int64
+	AdminOnly bool
 	Name      string
 	Provider  string
 	GroupName string

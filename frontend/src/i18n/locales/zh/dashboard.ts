@@ -512,6 +512,7 @@ export default {
 
   // Shared keys for channel monitor (admin + user views)
   monitorCommon: {
+    adminOnly: '仅管理员可见',
     status: {
       operational: '正常',
       degraded: '降级',

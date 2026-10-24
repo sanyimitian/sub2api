@@ -55,10 +55,22 @@ func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 //	1 次批量 latest（含 ping_latency_ms）；
 //	1 次批量 7d availability；
 //	1 次批量 timeline（主模型最近 N 条）。
-func (s *ChannelMonitorService) ListUserView(ctx context.Context) ([]*UserMonitorView, error) {
+func (s *ChannelMonitorService) ListUserView(ctx context.Context, includeAdminOnly ...bool) ([]*UserMonitorView, error) {
 	monitors, err := s.repo.ListEnabled(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled monitors: %w", err)
+	}
+	// Authorize before loading histories, quota snapshots or aggregate data.
+	// Allocate a new slice: repository/caller-owned data must not be filtered
+	// in place and then reused for a request with a different role.
+	if len(includeAdminOnly) == 0 || !includeAdminOnly[0] {
+		visible := make([]*ChannelMonitor, 0, len(monitors))
+		for _, monitor := range monitors {
+			if !monitor.AdminOnly {
+				visible = append(visible, monitor)
+			}
+		}
+		monitors = visible
 	}
 	if len(monitors) == 0 {
 		return []*UserMonitorView{}, nil
@@ -129,12 +141,12 @@ func pickLatest(rows []*ChannelMonitorLatest, model string) *ChannelMonitorLates
 
 // GetUserDetail 用户只读视图：单个监控详情（每个模型 7d/15d/30d 可用率与平均延迟）。
 // 不暴露 api_key。
-func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64) (*UserMonitorDetail, error) {
+func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64, includeAdminOnly ...bool) (*UserMonitorDetail, error) {
 	m, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if !m.Enabled {
+	if !m.Enabled || (m.AdminOnly && (len(includeAdminOnly) == 0 || !includeAdminOnly[0])) {
 		return nil, ErrChannelMonitorNotFound
 	}
 
@@ -150,6 +162,7 @@ func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64) (*U
 	models := mergeModelDetails(m, latest, availMap)
 	return &UserMonitorDetail{
 		ID:        m.ID,
+		AdminOnly: m.AdminOnly,
 		Name:      m.Name,
 		Provider:  m.Provider,
 		GroupName: m.GroupName,
@@ -232,6 +245,7 @@ func buildUserViewFromSummary(
 ) *UserMonitorView {
 	view := &UserMonitorView{
 		ID:               m.ID,
+		AdminOnly:        m.AdminOnly,
 		Name:             m.Name,
 		Provider:         m.Provider,
 		GroupName:        m.GroupName,

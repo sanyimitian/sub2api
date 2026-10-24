@@ -170,6 +170,14 @@
         <Toggle v-model="form.enabled" />
       </div>
 
+      <div class="flex items-center justify-between gap-4 rounded-lg border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-900/60 dark:bg-amber-900/10">
+        <div>
+          <label for="monitor-admin-only" class="input-label mb-1">{{ t('admin.channelMonitor.form.adminOnly') }}</label>
+          <p id="monitor-admin-only-help" class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.channelMonitor.form.adminOnlyHint') }}</p>
+        </div>
+        <Toggle id="monitor-admin-only" v-model="form.admin_only" data-testid="monitor-admin-only" :aria-label="t('admin.channelMonitor.form.adminOnly')" aria-describedby="monitor-admin-only-help" />
+      </div>
+
       <!-- 高级设置区：请求模板 + 自定义 headers/body（仅探活模式有意义） -->
       <details v-if="usesProbePart" class="rounded-lg border border-gray-200 bg-gray-50/50 p-3 dark:border-dark-700 dark:bg-dark-900/30">
         <summary class="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -332,6 +340,7 @@ interface MonitorForm {
   interval_seconds: number
   jitter_seconds: number
   enabled: boolean
+  admin_only: boolean
   // 高级设置快照
   template_id: number | null
   extra_headers: Record<string, string>
@@ -353,6 +362,7 @@ const form = reactive<MonitorForm>({
   interval_seconds: systemDefaultInterval.value,
   jitter_seconds: 0,
   enabled: true,
+  admin_only: false,
   template_id: null,
   extra_headers: {},
   body_override_mode: 'off',
@@ -740,6 +750,7 @@ function resetForm() {
   form.interval_seconds = systemDefaultInterval.value
   form.jitter_seconds = 0
   form.enabled = true
+  form.admin_only = false
   form.template_id = null
   form.extra_headers = {}
   form.body_override_mode = 'off'
@@ -762,6 +773,7 @@ function loadFromMonitor(m: ChannelMonitor) {
   form.interval_seconds = m.interval_seconds || systemDefaultInterval.value
   form.jitter_seconds = m.jitter_seconds || 0
   form.enabled = m.enabled
+  form.admin_only = m.admin_only ?? false
   form.template_id = m.template_id ?? null
   form.extra_headers = { ...(m.extra_headers || {}) }
   form.body_override_mode = m.body_override_mode || 'off'
@@ -828,6 +840,7 @@ function buildPayload(): CreateParams {
     extra_models: usesProbePart.value ? form.extra_models : [],
     group_name: form.group_name.trim(),
     enabled: form.enabled,
+    admin_only: form.admin_only,
     interval_seconds: form.interval_seconds,
     jitter_seconds: form.jitter_seconds || 0,
     template_id: usesProbePart.value ? form.template_id : null,

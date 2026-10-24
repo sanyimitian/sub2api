@@ -603,6 +603,8 @@ export default {
         jitterSeconds: 'Random Jitter (± seconds)',
         jitterSecondsHint: 'Each check fires at interval ± a random offset within this value; 0 means fixed interval. Interval minus jitter must be ≥ 15s',
         enabled: 'Enable monitor',
+        adminOnly: 'Administrators Only',
+        adminOnlyHint: 'When enabled, only administrators can see this card in Channel Status. Other users cannot view this monitor or its details.',
         kindRequired: 'Please select a provider'
       },
       runResultTitle: 'Check Result',

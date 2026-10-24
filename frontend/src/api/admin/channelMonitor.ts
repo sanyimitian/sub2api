@@ -76,6 +76,8 @@ export interface ChannelMonitor {
   extra_models: string[]
   group_name: string
   enabled: boolean
+  /** Visible in channel status only to administrators. Missing on legacy responses means false. */
+  admin_only?: boolean
   interval_seconds: number
   /** 每次调度在 interval 基础上 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔 */
   jitter_seconds: number
@@ -144,6 +146,7 @@ export interface CreateParams {
   extra_models?: string[]
   group_name?: string
   enabled?: boolean
+  admin_only?: boolean
   interval_seconds: number
   jitter_seconds?: number
   template_id?: number | null

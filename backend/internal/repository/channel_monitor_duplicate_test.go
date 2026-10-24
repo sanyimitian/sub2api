@@ -21,7 +21,8 @@ func TestChannelMonitorDuplicateOperationMetadataStaysOutOfRuntimeHeaders(t *tes
 	require.Equal(t, "Codex", persisted["User-Agent"])
 	require.NotContains(t, monitor.ExtraHeaders, service.ChannelMonitorDuplicateOperationIDMetadataKey)
 
-	restored := entToServiceMonitor(&dbent.ChannelMonitor{ExtraHeaders: persisted})
+	restored := entToServiceMonitor(&dbent.ChannelMonitor{ExtraHeaders: persisted, AdminOnly: true})
+	require.True(t, restored.AdminOnly)
 	require.Equal(t, "operation-digest", restored.DuplicateOperationID)
 	require.Equal(t, map[string]string{"User-Agent": "Codex"}, restored.ExtraHeaders)
 	require.NotContains(t, restored.ExtraHeaders, service.ChannelMonitorDuplicateOperationIDMetadataKey)

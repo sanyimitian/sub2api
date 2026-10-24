@@ -188,6 +188,46 @@ describe('MonitorFormDialog linked account selector', () => {
     )
   })
 
+  it('creates public monitors by default and includes an enabled administrator-only switch in saves', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    const toggle = wrapper.getComponent('[data-testid="monitor-admin-only"]')
+    expect(toggle.props('modelValue')).toBe(false)
+    expect(toggle.attributes('aria-describedby')).toBe('monitor-admin-only-help')
+    await wrapper.findAll('input[type="text"]')[0].setValue('private monitor')
+    await wrapper.get('[data-testid="monitor-primary-model"]').setValue('claude-model')
+    toggle.vm.$emit('update:modelValue', true)
+    await wrapper.get('#channel-monitor-form').trigger('submit')
+    await flushPromises()
+    expect(monitorCreate).toHaveBeenCalledWith(expect.objectContaining({ name: 'private monitor', admin_only: true }))
+  })
+
+  it('loads administrator-only visibility when editing and explicitly saves false when cleared', async () => {
+    const wrapper = mountDialog(makeMonitor({ admin_only: true }))
+    await flushPromises()
+    const toggle = wrapper.getComponent('[data-testid="monitor-admin-only"]')
+    expect(toggle.props('modelValue')).toBe(true)
+    await wrapper.get('#channel-monitor-form').trigger('submit')
+    await flushPromises()
+    expect(monitorUpdate).toHaveBeenLastCalledWith(42, expect.objectContaining({ admin_only: true }))
+    toggle.vm.$emit('update:modelValue', false)
+    await wrapper.get('#channel-monitor-form').trigger('submit')
+    await flushPromises()
+    expect(monitorUpdate).toHaveBeenLastCalledWith(42, expect.objectContaining({ admin_only: false }))
+  })
+
+  it('does not carry administrator-only visibility into a new or legacy monitor', async () => {
+    const wrapper = mountDialog(makeMonitor({ admin_only: true }))
+    await flushPromises()
+    const toggle = () => wrapper.getComponent('[data-testid="monitor-admin-only"]')
+    expect(toggle().props('modelValue')).toBe(true)
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true, monitor: null })
+    expect(toggle().props('modelValue')).toBe(false)
+    await wrapper.setProps({ monitor: makeMonitor() })
+    expect(toggle().props('modelValue')).toBe(false)
+  })
+
   it('debounced typing hits server-side search and aborts the previous request', async () => {
     vi.useFakeTimers()
     const wrapper = mountDialog()

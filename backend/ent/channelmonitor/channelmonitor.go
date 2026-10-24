@@ -41,6 +41,8 @@ const (
 	FieldGroupName = "group_name"
 	// FieldEnabled holds the string denoting the enabled field in the database.
 	FieldEnabled = "enabled"
+	// FieldAdminOnly holds the string denoting the admin_only field in the database.
+	FieldAdminOnly = "admin_only"
 	// FieldIntervalSeconds holds the string denoting the interval_seconds field in the database.
 	FieldIntervalSeconds = "interval_seconds"
 	// FieldJitterSeconds holds the string denoting the jitter_seconds field in the database.
@@ -104,6 +106,7 @@ var Columns = []string{
 	FieldExtraModels,
 	FieldGroupName,
 	FieldEnabled,
+	FieldAdminOnly,
 	FieldIntervalSeconds,
 	FieldJitterSeconds,
 	FieldLastCheckedAt,
@@ -155,6 +158,8 @@ var (
 	GroupNameValidator func(string) error
 	// DefaultEnabled holds the default value on creation for the "enabled" field.
 	DefaultEnabled bool
+	// DefaultAdminOnly holds the default value on creation for the "admin_only" field.
+	DefaultAdminOnly bool
 	// IntervalSecondsValidator is a validator for the "interval_seconds" field. It is called by the builders before save.
 	IntervalSecondsValidator func(int) error
 	// DefaultJitterSeconds holds the default value on creation for the "jitter_seconds" field.
@@ -266,6 +271,11 @@ func ByGroupName(opts ...sql.OrderTermOption) OrderOption {
 // ByEnabled orders the results by the enabled field.
 func ByEnabled(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldEnabled, opts...).ToFunc()
+}
+
+// ByAdminOnly orders the results by the admin_only field.
+func ByAdminOnly(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAdminOnly, opts...).ToFunc()
 }
 
 // ByIntervalSeconds orders the results by the interval_seconds field.
