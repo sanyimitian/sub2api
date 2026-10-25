@@ -59,7 +59,7 @@ const DataTableStub = defineComponent({
     columns: { type: Array, default: () => [] },
     loading: { type: Boolean, default: false },
   },
-  template: '<div><div v-for="row in data" :key="row.id" class="provider-cell"><slot name="cell-provider" :row="row" /></div></div>',
+  template: '<div><div v-for="row in data" :key="row.id"><div class="name-cell"><slot name="cell-name" :row="row" :value="row.name" /></div><div class="provider-cell"><slot name="cell-provider" :row="row" /></div></div></div>',
 })
 
 function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
@@ -120,6 +120,14 @@ describe('ChannelMonitorView check-mode badge', () => {
   beforeEach(() => {
     localStorage.clear()
     listMonitors.mockReset()
+  })
+
+  it('identifies administrator-only monitors in the management list', async () => {
+    listMonitors.mockResolvedValue({ items: [makeMonitor({ admin_only: true })], total: 1, page: 1, page_size: 20, pages: 1 })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('.name-cell [data-testid="monitor-admin-only-badge"]').text()).toBe('monitorCommon.adminOnly')
+    wrapper.unmount()
   })
 
   it.each([

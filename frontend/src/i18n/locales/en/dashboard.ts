@@ -507,6 +507,7 @@ export default {
 
   // Shared keys for channel monitor (admin + user views)
   monitorCommon: {
+    adminOnly: 'Administrators Only',
     status: {
       operational: 'Operational',
       degraded: 'Degraded',
@@ -578,6 +579,11 @@ export default {
   channelStatus: {
     title: 'Channel Status',
     description: 'Inspect channel availability, latency and recent status',
+    publicChannels: 'Public Channels',
+    adminChannels: 'Administrator Channels',
+    adminChannelsHint: 'The channels below are visible only to administrators.',
+    channelCount: '{count} channels',
+    noPublicChannels: 'No public channels available',
     searchPlaceholder: 'Search channels...',
     allProviders: 'All Providers',
     loadError: 'Failed to load channel status',

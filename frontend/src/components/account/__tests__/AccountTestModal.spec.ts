@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 import AccountTestModal from '../AccountTestModal.vue'
+import AccountTokenInjectionPanel from '../AccountTokenInjectionPanel.vue'
+import Select from '@/components/common/Select.vue'
 
 const { getAvailableModelsMock } = vi.hoisted(() => ({
   getAvailableModelsMock: vi.fn()
@@ -116,6 +118,55 @@ describe('AccountTestModal', () => {
   afterEach(() => {
     global.fetch = originalFetch
     localStorage.clear()
+  })
+
+  it('opens injection diagnostics for the selected account and manual model', async () => {
+    const wrapper = mount(AccountTestModal, {
+      props: { show: true, account: buildAccount() },
+      global: { stubs: {
+        BaseDialog: BaseDialogStub, Select: SelectStub, TextArea: TextAreaStub,
+        Icon: true, AccountTokenInjectionPanel: true
+      } }
+    })
+    const modeSelect = wrapper.findAll('select')[1]
+    expect(modeSelect.text()).toContain('admin.accounts.tokenInjection.title')
+    await modeSelect.setValue('injection')
+    ;(wrapper.vm as any).selectedModelId = 'custom-model'
+    await flushPromises()
+    const panel = wrapper.getComponent(AccountTokenInjectionPanel)
+    expect(panel.props('account').id).toBe(1)
+    expect(panel.props('model')).toBe('custom-model')
+    expect(wrapper.text()).not.toContain('admin.accounts.startTest')
+    panel.vm.$emit('running', true)
+    await flushPromises()
+    expect(wrapper.findAll('select').every(select => select.attributes('disabled') !== undefined)).toBe(true)
+    await wrapper.setProps({ account: { ...buildAccount(), id: 2, platform: 'anthropic' } })
+    await flushPromises()
+    expect(wrapper.findComponent(AccountTokenInjectionPanel).exists()).toBe(false)
+    expect(getAvailableModelsMock).toHaveBeenCalledWith(2)
+    await wrapper.setProps({ show: false })
+    expect(wrapper.findComponent(AccountTokenInjectionPanel).exists()).toBe(false)
+    expect(global.fetch).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('allows entering a model when the available list is empty', async () => {
+    const wrapper = mount(AccountTestModal, {
+      props: { show: true, account: buildAccount() },
+      global: { stubs: {
+        BaseDialog: BaseDialogStub, TextArea: TextAreaStub,
+        Icon: true, AccountTokenInjectionPanel: true, Teleport: true
+      } }
+    })
+    const selectors = wrapper.findAllComponents(Select)
+    selectors[1].vm.$emit('update:modelValue', 'injection')
+    await flushPromises()
+    await selectors[0].get('button').trigger('click')
+    await selectors[0].get('input').setValue('gpt-custom-model')
+    await selectors[0].get('.select-option').trigger('click')
+    await flushPromises()
+    expect(wrapper.getComponent(AccountTokenInjectionPanel).props('model')).toBe('gpt-custom-model')
+    wrapper.unmount()
   })
 
   it('posts compact mode for OpenAI compact probe', async () => {

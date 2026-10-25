@@ -2502,6 +2502,67 @@ export interface UpdateScheduledTestPlanRequest {
   auto_recover?: boolean
 }
 
+// ==================== Degradation Test Types ====================
+
+export type DegradationTestReasoningEffort = '' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+
+export interface DegradationTestPlan {
+  id: number
+  account_id: number
+  model_id: string
+  reasoning_effort?: DegradationTestReasoningEffort
+  prompt: string
+  cron_expression: string
+  enabled: boolean
+  max_results: number
+  last_run_at: string | null
+  next_run_at: string | null
+  running_until?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DegradationTestResult {
+  id: number
+  plan_id: number
+  model_id: string
+  reasoning_effort?: DegradationTestReasoningEffort
+  prompt: string
+  status: string
+  response_text: string
+  error_message: string
+  latency_ms: number
+  started_at: string
+  finished_at: string
+  created_at: string
+}
+
+export interface DegradationTestStatus {
+  plan: DegradationTestPlan
+  account_name: string
+  account_platform: string
+  latest_result: DegradationTestResult | null
+}
+
+export interface CreateDegradationTestPlanRequest {
+  account_id: number
+  model_id: string
+  reasoning_effort?: DegradationTestReasoningEffort
+  prompt?: string
+  cron_expression: string
+  enabled?: boolean
+  max_results?: number
+}
+
+export interface UpdateDegradationTestPlanRequest {
+  model_id?: string
+  reasoning_effort?: DegradationTestReasoningEffort
+  prompt?: string
+  cron_expression?: string
+  enabled?: boolean
+  max_results?: number
+}
+
 // Payment types
 export type { SubscriptionPlan, PaymentOrder, CheckoutInfoResponse } from './payment'
 

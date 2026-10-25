@@ -1,5 +1,38 @@
 export default {
     accounts: {
+      tokenInjection: {
+        title: 'Token injection test',
+        costHint: 'Send 5 text requests directly to this account (4 lengths and 1 repeat). Upstream charges apply. No account switching or user billing. You can cancel at any time.',
+        protocol: 'Test protocol',
+        autoProtocol: 'Use account configuration',
+        start: 'Start test (5 requests)',
+        cancel: 'Stop test',
+        cancelled: 'Test stopped. Completed requests may still incur upstream charges.',
+        progress: 'Sampling {current} / {total}',
+        copy: 'Copy test report',
+        estimate: 'Fixed extra input (estimated injection)',
+        unit: 'tokens / request',
+        inconclusive: 'Cannot reliably estimate. Review samples and explanations.',
+        slope: 'Token growth slope',
+        residual: 'Maximum fit error',
+        repeatDelta: 'Repeated input difference',
+        sample: 'Sample',
+        local: 'Local input',
+        reported: 'Upstream total input',
+        extra: 'Extra input',
+        cacheRead: 'Cache read',
+        cacheWrite: 'Cache write',
+        firstToken: 'First text',
+        duration: 'Duration',
+        repeat: 'Repeat',
+        rawUsage: 'Raw usage details',
+        method: 'A local tokenizer counts the text and any required short instructions. Four lengths estimate fixed overhead; a repeated request checks stability. Upstream total input already includes cached tokens. The estimate includes protocol framing, system prompts, tools, or reported-usage differences; it does not prove hidden prompt content. Small overhead is normal. No estimate is given if the slope differs from 1 by more than 0.05 or fit/repeat error exceeds 32 tokens. OAuth uses minimal required instructions, so this test differs from a full production context.',
+        slopeMismatch: 'Input growth differs from the local tokenizer. Tokenization or usage accounting may differ.',
+        unstableUsage: 'Usage varies too much to establish fixed overhead.',
+        modelChanged: 'The upstream returned different models during sampling.',
+        negativeOverhead: 'Reported input is significantly below the local estimate; this cannot establish that injection is absent.',
+        failed: 'Test failed. Check the account, model, and upstream protocol.'
+      },
       sessionPool: {
         judgeReasons: {
           answer_incomplete: 'Answer did not complete',
@@ -700,7 +733,7 @@ export default {
           'Disabled by default: Codex namespace tool declarations are forwarded as-is on /responses, which is what the ChatGPT Codex backend expects. Enable only when this OAuth account is routed to a relay that rejects namespace tools — flattening renames them to namespace__tool, which breaks models that address collaboration tools as functions.<namespace>.<tool>. Compaction requests always flatten regardless of this switch.',
         longContextBilling: 'API long-context pricing',
         longContextBillingDesc:
-          'Disabled by default. Enable only when this account\'s upstream charges OpenAI API long-context rates above the model threshold.',
+          'Enabled by default for new accounts. Disable if this account\'s upstream does not charge OpenAI API long-context rates above the model threshold.',
         responsesWebsocketsV2: 'Responses WebSocket v2',
         responsesWebsocketsV2Desc:
           'Disabled by default. Enable to allow responses_websockets_v2 capability (still gated by global and account-type switches).',

@@ -787,7 +787,9 @@ func (session *OpenAIWSLatencySession) ApplyUpstreamSessionIdentity(ctx context.
 			if readErr != nil {
 				return readErr
 			}
-			if current.TargetID > 0 || current.AccountID != account.ID || current.ActiveUpstreamSessionID != "" || current.UpstreamSessionID != "" {
+			// 未提交的候选只预留待切换会话，原普通线路仍可继续；
+			// 候选已提交或活跃绑定已改变时，不能再发送旧线路。
+			if current.AccountID != account.ID || current.ActiveUpstreamSessionID != "" || current.CandidateCommitted || (current.TargetID == 0 && current.UpstreamSessionID != "") {
 				session.routeDiagnostic(ctx, logger.LevelWarn, "route", "ordinary_route_not_recorded", model, current, zap.Int64("account_id", account.ID))
 				return ErrOpenAIPreparedSessionUnavailable
 			}

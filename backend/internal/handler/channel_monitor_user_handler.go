@@ -7,6 +7,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -53,6 +54,7 @@ func (h *ChannelMonitorUserHandler) quotaVisible(c *gin.Context) bool {
 
 type channelMonitorUserListItem struct {
 	ID                   int64                                `json:"id"`
+	AdminOnly            bool                                 `json:"admin_only"`
 	Name                 string                               `json:"name"`
 	Provider             string                               `json:"provider"`
 	GroupName            string                               `json:"group_name"`
@@ -79,6 +81,7 @@ type channelMonitorUserTimelinePoint struct {
 
 type channelMonitorUserDetailResponse struct {
 	ID        int64                         `json:"id"`
+	AdminOnly bool                          `json:"admin_only"`
 	Name      string                        `json:"name"`
 	Provider  string                        `json:"provider"`
 	GroupName string                        `json:"group_name"`
@@ -115,6 +118,7 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 	}
 	item := channelMonitorUserListItem{
 		ID:                   v.ID,
+		AdminOnly:            v.AdminOnly,
 		Name:                 v.Name,
 		Provider:             v.Provider,
 		GroupName:            v.GroupName,
@@ -147,6 +151,7 @@ func userMonitorDetailToResponse(d *service.UserMonitorDetail) *channelMonitorUs
 	}
 	return &channelMonitorUserDetailResponse{
 		ID:        d.ID,
+		AdminOnly: d.AdminOnly,
 		Name:      d.Name,
 		Provider:  d.Provider,
 		GroupName: d.GroupName,
@@ -158,11 +163,12 @@ func userMonitorDetailToResponse(d *service.UserMonitorDetail) *channelMonitorUs
 
 // List GET /api/v1/channel-monitors
 func (h *ChannelMonitorUserHandler) List(c *gin.Context) {
+	setChannelMonitorUserCachePolicy(c)
 	if !h.featureEnabled(c) {
 		response.Success(c, gin.H{"items": []channelMonitorUserListItem{}})
 		return
 	}
-	views, err := h.monitorService.ListUserView(c.Request.Context())
+	views, err := h.monitorService.ListUserView(c.Request.Context(), channelMonitorUserIsAdmin(c))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -177,6 +183,7 @@ func (h *ChannelMonitorUserHandler) List(c *gin.Context) {
 
 // GetStatus GET /api/v1/channel-monitors/:id/status
 func (h *ChannelMonitorUserHandler) GetStatus(c *gin.Context) {
+	setChannelMonitorUserCachePolicy(c)
 	if !h.featureEnabled(c) {
 		response.ErrorFrom(c, service.ErrChannelMonitorNotFound)
 		return
@@ -186,10 +193,22 @@ func (h *ChannelMonitorUserHandler) GetStatus(c *gin.Context) {
 	if !ok {
 		return
 	}
-	detail, err := h.monitorService.GetUserDetail(c.Request.Context(), id)
+	detail, err := h.monitorService.GetUserDetail(c.Request.Context(), id, channelMonitorUserIsAdmin(c))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 	response.Success(c, userMonitorDetailToResponse(detail))
+}
+
+func channelMonitorUserIsAdmin(c *gin.Context) bool {
+	role, ok := middleware.GetUserRoleFromContext(c)
+	return ok && role == service.RoleAdmin
+}
+
+// This URL serves different rows by authenticated role. Never let a shared
+// browser/proxy cache replay an administrator's private monitors to a user.
+func setChannelMonitorUserCachePolicy(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("Vary", "Authorization, Cookie")
 }

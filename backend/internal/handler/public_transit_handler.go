@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -11,7 +12,14 @@ import (
 )
 
 type PublicTransitHandler struct {
-	publicTransitService *service.PublicTransitService
+	publicTransitService publicTransitSnapshotService
+}
+
+type publicTransitSnapshotService interface {
+	Discovery(context.Context, string) (*service.PublicTransitDiscovery, error)
+	Snapshot(context.Context, string) (*service.PublicTransitSnapshot, error)
+	SnapshotAuto(context.Context, string, string) (any, error)
+	SnapshotV2Range(context.Context, string, string) (*service.PublicTransitSnapshotV2, error)
 }
 
 func NewPublicTransitHandler(publicTransitService *service.PublicTransitService) *PublicTransitHandler {
@@ -33,7 +41,8 @@ func (h *PublicTransitHandler) Snapshot(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	c.Header("Cache-Control", "public, max-age=60")
+	// Manual monitor visibility can change immediately after this response.
+	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, payload)
 }
 
@@ -46,7 +55,11 @@ func (h *PublicTransitHandler) SnapshotAuto(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	c.Header("Cache-Control", "public, max-age=60")
+	if _, manualSnapshot := payload.(*service.PublicTransitSnapshot); manualSnapshot {
+		c.Header("Cache-Control", "no-store")
+	} else {
+		c.Header("Cache-Control", "public, max-age=60")
+	}
 	c.JSON(http.StatusOK, payload)
 }
 

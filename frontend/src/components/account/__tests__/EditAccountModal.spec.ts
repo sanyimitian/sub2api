@@ -1111,6 +1111,20 @@ describe('EditAccountModal', () => {
     )
   })
 
+  it.each([true, false])('shows and preserves saved billing %s when every group enables tier pricing', async (enabled) => {
+    const account = buildAccount()
+    account.group_ids = [7]
+    account.extra = { openai_long_context_billing_enabled: enabled }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await wrapper.setProps({ groups: [{ id: 7, platform: 'openai', long_context_pricing_enabled: true } as any] })
+    expect(wrapper.get('[data-testid="openai-long-context-billing-toggle"]').attributes('aria-checked')).toBe(String(enabled))
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_long_context_billing_enabled).toBe(enabled)
+    wrapper.unmount()
+  })
+
   it('defaults legacy OpenAI accounts to long-context billing disabled', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()

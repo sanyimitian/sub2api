@@ -116,7 +116,7 @@ func (r *longContextBillingRepoStub) BulkUpdate(_ context.Context, _ []int64, _ 
 	return 1, nil
 }
 
-func TestAdminServiceCreateAccountDefaultsOpenAILongContextBillingDisabled(t *testing.T) {
+func TestAdminServiceCreateAccountDefaultsOpenAILongContextBillingEnabled(t *testing.T) {
 	repo := &longContextBillingRepoStub{}
 	svc := &adminServiceImpl{accountRepo: repo}
 
@@ -130,7 +130,30 @@ func TestAdminServiceCreateAccountDefaultsOpenAILongContextBillingDisabled(t *te
 
 	require.NoError(t, err)
 	require.Same(t, account, repo.createdAccount)
-	require.Equal(t, false, account.Extra[openAILongContextBillingEnabledKey])
+	require.Equal(t, true, account.Extra[openAILongContextBillingEnabledKey])
+}
+
+func TestAdminServiceCreateAccountPreservesExplicitLongContextOptOut(t *testing.T) {
+	repo := &longContextBillingRepoStub{}
+	svc := &adminServiceImpl{accountRepo: repo}
+	account, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "openai-opt-out",
+		Platform:             PlatformOpenAI,
+		Type:                 AccountTypeAPIKey,
+		Credentials:          map[string]any{"api_key": "test"},
+		Extra:                map[string]any{openAILongContextBillingEnabledKey: false},
+		SkipDefaultGroupBind: true,
+	})
+	require.NoError(t, err)
+	require.False(t, account.IsOpenAILongContextBillingEnabled())
+}
+
+func TestAdminServiceUpdateLegacyAccountKeepsLongContextDisabled(t *testing.T) {
+	repo := &longContextBillingRepoStub{account: &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}}
+	svc := &adminServiceImpl{accountRepo: repo}
+	account, err := svc.UpdateAccount(context.Background(), 1, &UpdateAccountInput{Extra: map[string]any{"unrelated": true}})
+	require.NoError(t, err)
+	require.False(t, account.IsOpenAILongContextBillingEnabled())
 }
 
 func TestAdminServiceCreateAccountRejectsMalformedOpenAILongContextBillingValue(t *testing.T) {

@@ -603,6 +603,8 @@ export default {
         jitterSeconds: '随机抖动 (± 秒)',
         jitterSecondsHint: '每次检测在间隔基础上正负随机偏移该秒数，0 表示固定间隔；需满足 间隔 - 抖动 ≥ 15 秒',
         enabled: '启用监控',
+        adminOnly: '仅管理员可见',
+        adminOnlyHint: '开启后，此监控卡片仅管理员可在渠道状态中查看；普通用户无法查看该监控及其详情。',
         kindRequired: '请选择供应商'
       },
       runResultTitle: '检测结果',

@@ -23,6 +23,8 @@ export interface MonitorTimelinePoint {
 
 export interface UserMonitorView {
   id: number
+  /** Restricted cards are returned only to administrators by the server. */
+  admin_only?: boolean
   name: string
   provider: Provider
   group_name: string
@@ -56,6 +58,7 @@ export interface UserMonitorModelDetail {
 
 export interface UserMonitorDetail {
   id: number
+  admin_only?: boolean
   name: string
   provider: Provider
   group_name: string

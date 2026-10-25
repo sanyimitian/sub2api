@@ -1,5 +1,38 @@
 export default {
     accounts: {
+      tokenInjection: {
+        title: '注入量检测',
+        costHint: '向选定账号直发 5 次文本请求（4 个长度 + 1 次重复），会消耗上游额度。不切换账号，不计入用户账单；可随时取消。',
+        protocol: '检测协议',
+        autoProtocol: '跟随账号配置',
+        start: '开始检测（5 次请求）',
+        cancel: '停止检测',
+        cancelled: '检测已停止，已完成请求仍可能产生上游费用。',
+        progress: '正在采样 {current} / {total}',
+        copy: '复制检测报告',
+        estimate: '固定额外输入量（注入量估算）',
+        unit: 'token / 请求',
+        inconclusive: '无法可靠估算，请查看样本与原因。',
+        slope: 'Token 增长斜率',
+        residual: '最大拟合误差',
+        repeatDelta: '重复请求输入差值',
+        sample: '样本',
+        local: '本地输入',
+        reported: '上游总输入',
+        extra: '额外输入',
+        cacheRead: '缓存读取',
+        cacheWrite: '缓存写入',
+        firstToken: '首字',
+        duration: '总耗时',
+        repeat: '重复',
+        rawUsage: '原始用量明细',
+        method: '本地分词器统计实际发送的正文及必要的简短 instructions，以四种长度拟合固定开销，再用重复请求检查稳定性。上游总输入已包含缓存，不会重复相加。估算包括协议包装、系统提示词、工具定义或上游 usage 差异，不能证明隐藏提示词内容；少量额外 token 属于正常包装。斜率偏离 1 超过 0.05、误差或重复差值超过 32 token 时不输出确定估值。OAuth 使用简短必要指令，结果不等同于普通转发时的完整上下文。',
+        slopeMismatch: '输入增长比例与本地分词结果不一致，可能存在分词器或用量口径差异。',
+        unstableUsage: '样本波动过大，无法认定固定额外开销。',
+        modelChanged: '采样期间上游返回了不同模型，结果不可直接比较。',
+        negativeOverhead: '上游报告的输入显著小于本地估算，不能据此判断无注入。',
+        failed: '检测失败，请检查账号、模型及上游协议。'
+      },
       sessionPool: {
         judgeReasons: {
           answer_incomplete: '答案未完整生成',
@@ -817,7 +850,7 @@ export default {
         flattenNamespacesDesc:
           '默认关闭：/responses 上的 namespace 工具声明原样转发，这正是 ChatGPT Codex 后端期望的形态。仅当该 OAuth 账号指向不认识 namespace 的兼容上游时才开启——摊平会把工具改名为 namespace__tool，使按 functions.<命名空间>.<工具> 寻址的模型（如 gpt-5.6 多智能体）无法调用。压缩（compact）请求不受该开关影响，始终摊平。',
         longContextBilling: 'API 长上下文计费',
-        longContextBillingDesc: '默认关闭。仅当该账号的上游会按模型阈值收取 OpenAI API 长上下文费率时开启。',
+        longContextBillingDesc: '新账号默认开启。若该账号的上游不按模型阈值收取 OpenAI API 长上下文费率，请关闭。',
         responsesWebsocketsV2: 'Responses WebSocket v2',
         responsesWebsocketsV2Desc:
           '默认关闭。开启后可启用 responses_websockets_v2 协议能力（受网关全局开关与账号类型开关约束）。',

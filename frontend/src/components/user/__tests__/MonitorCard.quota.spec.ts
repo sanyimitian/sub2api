@@ -56,6 +56,16 @@ function mountCard(item: UserMonitorView) {
 }
 
 describe('MonitorCard quota snapshot visibility', () => {
+  it('identifies administrator-only cards returned by the server', () => {
+    const wrapper = mountCard(makeItem({ admin_only: true }))
+    expect(wrapper.get('[data-testid="monitor-admin-only-badge"]').text()).toBe('monitorCommon.adminOnly')
+  })
+
+  it.each([undefined, false])('leaves public and legacy cards without the private marker (%s)', admin_only => {
+    const wrapper = mountCard(makeItem({ admin_only }))
+    expect(wrapper.find('[data-testid="monitor-admin-only-badge"]').exists()).toBe(false)
+  })
+
   it('hides the quota block when the system switch is off even if data exists', () => {
     isQuotaVisible.mockReturnValue(false)
     const wrapper = mountCard(

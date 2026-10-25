@@ -14619,6 +14619,7 @@ type ChannelMonitorMutation struct {
 	appendextra_models      []string
 	group_name              *string
 	enabled                 *bool
+	admin_only              *bool
 	interval_seconds        *int
 	addinterval_seconds     *int
 	jitter_seconds          *int
@@ -15271,6 +15272,42 @@ func (m *ChannelMonitorMutation) ResetEnabled() {
 	m.enabled = nil
 }
 
+// SetAdminOnly sets the "admin_only" field.
+func (m *ChannelMonitorMutation) SetAdminOnly(b bool) {
+	m.admin_only = &b
+}
+
+// AdminOnly returns the value of the "admin_only" field in the mutation.
+func (m *ChannelMonitorMutation) AdminOnly() (r bool, exists bool) {
+	v := m.admin_only
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAdminOnly returns the old "admin_only" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldAdminOnly(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAdminOnly is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAdminOnly requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAdminOnly: %w", err)
+	}
+	return oldValue.AdminOnly, nil
+}
+
+// ResetAdminOnly resets all changes to the "admin_only" field.
+func (m *ChannelMonitorMutation) ResetAdminOnly() {
+	m.admin_only = nil
+}
+
 // SetIntervalSeconds sets the "interval_seconds" field.
 func (m *ChannelMonitorMutation) SetIntervalSeconds(i int) {
 	m.interval_seconds = &i
@@ -15840,7 +15877,7 @@ func (m *ChannelMonitorMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ChannelMonitorMutation) Fields() []string {
-	fields := make([]string, 0, 21)
+	fields := make([]string, 0, 22)
 	if m.created_at != nil {
 		fields = append(fields, channelmonitor.FieldCreatedAt)
 	}
@@ -15879,6 +15916,9 @@ func (m *ChannelMonitorMutation) Fields() []string {
 	}
 	if m.enabled != nil {
 		fields = append(fields, channelmonitor.FieldEnabled)
+	}
+	if m.admin_only != nil {
+		fields = append(fields, channelmonitor.FieldAdminOnly)
 	}
 	if m.interval_seconds != nil {
 		fields = append(fields, channelmonitor.FieldIntervalSeconds)
@@ -15938,6 +15978,8 @@ func (m *ChannelMonitorMutation) Field(name string) (ent.Value, bool) {
 		return m.GroupName()
 	case channelmonitor.FieldEnabled:
 		return m.Enabled()
+	case channelmonitor.FieldAdminOnly:
+		return m.AdminOnly()
 	case channelmonitor.FieldIntervalSeconds:
 		return m.IntervalSeconds()
 	case channelmonitor.FieldJitterSeconds:
@@ -15989,6 +16031,8 @@ func (m *ChannelMonitorMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldGroupName(ctx)
 	case channelmonitor.FieldEnabled:
 		return m.OldEnabled(ctx)
+	case channelmonitor.FieldAdminOnly:
+		return m.OldAdminOnly(ctx)
 	case channelmonitor.FieldIntervalSeconds:
 		return m.OldIntervalSeconds(ctx)
 	case channelmonitor.FieldJitterSeconds:
@@ -16104,6 +16148,13 @@ func (m *ChannelMonitorMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetEnabled(v)
+		return nil
+	case channelmonitor.FieldAdminOnly:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAdminOnly(v)
 		return nil
 	case channelmonitor.FieldIntervalSeconds:
 		v, ok := value.(int)
@@ -16332,6 +16383,9 @@ func (m *ChannelMonitorMutation) ResetField(name string) error {
 		return nil
 	case channelmonitor.FieldEnabled:
 		m.ResetEnabled()
+		return nil
+	case channelmonitor.FieldAdminOnly:
+		m.ResetAdminOnly()
 		return nil
 	case channelmonitor.FieldIntervalSeconds:
 		m.ResetIntervalSeconds()

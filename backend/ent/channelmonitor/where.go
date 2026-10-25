@@ -110,6 +110,11 @@ func Enabled(v bool) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldEnabled, v))
 }
 
+// AdminOnly applies equality check predicate on the "admin_only" field. It's identical to AdminOnlyEQ.
+func AdminOnly(v bool) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldAdminOnly, v))
+}
+
 // IntervalSeconds applies equality check predicate on the "interval_seconds" field. It's identical to IntervalSecondsEQ.
 func IntervalSeconds(v int) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldIntervalSeconds, v))
@@ -763,6 +768,16 @@ func EnabledEQ(v bool) predicate.ChannelMonitor {
 // EnabledNEQ applies the NEQ predicate on the "enabled" field.
 func EnabledNEQ(v bool) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldNEQ(FieldEnabled, v))
+}
+
+// AdminOnlyEQ applies the EQ predicate on the "admin_only" field.
+func AdminOnlyEQ(v bool) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldAdminOnly, v))
+}
+
+// AdminOnlyNEQ applies the NEQ predicate on the "admin_only" field.
+func AdminOnlyNEQ(v bool) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldAdminOnly, v))
 }
 
 // IntervalSecondsEQ applies the EQ predicate on the "interval_seconds" field.

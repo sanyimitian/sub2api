@@ -408,6 +408,18 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 	return normalized, nil
 }
 
+// New accounts opt in by default; updates and copies retain the existing policy.
+func normalizeOpenAILongContextBillingCreateExtra(platform string, extra map[string]any) (map[string]any, error) {
+	normalized, err := normalizeOpenAILongContextBillingExtra(platform, extra)
+	if err != nil || platform != PlatformOpenAI {
+		return normalized, err
+	}
+	if _, provided := extra[openAILongContextBillingEnabledKey]; !provided {
+		normalized[openAILongContextBillingEnabledKey] = true
+	}
+	return normalized, nil
+}
+
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
@@ -482,7 +494,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
-	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
+	accountExtra, err := normalizeOpenAILongContextBillingCreateExtra(input.Platform, input.Extra)
 	if err != nil {
 		return nil, err
 	}

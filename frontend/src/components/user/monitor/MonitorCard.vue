@@ -13,8 +13,9 @@
         <ProviderIcon :provider="item.provider" :size="20" />
       </span>
       <div class="flex-1 min-w-0">
-        <div class="text-base font-semibold truncate text-gray-900 dark:text-gray-100">
-          {{ item.name }}
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="min-w-0 truncate text-base font-semibold text-gray-900 dark:text-gray-100">{{ item.name }}</span>
+          <span v-if="item.admin_only" class="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" data-testid="monitor-admin-only-badge"><Icon name="shield" size="xs" aria-hidden="true" />{{ t('monitorCommon.adminOnly') }}</span>
         </div>
         <div class="mt-0.5 flex items-center gap-1.5 min-w-0">
           <span
@@ -79,6 +80,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Icon } from '@/components/icons'
 import type { UserMonitorView } from '@/api/channelMonitor'
 import {
   useChannelMonitorFormat,

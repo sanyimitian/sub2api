@@ -2,7 +2,7 @@
   <BaseDialog
     :show="show"
     :title="t('admin.accounts.testAccountConnection')"
-    width="normal"
+    :width="testMode === 'injection' ? 'wide' : 'normal'"
     @close="handleClose"
   >
     <div class="space-y-4">
@@ -63,7 +63,9 @@
         <Select
           v-model="selectedModelId"
           :options="modelOptionsForMode"
-          :disabled="loadingModels || status === 'connecting'"
+          :disabled="loadingModels || status === 'connecting' || injectionRunning"
+          :creatable="testMode === 'injection'"
+          :searchable="testMode === 'injection' ? true : 'auto'"
           value-key="id"
           label-key="display_name"
           :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.selectTestModel')"
@@ -77,11 +79,18 @@
         <Select
           v-model="testMode"
           :options="openAITestModeOptions"
-          :disabled="status === 'connecting'"
+          :disabled="status === 'connecting' || injectionRunning"
         />
       </div>
 
-      <div v-if="supportsPromptInput" class="space-y-1.5">
+      <AccountTokenInjectionPanel
+        v-if="show && account && isOpenAIAccount && testMode === 'injection'"
+        :account="account"
+        :model="selectedModelId"
+        @running="injectionRunning = $event"
+      />
+
+      <div v-if="supportsPromptInput && testMode !== 'injection'" class="space-y-1.5">
         <TextArea
           v-model="testPrompt"
           :label="promptInputLabel"
@@ -171,7 +180,7 @@
       </div>
 
       <!-- Terminal Output -->
-      <div class="group relative">
+      <div v-if="testMode !== 'injection'" class="group relative">
         <div
           ref="terminalRef"
           class="max-h-[240px] min-h-[120px] overflow-y-auto rounded-xl border border-gray-700 bg-gray-900 p-4 font-mono text-sm dark:border-gray-800 dark:bg-black"
@@ -224,7 +233,7 @@
         </button>
       </div>
 
-      <div v-if="generatedImages.length > 0" class="space-y-2">
+      <div v-if="generatedImages.length > 0 && testMode !== 'injection'" class="space-y-2">
         <div class="text-xs font-medium text-gray-600 dark:text-gray-300">
           {{ t('admin.accounts.imagePreview') }}
         </div>
@@ -304,7 +313,7 @@
       </Teleport>
 
       <!-- Test Info -->
-      <div class="flex items-center justify-between px-1 text-xs text-gray-500 dark:text-gray-400">
+      <div v-if="testMode !== 'injection'" class="flex items-center justify-between px-1 text-xs text-gray-500 dark:text-gray-400">
         <div class="flex items-center gap-3">
           <span class="flex items-center gap-1">
             <Icon name="grid" size="sm" :stroke-width="2" />
@@ -327,6 +336,7 @@
           {{ t('common.close') }}
         </button>
         <button
+          v-if="testMode !== 'injection'"
           @click="startTest"
           :disabled="!canStartTest"
           :class="[
@@ -370,6 +380,7 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import TextArea from '@/components/common/TextArea.vue'
+import AccountTokenInjectionPanel from '@/components/account/AccountTokenInjectionPanel.vue'
 import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
 import { buildApiUrl } from '@/api/client'
@@ -413,7 +424,8 @@ const generatedImages = ref<PreviewMedia[]>([])
 const generatedAudios = ref<PreviewMedia[]>([])
 const generatedVideos = ref<PreviewMedia[]>([])
 const previewImageUrl = ref('')
-const testMode = ref<'default' | 'compact'>('default')
+const testMode = ref<'default' | 'compact' | 'injection'>('default')
+const injectionRunning = ref(false)
 const grokTestMode = ref<'text' | 'image' | 'video' | 'search' | 'tts' | 'stt' | 'realtime'>('text')
 const uploadImageDataURL = ref('')
 const uploadImagePreview = ref('')
@@ -426,7 +438,8 @@ const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
 const isGrokAccount = computed(() => props.account?.platform === 'grok')
 const openAITestModeOptions = computed(() => [
   { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
-  { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
+  { value: 'compact', label: t('admin.accounts.openai.testModeCompact') },
+  { value: 'injection', label: t('admin.accounts.tokenInjection.title'), disabled: supportsImageTest.value }
 ])
 const grokTestModeOptions = computed(() => [
   { value: 'text', label: t('admin.accounts.grok.testModeText') },
@@ -674,6 +687,7 @@ const testModeSummary = computed(() => {
 })
 
 const canStartTest = computed(() => {
+  if (testMode.value === 'injection' || injectionRunning.value) return false
   if (status.value === 'connecting') return false
   if (isGrokAccount.value) {
     if (
@@ -734,11 +748,13 @@ const pickDefaultModelForMode = () => {
 }
 
 watch(
-  () => props.show,
-  async (newVal) => {
+  [() => props.show, () => props.account?.id],
+  async ([newVal]) => {
     if (newVal && props.account) {
+      abortStream()
       testPrompt.value = ''
       testMode.value = 'default'
+      injectionRunning.value = false
       grokTestMode.value = 'text'
       resetState()
       await loadAvailableModels()
@@ -758,6 +774,10 @@ watch(grokTestMode, () => {
   clearMediaUploads()
   pickDefaultModelForMode()
   applyDefaultPromptForMode()
+})
+
+watch(selectedModelId, () => {
+  if (supportsImageTest.value && testMode.value === 'injection') testMode.value = 'default'
 })
 
 const loadAvailableModels = async () => {

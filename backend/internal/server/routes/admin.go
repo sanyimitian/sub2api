@@ -111,6 +111,7 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
+		registerDegradationTestRoutes(admin, h)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
@@ -392,6 +393,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/:id/opencode-go-usage/refresh", h.Admin.Account.RefreshOpenCodeGoUsage)
 		accounts.DELETE("/:id", h.Admin.Account.Delete)
 		accounts.POST("/:id/test", h.Admin.Account.Test)
+		accounts.POST("/:id/token-injection-test", h.Admin.Account.TestTokenInjection)
 		accounts.POST("/:id/recover-state", h.Admin.Account.RecoverState)
 		accounts.POST("/:id/refresh", h.Admin.Account.Refresh)
 		accounts.POST("/:id/apply-oauth-credentials", h.Admin.Account.ApplyOAuthCredentials)
@@ -901,4 +903,18 @@ func channelMonitorModeV2Guard(settingService *service.SettingService) gin.Handl
 		}
 		c.Next()
 	}
+}
+
+// registerDegradationTestRoutes exposes prompt generation tests independently.
+func registerDegradationTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	plans := admin.Group("/degradation-test-plans")
+	{
+		plans.GET("/status", h.Admin.DegradationTest.ListStatus)
+		plans.POST("", h.Admin.DegradationTest.Create)
+		plans.PUT("/:id", h.Admin.DegradationTest.Update)
+		plans.DELETE("/:id", h.Admin.DegradationTest.Delete)
+		plans.GET("/:id/results", h.Admin.DegradationTest.ListResults)
+		plans.POST("/:id/run", h.Admin.DegradationTest.RunNow)
+	}
+	admin.GET("/accounts/:id/degradation-test-plans", h.Admin.DegradationTest.ListByAccount)
 }

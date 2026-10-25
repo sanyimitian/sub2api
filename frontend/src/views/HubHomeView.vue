@@ -104,7 +104,7 @@
               </svg>
             </router-link>
             <router-link
-              to="/available-channels"
+              to="/model-plaza"
               class="group inline-flex items-center gap-1.5 text-sm text-white/70 no-underline transition hover:text-white"
             >
               {{ t('home.hub.pricing') }}
