@@ -70,7 +70,7 @@ export default {
         selectJudgeModel: "选择或输入判题模型",
         judgePrompt: "判题提示词",
         resetJudgePrompt: "恢复默认提示词",
-        judgeHint: "从所选分组选择支持该模型的可用账号判题，跳过被测账号。判题模型只比较参考答案与实际回答，不自行解题。判题会额外消耗上游额度。",
+        judgeHint: "从所选分组选择支持该模型的可用账号判题，允许被测账号给自己判题。判题使用独立会话，只比较参考答案与实际回答，不自行解题。判题会额外消耗上游额度。",
         groupsLoadFailed: "读取判题分组失败，已保存的配置会保留，请重试。",
         judgeModelsLoadFailed: "读取判题模型失败，已保存的模型会保留，也可手动填写。",
         efforts: {

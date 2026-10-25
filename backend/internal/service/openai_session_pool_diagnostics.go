@@ -38,6 +38,9 @@ func (session *OpenAIWSLatencySession) poolDiagnostic(ctx context.Context, level
 }
 
 func openAISessionPoolProbeReason(result openAIWSLatencyProbeResult, err error, expectedModel string) string {
+	if errors.Is(err, errOpenAIWSLatencyFirstTokenTimeout) {
+		return "first_token_too_slow"
+	}
 	// 质量未知只是未完成判题的结果，不能遮住答题请求本身的错误。
 	// 低延迟单测允许已取得首字后超时，仍保留原有成功口径。
 	if !result.ok {

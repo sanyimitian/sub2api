@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -69,7 +70,7 @@ func TestOpenAISessionPoolDiagnosticRefillSummary(t *testing.T) {
 				require.EqualValues(t, 5, fields["rounds"])
 				require.EqualValues(t, 10, fields["probe_count"])
 				require.EqualValues(t, 0, fields["published_count"])
-				require.EqualValues(t, 30000, fields["retry_after_ms"])
+				require.EqualValues(t, 1800000, fields["retry_after_ms"])
 				require.Equal(t, map[string]int{"upstream_request_failed": 10}, fields["probe_outcomes"])
 			} else {
 				require.Equal(t, zapcore.InfoLevel, summaries[0].Level)
@@ -108,6 +109,68 @@ func TestOpenAISessionPoolDiagnosticRefillSummary(t *testing.T) {
 				expected = "retry_backoff"
 			}
 			require.Equal(t, expected, skipped[0].ContextMap()["reason"])
+		})
+	}
+}
+
+func TestOpenAISessionPoolFirstTokenTimeoutRecordsAndRetries(t *testing.T) {
+	for _, quality := range []bool{false, true} {
+		t.Run(fmt.Sprint(quality), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				svc, a, _, judgeCalls := setupConversationQualityTest(t, "correct")
+				if !quality {
+					delete(a.Extra, OpenAISessionPoolQualityExtraKey)
+				}
+				svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{a}}
+				svc.httpUpstream = &probeDeadlineTestUpstream{headerDelay: 30 * time.Second}
+				ctx, logs := poolDiagnosticTestContext()
+				started := time.Now()
+				svc.refillOpenAISessionPool(ctx)
+				require.Equal(t, 50*time.Second, time.Since(started), "每批最多五轮，每次首字超时十秒即废弃")
+				summaries := logs.FilterMessage("openai.session_pool_refill_completed").All()
+				require.Len(t, summaries, 1)
+				fields := summaries[0].ContextMap()
+				require.Equal(t, "probe_rounds_exhausted", fields["reason"])
+				require.EqualValues(t, 5, fields["rounds"])
+				require.EqualValues(t, 5, fields["probe_count"])
+				require.EqualValues(t, 1800000, fields["retry_after_ms"])
+				require.Equal(t, map[string]int{"first_token_too_slow": 5}, fields["probe_outcomes"])
+				require.True(t, (&OpsSystemLogSink{}).shouldIndex(&logger.LogEvent{Level: "warn", Message: summaries[0].Message, Fields: fields}), "废弃记录也必须进入页面使用的日志存储")
+				encoded, err := json.Marshal(fields["probe_results"])
+				require.NoError(t, err)
+				var records []openAISessionPoolProbeRecord
+				require.NoError(t, json.Unmarshal(encoded, &records))
+				require.Len(t, records, 5)
+				for i, record := range records {
+					require.Equal(t, i+1, record.Round)
+					require.Equal(t, a.ID, record.AccountID)
+					require.Equal(t, "gpt-5.1", record.Model)
+					require.NotNil(t, record.QualityProbeEnabled)
+					require.Equal(t, quality, *record.QualityProbeEnabled)
+					require.Equal(t, "first_token_too_slow", record.Reason)
+					require.Nil(t, record.FirstTokenMS, "没有首字不能伪造延迟")
+					require.Nil(t, record.QualityJudgment, "未判题不能伪造判题结论")
+					require.False(t, record.Success)
+					require.False(t, record.Qualified)
+					require.False(t, record.Published)
+				}
+				require.Empty(t, svc.getOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey).Candidates)
+				require.Zero(t, judgeCalls.Load())
+
+				// 失败次数不是永久熔断：三十分钟前不重试，达到退避时间后重新补池并记录。
+				svc.refillOpenAISessionPool(ctx)
+				time.Sleep(30*time.Minute - time.Second)
+				svc.refillOpenAISessionPool(ctx)
+				require.Len(t, logs.FilterMessage("openai.session_pool_refill_completed").All(), 1)
+				for _, event := range logs.FilterMessage("openai.session_pool_refill_skipped").All() {
+					require.Equal(t, "retry_backoff", event.ContextMap()["reason"])
+				}
+				time.Sleep(time.Second)
+				svc.refillOpenAISessionPool(ctx)
+				require.Len(t, logs.FilterMessage("openai.session_pool_refill_completed").All(), 2)
+				require.Equal(t, 30*time.Minute+100*time.Second, time.Since(started))
+				require.Zero(t, judgeCalls.Load())
+			})
 		})
 	}
 }

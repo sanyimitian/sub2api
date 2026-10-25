@@ -43,7 +43,7 @@ type ConversationQualityJudgeService struct {
 
 // 出题前和正式判题共用同一套资格检查；这里只检查候选，不预占判题并发名额。
 // 正式判题重新读取，避免答题期间分组或账号已变化却仍按旧快照发出请求。
-func (s *ConversationQualityJudgeService) candidates(ctx context.Context, testedAccount int64, cfg *ConversationQualityConfig) ([]Account, *QualityJudgment) {
+func (s *ConversationQualityJudgeService) candidates(ctx context.Context, cfg *ConversationQualityConfig) ([]Account, *QualityJudgment) {
 	result := &QualityJudgment{Verdict: "unknown", Reason: "judge_not_configured"}
 	if cfg == nil || cfg.Judge == nil || s == nil || s.accounts == nil || s.groups == nil || s.slots == nil || s.request == nil {
 		return nil, result
@@ -66,13 +66,13 @@ func (s *ConversationQualityJudgeService) candidates(ctx context.Context, tested
 		return nil, result
 	}
 	result.Reason = "judge_no_available_account"
-	return qualityJudgeCandidates(accounts, testedAccount, judge), result
+	return qualityJudgeCandidates(accounts, judge), result
 }
 
-func (s *ConversationQualityJudgeService) Judge(ctx context.Context, testedAccount int64, cfg *ConversationQualityConfig, expected, answer string) *QualityJudgment {
+func (s *ConversationQualityJudgeService) Judge(ctx context.Context, cfg *ConversationQualityConfig, expected, answer string) *QualityJudgment {
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	accounts, result := s.candidates(ctx, testedAccount, cfg)
+	accounts, result := s.candidates(ctx, cfg)
 	if len(accounts) == 0 {
 		return result
 	}
@@ -127,11 +127,12 @@ func (s *ConversationQualityJudgeService) Judge(ctx context.Context, testedAccou
 // Interleave upstream routes before revisiting one with a different credential.
 // Routing identity is only an ordering hint: accounts on the same route may have
 // different model permissions, so a rejected request must not exclude its peers.
-func qualityJudgeCandidates(accounts []Account, testedAccount int64, judge *QualityJudgeConfig) []Account {
+func qualityJudgeCandidates(accounts []Account, judge *QualityJudgeConfig) []Account {
 	candidates := make([]Account, 0, len(accounts))
 	seen := make(map[int64]bool, len(accounts))
 	for _, account := range accounts {
-		if seen[account.ID] || account.ID == testedAccount || !account.IsSchedulable() ||
+		// 被测账号同样可以判题，但仍须属于所选分组、可调度且支持判题模型。
+		if seen[account.ID] || !account.IsSchedulable() ||
 			!account.IsModelSupported(judge.ModelID) {
 			continue
 		}

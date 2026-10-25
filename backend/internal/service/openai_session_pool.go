@@ -53,7 +53,7 @@ func (s *OpenAIGatewayService) OpenAISessionPoolEnabled(ctx context.Context) boo
 }
 
 const openAISessionPoolKey = "candidate_pool:openai-prepared-sessions:v1"
-const openAISessionPoolRetryInterval = 30 * time.Second
+const openAISessionPoolRetryInterval = 30 * time.Minute
 
 type openAISessionPoolRoute struct {
 	account       *Account

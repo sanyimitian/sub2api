@@ -70,7 +70,7 @@ export default {
         selectJudgeModel: "Select or enter a judge model",
         judgePrompt: "Grading instructions",
         resetJudgePrompt: "Restore default instructions",
-        judgeHint: "Use an available account supporting the selected model in this group, excluding the tested account. The judge compares the reference and candidate answers without solving the question. Grading consumes additional upstream quota.",
+        judgeHint: "Use an available account supporting the selected model in this group, including the tested account. Grading uses a separate conversation to compare the reference and candidate answers without solving the question. Grading consumes additional upstream quota.",
         groupsLoadFailed: "Could not load judge groups. Saved settings are preserved. Please retry.",
         judgeModelsLoadFailed: "Could not load judge models. The saved model is preserved; you may also enter it manually.",
         efforts: {

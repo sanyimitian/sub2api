@@ -52,6 +52,21 @@ func (conversationJudgeTestGroups) GetByID(context.Context, int64) (*Group, erro
 	return &Group{ID: 9, Status: StatusActive}, nil
 }
 
+type conversationJudgeTestAccounts struct{ schedulerTestOpenAIAccountRepo }
+
+func (r conversationJudgeTestAccounts) ListSchedulableByGroupID(_ context.Context, groupID int64) ([]Account, error) {
+	var accounts []Account
+	for _, account := range r.accounts {
+		for _, id := range account.GroupIDs {
+			if id == groupID {
+				accounts = append(accounts, account)
+				break
+			}
+		}
+	}
+	return accounts, nil
+}
+
 type conversationJudgeTestSlots struct{}
 
 func (conversationJudgeTestSlots) AcquireAccountSlot(context.Context, int64, int) (*AcquireResult, error) {
@@ -64,6 +79,7 @@ type conversationQualityTestUpstream struct {
 	bodies         [][]byte
 	sessions       []string
 	verdict        string
+	judgeVerdict   string
 	partial        bool
 	stream         string
 	beforeResponse func()
@@ -79,8 +95,12 @@ func (u *conversationQualityTestUpstream) Do(r *http.Request, _ string, _ int64,
 	u.sessions = append(u.sessions, r.Header.Get("session_id"))
 	u.mu.Unlock()
 	text := "21"
-	if u.verdict != "" {
-		text = fmt.Sprintf(`{"verdict":%q,"reason":"答案比对完成"}`, u.verdict)
+	verdict := u.verdict
+	if u.judgeVerdict != "" && strings.Contains(string(body), "reference_answer") {
+		verdict = u.judgeVerdict
+	}
+	if verdict != "" {
+		text = fmt.Sprintf(`{"verdict":%q,"reason":"答案比对完成"}`, verdict)
 	}
 	delta, _ := json.Marshal(map[string]any{"type": "response.output_text.delta", "delta": text})
 	sse := "data: " + string(delta) + "\n\n"
@@ -109,10 +129,10 @@ func setupConversationQualityTest(t *testing.T, verdict string) (*OpenAIGatewayS
 	u := &conversationQualityTestUpstream{}
 	s.httpUpstream = u
 	calls := &atomic.Int32{}
-	s.conversationQualityJudge = &ConversationQualityJudgeService{accounts: repo, groups: conversationJudgeTestGroups{}, slots: conversationJudgeTestSlots{},
+	s.conversationQualityJudge = &ConversationQualityJudgeService{accounts: conversationJudgeTestAccounts{repo}, groups: conversationJudgeTestGroups{}, slots: conversationJudgeTestSlots{},
 		request: func(_ context.Context, accountID int64, model, prompt string) (string, error) {
 			calls.Add(1)
-			if accountID == a.ID || model != "judge" || strings.Contains(prompt, ConversationQualityCandyPrompt) || !strings.Contains(prompt, "reference_answer") || !strings.Contains(prompt, "candidate_answer") {
+			if (accountID != a.ID && accountID != judge.ID) || model != "judge" || strings.Contains(prompt, ConversationQualityCandyPrompt) || !strings.Contains(prompt, "reference_answer") || !strings.Contains(prompt, "candidate_answer") {
 				return "", errors.New("判题请求不符合参考规则")
 			}
 			return fmt.Sprintf(`{"verdict":%q,"reason":"答案比对完成"}`, verdict), nil
@@ -160,6 +180,46 @@ func TestConversationQualityPoolRequiresCompleteCorrectAnswerAndRetainsSession(t
 	}
 }
 
+func TestConversationQualitySameAccountCanAnswerAndJudgeWithOneSlot(t *testing.T) {
+	for _, verdict := range []string{"correct", "incorrect", "unknown"} {
+		t.Run(verdict, func(t *testing.T) {
+			s, a, upstream, _ := setupConversationQualityTest(t, "correct")
+			a.GroupIDs = []int64{1, 9}
+			a.Concurrency = 1
+			cfg := conversationQualityTestConfig()
+			cfg.Judge.ModelID = "gpt-5.1"
+			a.Extra[OpenAISessionPoolQualityExtraKey] = cfg
+			repo := schedulerTestOpenAIAccountRepo{accounts: []Account{a}}
+			s.accountRepo = repo
+			cache := &conversationQualitySlotCache{held: map[int64]bool{}, releases: map[int64]int{}}
+			s.concurrencyService = NewConcurrencyService(cache)
+			s.conversationQualityJudge = NewConversationQualityJudgeService(repo, conversationJudgeTestGroups{}, s.concurrencyService, s, nil, nil, nil)
+			upstream.judgeVerdict = verdict
+			s.refillOpenAISessionPool(context.Background())
+			pool := s.getOpenAIWSLatencyCandidatePool(context.Background(), openAISessionPoolKey)
+			probeCount := openAIWSLatencyMaxProbeRounds
+			if verdict == "correct" {
+				probeCount = 1
+				require.Len(t, pool.Candidates, 1, "只有自己可用时，也能完成做题、判题并入池")
+				require.True(t, pool.Candidates[0].QualityPassed)
+				require.Equal(t, upstream.sessions[0], pool.Candidates[0].UpstreamSessionID)
+			} else {
+				require.Empty(t, pool.Candidates, "允许自判也不能放行答错或无法判定的会话")
+			}
+			require.Len(t, upstream.bodies, probeCount*2, "每次做题后必须实际发送一次独立判题请求")
+			for i := 0; i < len(upstream.bodies); i += 2 {
+				require.Contains(t, string(upstream.bodies[i]), "在一个黑色的袋子里")
+				require.Contains(t, string(upstream.bodies[i+1]), "reference_answer")
+				require.NotContains(t, string(upstream.bodies[i+1]), ConversationQualityCandyPrompt)
+				require.NotEqual(t, upstream.sessions[i], upstream.sessions[i+1], "同账号判题使用新会话，不能污染做题会话")
+				require.False(t, gjson.GetBytes(upstream.bodies[i+1], "previous_response_id").Exists())
+			}
+			require.False(t, cache.held[a.ID])
+			require.Equal(t, probeCount*2, cache.releases[a.ID], "并发为一时，先归还答题名额，再获取并归还判题名额")
+		})
+	}
+}
+
 func TestConversationQualityIncompleteAnswerCannotEnterPool(t *testing.T) {
 	s, a, u, calls := setupConversationQualityTest(t, "correct")
 	u.partial = true
@@ -173,11 +233,11 @@ func TestConversationQualityIncompleteAnswerCannotEnterPool(t *testing.T) {
 
 func TestConversationQualityUnavailableJudgeDoesNotSpendAnswerRequests(t *testing.T) {
 	s, a, upstream, calls := setupConversationQualityTest(t, "correct")
-	// 复现线上配置：判题分组里只有被测账号，不能让它给自己判题。
-	s.conversationQualityJudge.accounts = schedulerTestOpenAIAccountRepo{accounts: []Account{a}}
+	// 即使允许自判，所选判题分组没有可用账号时也不能发出做题请求。
+	s.conversationQualityJudge.accounts = schedulerTestOpenAIAccountRepo{}
 	ctx, logs := poolDiagnosticTestContext()
 	s.refillOpenAISessionPool(ctx)
-	require.Len(t, upstream.bodies, 0, "没有独立判题账号时，不能反复消耗做题请求")
+	require.Len(t, upstream.bodies, 0, "没有可用判题账号时，不能反复消耗做题请求")
 	require.Zero(t, calls.Load())
 	require.Empty(t, s.getOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey).Candidates)
 	summaries := logs.FilterMessage("openai.session_pool_refill_completed").All()
@@ -204,10 +264,10 @@ func TestConversationQualityUnavailableJudgeDoesNotSpendAnswerRequests(t *testin
 }
 
 func TestConversationQualityJudgeAvailabilityIsRecheckedAfterAnswer(t *testing.T) {
-	s, a, upstream, calls := setupConversationQualityTest(t, "correct")
+	s, _, upstream, calls := setupConversationQualityTest(t, "correct")
 	upstream.beforeResponse = func() {
 		// 出题前还有可用判题账号，但做题期间管理员将其停用或移出了分组。
-		s.conversationQualityJudge.accounts = schedulerTestOpenAIAccountRepo{accounts: []Account{a}}
+		s.conversationQualityJudge.accounts = schedulerTestOpenAIAccountRepo{}
 	}
 	s.refillOpenAISessionPool(context.Background())
 	require.Len(t, upstream.bodies, 1, "预检查通过的首轮可做题，之后不可继续白白发起做题请求")
@@ -339,13 +399,13 @@ func TestConversationQualityPassedCandidateStillRequiresLatencyBelowTenSeconds(t
 }
 
 func TestConversationQualityJudgeRealGatewayTransport(t *testing.T) {
-	s, a, _, _ := setupConversationQualityTest(t, "correct")
+	s, _, _, _ := setupConversationQualityTest(t, "correct")
 	u := &conversationQualityTestUpstream{verdict: "correct"}
 	s.httpUpstream = u
 	repo := schedulerTestOpenAIAccountRepo{accounts: []Account{preparedTestAccount(22, 9)}}
 	judge := NewConversationQualityJudgeService(repo, conversationJudgeTestGroups{}, nil, s, nil, nil, nil)
 	judge.slots = conversationJudgeTestSlots{}
-	result := judge.Judge(context.Background(), a.ID, conversationQualityTestConfig(), "21", "21")
+	result := judge.Judge(context.Background(), conversationQualityTestConfig(), "21", "21")
 	require.Equal(t, "correct", result.Verdict, result.Reason)
 	require.EqualValues(t, 22, result.AccountID)
 	require.Len(t, u.bodies, 1)
@@ -398,26 +458,27 @@ func TestConversationQualityJudgeRejectsAmbiguousOutput(t *testing.T) {
 	}
 }
 
-func TestConversationQualityJudgeSkipsSelfAndFallsBackAfterFailure(t *testing.T) {
+func TestConversationQualityJudgeFallsBackAfterSelfAndOtherAccountFailure(t *testing.T) {
 	s, a, _, _ := setupConversationQualityTest(t, "correct")
+	a.GroupIDs = []int64{1, 9}
 	repo := schedulerTestOpenAIAccountRepo{accounts: []Account{a, preparedTestAccount(22, 9), preparedTestAccount(33, 9)}}
 	s.conversationQualityJudge.accounts = repo
 	var called []int64
 	s.conversationQualityJudge.request = func(_ context.Context, id int64, _, _ string) (string, error) {
 		called = append(called, id)
-		if id == 22 {
+		if id == a.ID || id == 22 {
 			return "", errors.New("unavailable")
 		}
 		return `{"verdict":"correct","reason":"等价"}`, nil
 	}
-	result := s.conversationQualityJudge.Judge(context.Background(), a.ID, conversationQualityTestConfig(), "21", "21个")
+	result := s.conversationQualityJudge.Judge(context.Background(), conversationQualityTestConfig(), "21", "21个")
 	require.Equal(t, "correct", result.Verdict)
 	require.EqualValues(t, 33, result.AccountID)
-	require.Equal(t, []int64{22, 33}, called)
+	require.Equal(t, []int64{a.ID, 22, 33}, called)
 }
 
 func TestConversationQualityJudgeRequestsDoNotReuseConversation(t *testing.T) {
-	s, a, _, _ := setupConversationQualityTest(t, "correct")
+	s, _, _, _ := setupConversationQualityTest(t, "correct")
 	u := &conversationQualityTestUpstream{verdict: "correct"}
 	s.httpUpstream = u
 	repo := schedulerTestOpenAIAccountRepo{accounts: []Account{preparedTestAccount(22, 9)}}
@@ -427,7 +488,7 @@ func TestConversationQualityJudgeRequestsDoNotReuseConversation(t *testing.T) {
 	cfg.Judge.ModelID = "gpt-5.1"
 	ctx := context.WithValue(context.Background(), openAIPreparedProbeContextKey{}, true)
 	for i := 0; i < 2; i++ {
-		result := judge.Judge(ctx, a.ID, cfg, "21", "21")
+		result := judge.Judge(ctx, cfg, "21", "21")
 		require.Equal(t, "correct", result.Verdict, result.Reason)
 	}
 	require.Len(t, u.bodies, 2)

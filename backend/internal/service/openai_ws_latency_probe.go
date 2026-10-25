@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -62,6 +63,8 @@ const (
 	openAIWSLatencyMaxProbeRounds           = 5
 )
 
+var errOpenAIWSLatencyFirstTokenTimeout = fmt.Errorf("probe first token exceeded 10 seconds: %w", context.DeadlineExceeded)
+
 func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, account *Account, model string, requiredTransport OpenAIUpstreamTransport) (openAIWSLatencyProbeResult, error) {
 	return s.forwardOpenAIWSLatencyProbeWithRelease(ctx, account, model, requiredTransport, nil)
 }
@@ -69,16 +72,13 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, 
 // 答题网络请求结束后即可归还被测账号名额；后续判题只占用判题账号名额。
 // 调用方仍负责用 defer 处理发出网络请求之前就失败的情况。
 func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx context.Context, account *Account, model string, requiredTransport OpenAIUpstreamTransport, releaseSlot func()) (openAIWSLatencyProbeResult, error) {
-	observed := openAIWSLatencyProbeResult{accountID: account.ID, upstreamSessionID: openAIWSLatencyProbeSessionID(ctx)}
+	observed := openAIWSLatencyProbeResult{accountID: account.ID, upstreamSessionID: openAIWSLatencyProbeSessionID(ctx), ms: -1}
 	quality, configErr := account.OpenAISessionQualityConfig()
 	if configErr != nil && isOpenAIPreparedProbe(ctx) {
 		return observed, configErr
 	}
 	qualityEnabled := isOpenAIPreparedProbe(ctx) && quality != nil && quality.Enabled
 	observed.qualityProbeEnabled = &qualityEnabled
-	if qualityEnabled {
-		observed.ms = -1 // 没有测到首字时不能在诊断中显示为 0 毫秒。
-	}
 	timeout := openAIWSLatencyProbeTimeout
 	if qualityEnabled {
 		timeout = openAISessionQualityProbeTimeout
@@ -93,8 +93,8 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx contex
 		if err := validateConversationQualityConfig(quality); err != nil {
 			return observed, err
 		}
-		// 判题服务不可用时不消耗做题请求；不能退回只测延迟或让被测账号自判。
-		judges, unavailable := s.conversationQualityJudge.candidates(probeCtx, account.ID, quality)
+		// 判题服务不可用时不消耗做题请求；被测账号也按相同条件参与判题选择。
+		judges, unavailable := s.conversationQualityJudge.candidates(probeCtx, quality)
 		if len(judges) == 0 {
 			observed.qualityJudgment = unavailable
 			return observed, nil
@@ -119,7 +119,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx contex
 		probeBody["prompt_cache_key"] = observed.upstreamSessionID
 	}
 	body, _ := json.Marshal(probeBody)
-	request, err := http.NewRequestWithContext(probeCtx, http.MethodPost, "http://localhost/v1/responses", bytes.NewReader(body))
+	// 首字截止只取消答题网络请求；及时收到首字后，完整答题和判题仍沿用原总期限。
+	forwardCtx, cancelForward := context.WithCancelCause(probeCtx)
+	defer cancelForward(nil)
+	request, err := http.NewRequestWithContext(forwardCtx, http.MethodPost, "http://localhost/v1/responses", bytes.NewReader(body))
 	if err != nil {
 		return observed, err
 	}
@@ -129,6 +132,23 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx contex
 		request.Header.Set("conversation_id", observed.upstreamSessionID)
 	}
 	writer := &openAIWSLatencyProbeWriter{header: make(http.Header), mode: s.openAITTFTMode(ctx), started: time.Now(), firstMS: -1, closed: make(chan bool), capture: qualityEnabled}
+	var firstTokenDone sync.Once
+	firstTokenTimedOut := false
+	expireFirstToken := func() {
+		firstTokenDone.Do(func() {
+			firstTokenTimedOut = true
+			cancelForward(errOpenAIWSLatencyFirstTokenTimeout)
+		})
+	}
+	firstTokenTimer := time.AfterFunc(time.Until(writer.started.Add(time.Duration(openAIWSLatencyCandidateMaxFirstTokenMS)*time.Millisecond)), expireFirstToken)
+	defer firstTokenTimer.Stop()
+	writer.onFirstToken = func(ms int) {
+		if ms >= openAIWSLatencyCandidateMaxFirstTokenMS {
+			expireFirstToken()
+			return
+		}
+		firstTokenDone.Do(func() { firstTokenTimer.Stop() })
+	}
 	c := &gin.Context{Request: request, Writer: writer}
 	if observed.upstreamSessionID != "" {
 		c.Set(openAIWSLatencyUpstreamSessionContextKey, observed.upstreamSessionID)
@@ -139,9 +159,19 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx contex
 	} else {
 		SetOpenAIClientTransport(c, OpenAIClientTransportWS)
 	}
-	result, forwardErr := s.Forward(probeCtx, c, account, body)
+	result, forwardErr := s.Forward(forwardCtx, c, account, body)
+	// 停止并同步定时回调，避免取消与首字同时到达时读写诊断状态发生竞争。
+	if writer.firstMS < 0 && time.Since(writer.started) >= time.Duration(openAIWSLatencyCandidateMaxFirstTokenMS)*time.Millisecond {
+		expireFirstToken()
+	}
+	firstTokenDone.Do(func() { firstTokenTimer.Stop() })
 	if releaseSlot != nil {
 		releaseSlot()
+	}
+	observed.responseStatus = writer.status // 未写出响应时为零，不能以默认 200 误报成功。
+	if firstTokenTimedOut {
+		observed.timedOut = true
+		return observed, errOpenAIWSLatencyFirstTokenTimeout
 	}
 	if result != nil {
 		observed.upstreamModel = strings.TrimSpace(result.UpstreamModel)
@@ -159,7 +189,6 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx contex
 			observed.ms = int(time.Since(writer.started).Milliseconds())
 		}
 	}
-	observed.responseStatus = writer.status // 未写出响应时为零，不能以默认 200 误报成功。
 	if writer.failed || writer.Status() >= 400 {
 		observed.ok = false
 	}
@@ -169,7 +198,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx contex
 		}
 		observed.qualityJudgment = &QualityJudgment{Verdict: "unknown", Reason: "answer_incomplete"}
 		if forwardErr == nil && probeCtx.Err() == nil && observed.ok && writer.completed && !writer.failed && !writer.overflow && strings.TrimSpace(writer.output.String()) != "" {
-			observed.qualityJudgment = s.conversationQualityJudge.Judge(probeCtx, account.ID, quality, observed.qualityQuestion.ExpectedAnswer, writer.output.String())
+			observed.qualityJudgment = s.conversationQualityJudge.Judge(probeCtx, quality, observed.qualityQuestion.ExpectedAnswer, writer.output.String())
 		}
 		// 首字快不代表答题完成；超时、拒答、截断、判题未知均不能进池。
 		if observed.qualityJudgment == nil || observed.qualityJudgment.Verdict != "correct" {
@@ -189,6 +218,7 @@ type openAIWSLatencyProbeWriter struct {
 	mode         string
 	started      time.Time
 	firstMS      int
+	onFirstToken func(int)
 	failed       bool
 	closed       chan bool
 	capture      bool
@@ -260,6 +290,9 @@ func (w *openAIWSLatencyProbeWriter) Write(data []byte) (int, error) {
 		}
 		if w.firstMS < 0 && openAIStreamDataStartsTTFT(payload, eventType, false, w.mode) {
 			w.firstMS = int(time.Since(w.started).Milliseconds())
+			if w.onFirstToken != nil {
+				w.onFirstToken(w.firstMS)
+			}
 		}
 		if w.capture {
 			w.captureOutput(payload, eventType)
