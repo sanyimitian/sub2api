@@ -60,12 +60,13 @@ func (conversationJudgeTestSlots) AcquireAccountSlot(context.Context, int64, int
 
 type conversationQualityTestUpstream struct {
 	HTTPUpstream
-	mu       sync.Mutex
-	bodies   [][]byte
-	sessions []string
-	verdict  string
-	partial  bool
-	stream   string
+	mu             sync.Mutex
+	bodies         [][]byte
+	sessions       []string
+	verdict        string
+	partial        bool
+	stream         string
+	beforeResponse func()
 }
 
 func (u *conversationQualityTestUpstream) Do(r *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
@@ -88,6 +89,9 @@ func (u *conversationQualityTestUpstream) Do(r *http.Request, _ string, _ int64,
 	}
 	if u.stream != "" {
 		sse = u.stream
+	}
+	if u.beforeResponse != nil {
+		u.beforeResponse()
 	}
 	return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(sse)), Request: r}, nil
 }
@@ -167,6 +171,50 @@ func TestConversationQualityIncompleteAnswerCannotEnterPool(t *testing.T) {
 	require.Zero(t, calls.Load(), "未完整生成的答案不能交给判题器判为通过")
 }
 
+func TestConversationQualityUnavailableJudgeDoesNotSpendAnswerRequests(t *testing.T) {
+	s, a, upstream, calls := setupConversationQualityTest(t, "correct")
+	// 复现线上配置：判题分组里只有被测账号，不能让它给自己判题。
+	s.conversationQualityJudge.accounts = schedulerTestOpenAIAccountRepo{accounts: []Account{a}}
+	ctx, logs := poolDiagnosticTestContext()
+	s.refillOpenAISessionPool(ctx)
+	require.Len(t, upstream.bodies, 0, "没有独立判题账号时，不能反复消耗做题请求")
+	require.Zero(t, calls.Load())
+	require.Empty(t, s.getOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey).Candidates)
+	summaries := logs.FilterMessage("openai.session_pool_refill_completed").All()
+	require.Len(t, summaries, 1)
+	encoded, err := json.Marshal(summaries[0].ContextMap()["probe_results"])
+	require.NoError(t, err)
+	var records []openAISessionPoolProbeRecord
+	require.NoError(t, json.Unmarshal(encoded, &records))
+	require.NotEmpty(t, records)
+	for _, record := range records {
+		require.False(t, record.Published)
+		require.Nil(t, record.FirstTokenMS, "没有发出做题请求，不能伪造首字延迟")
+		require.Equal(t, "judge_no_available_account", record.QualityJudgment.Reason)
+	}
+
+	// 可用性检查不缓存故障；修好判题分组后，下次探测应正常做题、判题。
+	s.conversationQualityJudge.accounts = schedulerTestOpenAIAccountRepo{accounts: []Account{a, preparedTestAccount(22, 9)}}
+	probeCtx := context.WithValue(ctx, openAIPreparedProbeContextKey{}, true)
+	result, err := s.forwardOpenAIWSLatencyProbe(probeCtx, &a, "gpt-5.1", OpenAIUpstreamTransportHTTPSSE)
+	require.NoError(t, err)
+	require.True(t, result.ok)
+	require.Len(t, upstream.bodies, 1)
+	require.EqualValues(t, 1, calls.Load())
+}
+
+func TestConversationQualityJudgeAvailabilityIsRecheckedAfterAnswer(t *testing.T) {
+	s, a, upstream, calls := setupConversationQualityTest(t, "correct")
+	upstream.beforeResponse = func() {
+		// 出题前还有可用判题账号，但做题期间管理员将其停用或移出了分组。
+		s.conversationQualityJudge.accounts = schedulerTestOpenAIAccountRepo{accounts: []Account{a}}
+	}
+	s.refillOpenAISessionPool(context.Background())
+	require.Len(t, upstream.bodies, 1, "预检查通过的首轮可做题，之后不可继续白白发起做题请求")
+	require.Zero(t, calls.Load(), "预检查的旧快照不能代替正式判题的资格检查")
+	require.Empty(t, s.getOpenAIWSLatencyCandidatePool(context.Background(), openAISessionPoolKey).Candidates)
+}
+
 func TestConversationQualityRefusalInCompletedResponseCannotEnterPool(t *testing.T) {
 	s, a, upstream, calls := setupConversationQualityTest(t, "correct")
 	// 上游先输出答案片段，最终完成事件中才标明拒答；不能只检查拒答增量事件。
@@ -195,6 +243,81 @@ func TestConversationQualityConfigurationChangeRejectsOldPool(t *testing.T) {
 	s.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{a}}
 	_, _, reserved = session.reservePreparedCandidate(context.Background(), "gpt-5.1")
 	require.False(t, reserved, "判分规则变化后旧结果不得继续领取")
+}
+
+func TestConversationQualityPublicationRecordMatchesActualCandidate(t *testing.T) {
+	s, _, _, _ := setupConversationQualityTest(t, "correct")
+	ctx, logs := poolDiagnosticTestContext()
+	s.refillOpenAISessionPool(ctx)
+	pool := s.getOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey)
+	require.Len(t, pool.Candidates, 1)
+	summaries := logs.FilterMessage("openai.session_pool_refill_completed").All()
+	require.Len(t, summaries, 1)
+	encoded, err := json.Marshal(summaries[0].ContextMap()["probe_results"])
+	require.NoError(t, err)
+	var records []openAISessionPoolProbeRecord
+	require.NoError(t, json.Unmarshal(encoded, &records))
+	require.Len(t, records, 1)
+	require.Equal(t, pool.Candidates[0].ResultID, records[0].ResultID)
+	require.True(t, records[0].Published)
+	require.NotNil(t, records[0].QualityProbeEnabled)
+	require.True(t, *records[0].QualityProbeEnabled)
+	require.Equal(t, "correct", records[0].QualityJudgment.Verdict)
+}
+
+func TestConversationQualityConfigurationChangedDuringGradingCannotPublish(t *testing.T) {
+	s, a, _, calls := setupConversationQualityTest(t, "correct")
+	original := s.conversationQualityJudge.request
+	s.conversationQualityJudge.request = func(ctx context.Context, id int64, model, prompt string) (string, error) {
+		output, err := original(ctx, id, model, prompt)
+		// 模拟管理员在判题期间保存了新配置；本轮按旧配置通过也不能发布。
+		updated := a
+		cfg := conversationQualityTestConfig()
+		cfg.ExpectedAnswer = "新参考答案"
+		updated.Extra = mergeOpenAISessionPoolExtra(a.Extra, map[string]any{OpenAISessionPoolQualityExtraKey: cfg})
+		s.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{updated}}
+		return output, err
+	}
+	ctx, logs := poolDiagnosticTestContext()
+	s.refillOpenAISessionPool(ctx)
+	require.Empty(t, s.getOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey).Candidates)
+	require.EqualValues(t, 1, calls.Load())
+	summaries := logs.FilterMessage("openai.session_pool_refill_completed").All()
+	require.Len(t, summaries, 1)
+	fields := summaries[0].ContextMap()
+	require.EqualValues(t, 0, fields["published_count"])
+	encoded, err := json.Marshal(fields["probe_results"])
+	require.NoError(t, err)
+	var records []openAISessionPoolProbeRecord
+	require.NoError(t, json.Unmarshal(encoded, &records))
+	require.NotEmpty(t, records)
+	for _, record := range records {
+		require.False(t, record.Published)
+		require.Empty(t, record.ResultID)
+		require.Equal(t, "account_configuration_changed", record.Reason)
+	}
+	require.Equal(t, map[string]int{"account_configuration_changed": len(records)}, fields["probe_outcomes"])
+}
+
+func TestConversationQualityEnabledDuringLatencyProbeCannotPublishUngradedResult(t *testing.T) {
+	s, a, upstream, calls := setupConversationQualityTest(t, "correct")
+	disabled := conversationQualityTestConfig()
+	disabled.Enabled = false
+	a.Extra = mergeOpenAISessionPoolExtra(a.Extra, map[string]any{OpenAISessionPoolQualityExtraKey: disabled})
+	s.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{a}}
+	upstream.beforeResponse = func() {
+		updated := a
+		updated.Extra = mergeOpenAISessionPoolExtra(a.Extra, map[string]any{OpenAISessionPoolQualityExtraKey: conversationQualityTestConfig()})
+		s.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{updated}}
+	}
+	ctx, logs := poolDiagnosticTestContext()
+	s.refillOpenAISessionPool(ctx)
+	require.Zero(t, calls.Load(), "已经发出的旧探测只测延迟，没有做题判题")
+	require.Empty(t, s.getOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey).Candidates,
+		"开启降智探测后，旧的未判题结果不能再发布")
+	summaries := logs.FilterMessage("openai.session_pool_refill_completed").All()
+	require.Len(t, summaries, 1)
+	require.EqualValues(t, 0, summaries[0].ContextMap()["published_count"])
 }
 
 func TestConversationQualityPassedCandidateStillRequiresLatencyBelowTenSeconds(t *testing.T) {

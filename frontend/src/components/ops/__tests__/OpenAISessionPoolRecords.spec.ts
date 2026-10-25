@@ -81,6 +81,73 @@ describe('备用会话池与探测记录', () => {
     wrapper.unmount()
   })
 
+  it('按候选编号同步当前可领取状态，并明确本次只测了延迟', async () => {
+    const group = probeGroups[0]
+    listSystemLogs.mockResolvedValue({ items: [{ ...group, extra: { ...group.extra, probe_results: [{
+      ...group.extra.probe_results[0], result_id: candidate.result_id, quality_probe_enabled: false
+    }] } }], total: 1 })
+    const wrapper = createWrapper()
+    await wrapper.vm.refresh()
+    expect(wrapper.get('[data-testid="pool-publication-status"]').text()).toBe('admin.ops.switchRecords.pool.availableNow')
+    expect(wrapper.get('[data-testid="pool-probe-mode"]').text()).toBe('admin.ops.switchRecords.pool.latencyOnly')
+    expect(wrapper.find('[data-testid="pool-observed-at"]').exists()).toBe(true)
+
+    getSnapshot.mockResolvedValue({ enabled: true, target_size: 6, observed_at: currentTime.toISOString(), candidates: [] })
+    await wrapper.vm.refresh()
+    expect(wrapper.get('[data-testid="pool-publication-status"]').text()).toBe('admin.ops.switchRecords.pool.publishedUnavailable')
+
+    getSnapshot.mockRejectedValue(new Error('cache unavailable'))
+    await wrapper.vm.refresh()
+    expect(wrapper.get('[data-testid="pool-publication-status"]').text()).toBe('admin.ops.switchRecords.pool.publishedUnknown')
+    wrapper.unmount()
+  })
+
+  it('旧记录不按账号模型猜测当前状态，缺少判题信息时不宣称已通过', async () => {
+    const wrapper = createWrapper()
+    await wrapper.vm.refresh()
+    expect(wrapper.get('[data-testid="pool-publication-status"]').text()).toBe('admin.ops.switchRecords.pool.published')
+    expect(wrapper.get('[data-testid="pool-probe-mode"]').text()).toBe('admin.ops.switchRecords.pool.noQualityResult')
+    wrapper.unmount()
+  })
+
+  it('历史记录比池快照新时等待同步，不提前断言会话不可领取', async () => {
+    const group = probeGroups[0]
+    listSystemLogs.mockResolvedValue({ items: [{ ...group,
+      created_at: new Date(currentTime.getTime() + 1000).toISOString(),
+      extra: { ...group.extra, probe_results: [{ ...group.extra.probe_results[0], result_id: 'new-candidate' }] }
+    }], total: 1 })
+    const wrapper = createWrapper()
+    await wrapper.vm.refresh()
+    expect(wrapper.get('[data-testid="pool-publication-status"]').text()).toBe('admin.ops.switchRecords.pool.publishedUnknown')
+    getSnapshot.mockResolvedValue({ enabled: true, target_size: 6,
+      observed_at: new Date(currentTime.getTime() + 2000).toISOString(), candidates: [] })
+    await wrapper.vm.refresh()
+    expect(wrapper.get('[data-testid="pool-publication-status"]').text()).toBe('admin.ops.switchRecords.pool.publishedUnavailable')
+    wrapper.unmount()
+  })
+
+  it('按模型筛选时只展示匹配的探测，不混入同批其他模型的结果', async () => {
+    const group = probeGroups[0]
+    listSystemLogs.mockResolvedValue({ items: [{ ...group, extra: { ...group.extra, probe_results: [
+      group.extra.probe_results[0], { ...group.extra.probe_results[0], model: 'other-model', probe_number: 2 }
+    ] } }], total: 1 })
+    const wrapper = createWrapper()
+    await wrapper.vm.refresh({ time_range: '1h', model: 'gpt-6-sol' })
+    expect(wrapper.findAll('[data-testid="pool-publication-status"]')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('other-model')
+    wrapper.unmount()
+  })
+
+  it('历史请求未返回时，会话池仍独立刷新', async () => {
+    const wrapper = createWrapper()
+    await wrapper.vm.refresh()
+    listSystemLogs.mockImplementation(() => new Promise(() => {}))
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(getSnapshot).toHaveBeenCalledTimes(3)
+    expect(listSystemLogs).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
   it('缓存读取失败展示错误，不冒充空池；记录仍可正常查看', async () => {
     getSnapshot.mockRejectedValue(new Error('cache unavailable'))
     const wrapper = createWrapper()

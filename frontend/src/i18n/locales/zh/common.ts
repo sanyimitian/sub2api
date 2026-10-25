@@ -187,7 +187,7 @@ export default {
     proxies: 'IP管理',
     redeemCodes: '兑换码',
     ops: '运维监控',
-    accountSwitchRecords: '会话切换记录',
+    accountSwitchRecords: '会话领取与切换',
     promoCodes: '优惠码',
     settings: '系统设置',
     myAccount: '我的账户',

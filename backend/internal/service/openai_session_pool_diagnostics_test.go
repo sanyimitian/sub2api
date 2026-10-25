@@ -51,6 +51,11 @@ func TestOpenAISessionPoolDiagnosticRefillSummary(t *testing.T) {
 				require.Equal(t, "gpt-5.1", record.Model)
 				require.Equal(t, !fail, record.Published)
 				require.Equal(t, !fail, record.Qualified)
+				if record.Published {
+					require.NotEmpty(t, record.ResultID, "历史入池记录必须关联实际候选")
+					require.NotNil(t, record.QualityProbeEnabled)
+					require.False(t, *record.QualityProbeEnabled, "本次实际只进行了低延迟探测")
+				}
 				if i > 0 {
 					require.GreaterOrEqual(t, record.Round, records[i-1].Round)
 				}
@@ -227,6 +232,13 @@ func TestOpenAISessionPoolDiagnosticProbeReasonsAndPrivacy(t *testing.T) {
 		{"probe_canceled", openAIWSLatencyProbeResult{}, context.Canceled},
 		{"probe_http_error", openAIWSLatencyProbeResult{responseStatus: 529}, errors.New("private-error-body")},
 		{"upstream_request_failed", openAIWSLatencyProbeResult{}, errors.New("sk-private-key private-response")},
+		// 开启降智后也应保留真实传输失败原因，不能被“答案不完整”覆盖。
+		{"probe_timeout", openAIWSLatencyProbeResult{qualityJudgment: &QualityJudgment{Verdict: "unknown", Reason: "answer_incomplete"}}, context.DeadlineExceeded},
+		{"probe_canceled", openAIWSLatencyProbeResult{qualityJudgment: &QualityJudgment{Verdict: "unknown", Reason: "answer_incomplete"}}, context.Canceled},
+		{"probe_http_error", openAIWSLatencyProbeResult{responseStatus: 503, qualityJudgment: &QualityJudgment{Verdict: "unknown", Reason: "answer_incomplete"}}, errors.New("private-error-body")},
+		{"upstream_request_failed", openAIWSLatencyProbeResult{qualityJudgment: &QualityJudgment{Verdict: "unknown", Reason: "answer_incomplete"}}, errors.New("private-response")},
+		{"quality_inconclusive", openAIWSLatencyProbeResult{qualityJudgment: &QualityJudgment{Verdict: "unknown", Reason: "judge_no_available_account"}}, nil},
+		{"quality_incorrect", openAIWSLatencyProbeResult{qualityJudgment: &QualityJudgment{Verdict: "incorrect", Reason: "答案不同"}}, nil},
 		{"no_successful_first_token", openAIWSLatencyProbeResult{}, nil},
 	}
 	for _, tt := range tests {

@@ -41,37 +41,47 @@ type ConversationQualityJudgeService struct {
 	request  func(context.Context, int64, string, string) (string, error)
 }
 
-func (s *ConversationQualityJudgeService) Judge(ctx context.Context, testedAccount int64, cfg *ConversationQualityConfig, expected, answer string) *QualityJudgment {
+// 出题前和正式判题共用同一套资格检查；这里只检查候选，不预占判题并发名额。
+// 正式判题重新读取，避免答题期间分组或账号已变化却仍按旧快照发出请求。
+func (s *ConversationQualityJudgeService) candidates(ctx context.Context, testedAccount int64, cfg *ConversationQualityConfig) ([]Account, *QualityJudgment) {
 	result := &QualityJudgment{Verdict: "unknown", Reason: "judge_not_configured"}
 	if cfg == nil || cfg.Judge == nil || s == nil || s.accounts == nil || s.groups == nil || s.slots == nil || s.request == nil {
-		return result
+		return nil, result
 	}
 	judge := cfg.Judge
 	result.GroupID = judge.GroupID
 	result.ModelID = judge.ModelID
-	if len(answer) > 64000 {
-		result.Reason = "judge_input_too_large"
-		return result
-	}
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
-	defer cancel()
 	group, err := s.groups.GetByID(ctx, judge.GroupID)
 	if err != nil || group == nil || group.Status != StatusActive {
 		result.Reason = "judge_group_unavailable"
-		return result
+		return nil, result
 	}
 	if group.ModelAllowlistEnabled() && !group.ModelAllowlist.Allows(judge.ModelID) {
 		result.Reason = "judge_model_not_allowed"
-		return result
+		return nil, result
 	}
 	accounts, err := s.accounts.ListSchedulableByGroupID(ctx, judge.GroupID)
 	if err != nil {
 		result.Reason = "judge_accounts_unavailable"
+		return nil, result
+	}
+	result.Reason = "judge_no_available_account"
+	return qualityJudgeCandidates(accounts, testedAccount, judge), result
+}
+
+func (s *ConversationQualityJudgeService) Judge(ctx context.Context, testedAccount int64, cfg *ConversationQualityConfig, expected, answer string) *QualityJudgment {
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	accounts, result := s.candidates(ctx, testedAccount, cfg)
+	if len(accounts) == 0 {
 		return result
 	}
-	accounts = qualityJudgeCandidates(accounts, testedAccount, judge)
+	if len(answer) > 64000 {
+		result.Reason = "judge_input_too_large"
+		return result
+	}
+	judge := cfg.Judge
 	prompt := qualityJudgePrompt(cfg, expected, answer)
-	result.Reason = "judge_no_available_account"
 	for i := range accounts {
 		account := &accounts[i]
 		if ctx.Err() != nil {

@@ -27,7 +27,8 @@ import (
 // 探测模型列表控制后台使用哪些模型测速，不限制候选可以服务的用户请求模型。
 // 例如使用 gpt-6-sol 探测合格后，只要账号模型白名单允许 gpt-6.1-sol，就可领取同一
 // 候选会话来调用 gpt-6.1-sol。实际调用遵循用户请求及已有模型映射，不能改成探测模型。
-// 这是一项复用粘性会话的业务规则，不代表已经验证其他模型同样快速，也不评测回答质量。
+// 这是一项复用粘性会话的业务规则，不代表其他模型同样快速。开启降智探测时，
+// 质量结论也只针对探测模型的本次答题，不能代表其他模型已经通过相同检查。
 //
 // 有权调用候选所属账号的分组可以共享未使用的候选，不按来源分组隔离；账号权限、
 // 请求模型支持情况和连接方式等条件仍须校验。发送用户内容前必须独占候选，之后不能
@@ -402,6 +403,19 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 			}
 			if !s.OpenAISessionPoolEnabled(ctx) {
 				diagnostic.notPublished++
+				item.record.Reason = "feature_disabled"
+				return
+			}
+			// 探测和判题期间配置可能变化，不能把旧规则下的结果当成当前合格会话。
+			fresh, err := s.accountRepo.GetByID(ctx, route.account.ID)
+			if err != nil || fresh == nil {
+				diagnostic.notPublished++
+				item.record.Reason = "account_lookup_failed"
+				return
+			}
+			if !fresh.OpenAISessionPoolEnabled() || !fresh.IsSchedulable() || openAISessionPoolAccountFingerprint(fresh) != route.fingerprint || !openAISessionPoolModelConfigured(fresh, route.upstreamModel) {
+				diagnostic.notPublished++
+				item.record.Reason = "account_configuration_changed"
 				return
 			}
 			resultID, publishReason := uuid.NewString(), "cache_update_failed"
@@ -426,11 +440,13 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 			})
 			if published {
 				item.record.Published = true
+				item.record.ResultID = resultID
 				diagnostic.published++
 				diagnostic.available++
 				publishReason = "candidate_published"
 			} else {
 				diagnostic.notPublished++
+				item.record.Reason = publishReason
 			}
 			// 原始上游会话不进入日志；候选编号关联后续领取与接管。
 			sessionHash, _ := deriveOpenAISessionHashes(result.upstreamSessionID)
@@ -450,14 +466,13 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 			item := <-results
 			item.record = &openAISessionPoolProbeRecord{Round: round + 1, ProbeNumber: item.number,
 				AccountID: item.route.account.ID, AccountName: item.route.account.Name, Model: item.route.model,
-				Transport: item.route.transport, Success: item.result.ok, Qualified: item.result.failure == "qualified", Reason: item.result.failure, QualityJudgment: item.result.qualityJudgment}
+				Transport: item.route.transport, Success: item.result.ok, Qualified: item.result.failure == "qualified", Reason: item.result.failure, QualityJudgment: item.result.qualityJudgment, QualityProbeEnabled: item.result.qualityProbeEnabled}
 			if (item.result.ok || item.result.qualityJudgment != nil) && item.result.ms >= 0 {
 				ms := item.result.ms
 				item.record.FirstTokenMS = &ms
 			}
 			diagnostic.results = append(diagnostic.results, item.record)
 			diagnostic.probes++
-			diagnostic.outcomes[item.result.failure]++
 			if item.result.ok && item.result.ms < openAIWSLatencyFastCandidateMS {
 				publish(item)
 			} else {

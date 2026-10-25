@@ -53,6 +53,51 @@ func (c failingSessionPoolSnapshotCache) GetOpenAIWSLatencyState(context.Context
 	return nil, errors.New("cache unavailable")
 }
 
+type publishingSessionPoolSnapshotCache struct {
+	*openAIWSLatencyMemoryCache
+	afterRead func([]byte)
+}
+
+func (c *publishingSessionPoolSnapshotCache) GetOpenAIWSLatencyState(ctx context.Context, key string) ([]byte, error) {
+	raw, err := c.openAIWSLatencyMemoryCache.GetOpenAIWSLatencyState(ctx, key)
+	if err == nil && c.afterRead != nil {
+		c.afterRead(raw)
+	}
+	return raw, err
+}
+
+func TestOpenAISessionPoolSnapshotDoesNotDateOldDataAfterConcurrentPublication(t *testing.T) {
+	svc, cache := newOpenAIWSLatencyTestService(t)
+	a := preparedTestAccount(11, 1)
+	svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{a}}
+	var publishedAt time.Time
+	snapshotCache := &publishingSessionPoolSnapshotCache{openAIWSLatencyMemoryCache: cache}
+	snapshotCache.afterRead = func(raw []byte) {
+		// 模拟 Redis 已取出旧快照，但网络响应到达前另一个请求发布了新候选。
+		publishedAt = time.Now()
+		pool := openAIWSLatencyCandidatePool{Candidates: []openAIWSLatencyReusableCandidate{{
+			ResultID: "concurrent-candidate", AccountID: a.ID, UpstreamSessionID: "private-session",
+			UpstreamModel: "gpt-5.1", ProbeModel: "gpt-5.1", Transport: OpenAIUpstreamTransportHTTPSSE,
+			FirstTokenMS: 100, ExpiresAt: publishedAt.Add(time.Minute).UnixMilli(), AccountFingerprint: openAISessionPoolAccountFingerprint(&a),
+		}}}
+		next, err := json.Marshal(pool)
+		require.NoError(t, err)
+		updated, err := cache.CompareAndSwapOpenAIWSLatencyState(context.Background(), openAISessionPoolKey, raw, next, time.Minute)
+		require.NoError(t, err)
+		require.True(t, updated)
+	}
+	svc.cache = snapshotCache
+	snapshot, err := svc.GetOpenAISessionPoolSnapshot(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, snapshot.Candidates)
+	require.False(t, snapshot.ObservedAt.After(publishedAt), "旧快照不能标成新候选发布之后的状态，否则页面会误报该候选不可领取")
+	snapshotCache.afterRead = nil
+	next, err := svc.GetOpenAISessionPoolSnapshot(context.Background())
+	require.NoError(t, err)
+	require.Len(t, next.Candidates, 1)
+	require.Equal(t, "concurrent-candidate", next.Candidates[0].ResultID)
+}
+
 func TestOpenAISessionPoolSnapshotReportsCacheFailure(t *testing.T) {
 	svc, cache := newOpenAIWSLatencyTestService(t)
 	svc.cache = failingSessionPoolSnapshotCache{cache}

@@ -29,7 +29,19 @@ const candidates = computed(() => (snapshot.value?.candidates ?? []).filter(cand
   Date.parse(candidate.expires_at) > now.value + clockOffset.value && (!filters.value.model || candidate.model === filters.value.model)
 ))
 const results = (group: OpsSystemLog): OpenAISessionPoolProbeResult[] =>
-  Array.isArray(group.extra?.probe_results) ? group.extra.probe_results : []
+  Array.isArray(group.extra?.probe_results)
+    ? group.extra.probe_results.filter((result: OpenAISessionPoolProbeResult) => !filters.value.model || result.model === filters.value.model)
+    : []
+const availableResultIDs = computed(() => new Set(candidates.value.map(candidate => candidate.result_id)))
+const publicationState = (result: OpenAISessionPoolProbeResult, group: OpsSystemLog) => {
+  // 旧记录没有候选编号，不能用账号和模型猜测是不是同一个会话。
+  if (!result.result_id) return 'published'
+  if (!snapshot.value || poolError.value) return 'publishedUnknown'
+  if (availableResultIDs.value.has(result.result_id)) return 'availableNow'
+  // 历史可能比池快照更新，等待下一次快照，不能误报已失效。
+  if (Date.parse(group.created_at) > Date.parse(snapshot.value.observed_at)) return 'publishedUnknown'
+  return 'publishedUnavailable'
+}
 const formatTime = (value: string) => new Date(value).toLocaleString()
 const reasonLabel = (reason: string) => {
   const key = `admin.ops.switchRecords.pool.reasons.${reason}`
@@ -93,7 +105,10 @@ async function changePageSize(value: number) { pageSize.value = value; page.valu
 
 defineExpose({ refresh })
 onMounted(() => {
-  refreshTimer = setInterval(() => { if (!poolLoading.value && !historyLoading.value) void refresh() }, 15000)
+  refreshTimer = setInterval(() => {
+    if (!poolLoading.value) void loadPool()
+    if (!historyLoading.value) void loadHistory()
+  }, 15000)
   clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
 })
 onUnmounted(() => {
@@ -112,6 +127,7 @@ onUnmounted(() => {
         {{ poolExpanded ? t('admin.ops.switchRecords.pool.collapse') : t('admin.ops.switchRecords.pool.expand') }}
       </button>
     </header>
+    <p v-if="snapshot" class="text-xs text-gray-600 dark:text-gray-300" data-testid="pool-observed-at">{{ t('admin.ops.switchRecords.pool.observedAt', { time: formatTime(snapshot.observed_at) }) }}</p>
     <div v-if="poolExpanded" id="pool-candidates" class="space-y-3">
       <p class="text-xs text-gray-600 dark:text-gray-300">{{ t('admin.ops.switchRecords.pool.liveHint') }}</p>
       <p v-if="poolError" role="alert" class="text-sm text-red-700 dark:text-red-300">{{ t('admin.ops.switchRecords.pool.loadFailed') }}</p>
@@ -157,7 +173,7 @@ onUnmounted(() => {
         <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
           <time :datetime="group.created_at" class="font-medium text-gray-900 dark:text-white">{{ formatTime(group.created_at) }}</time>
           <span>{{ reasonLabel(String(group.extra?.reason ?? '')) }}</span>
-          <span>{{ t('admin.ops.switchRecords.pool.summary', { probes: group.extra?.probe_count ?? results(group).length, published: group.extra?.published_count ?? 0 }) }}</span>
+          <span>{{ t('admin.ops.switchRecords.pool.summary', { probes: results(group).length, published: results(group).filter(result => result.published).length }) }}</span>
         </div>
         <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-dark-700">
           <table class="w-full min-w-[720px] text-left text-sm">
@@ -177,10 +193,12 @@ onUnmounted(() => {
                 <td class="px-4 py-2">{{ transportLabel(result.transport) }}</td>
                 <td class="whitespace-nowrap px-4 py-2 font-mono">{{ result.first_token_ms == null ? '—' : `${result.first_token_ms} ms` }}</td>
                 <td class="px-4 py-2">
-                  <span :class="result.published ? 'text-emerald-700 dark:text-emerald-300' : 'text-gray-700 dark:text-gray-300'">{{ result.published ? t('admin.ops.switchRecords.pool.published') : reasonLabel(result.reason) }}</span>
+                  <span :class="result.published && publicationState(result, group) === 'availableNow' ? 'text-emerald-700 dark:text-emerald-300' : 'text-gray-700 dark:text-gray-300'" data-testid="pool-publication-status">{{ result.published ? t(`admin.ops.switchRecords.pool.${publicationState(result, group)}`) : reasonLabel(result.reason) }}</span>
                   <p v-if="result.quality_judgment" class="mt-1 max-w-sm break-words text-xs text-gray-600 dark:text-gray-300" data-testid="pool-quality-judgment">
                     {{ t(`admin.accounts.sessionPool.verdicts.${result.quality_judgment.verdict}`) }} · {{ qualityReasonLabel(result.quality_judgment.reason) }}
                   </p>
+                  <p v-else-if="result.quality_probe_enabled === false" class="mt-1 text-xs text-gray-600 dark:text-gray-300" data-testid="pool-probe-mode">{{ t('admin.ops.switchRecords.pool.latencyOnly') }}</p>
+                  <p v-else class="mt-1 text-xs text-gray-600 dark:text-gray-300" data-testid="pool-probe-mode">{{ t('admin.ops.switchRecords.pool.noQualityResult') }}</p>
                 </td>
               </tr>
             </tbody>

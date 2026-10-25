@@ -38,6 +38,20 @@ func (session *OpenAIWSLatencySession) poolDiagnostic(ctx context.Context, level
 }
 
 func openAISessionPoolProbeReason(result openAIWSLatencyProbeResult, err error, expectedModel string) string {
+	// 质量未知只是未完成判题的结果，不能遮住答题请求本身的错误。
+	// 低延迟单测允许已取得首字后超时，仍保留原有成功口径。
+	if !result.ok {
+		switch {
+		case result.timedOut || errors.Is(err, context.DeadlineExceeded):
+			return "probe_timeout"
+		case errors.Is(err, context.Canceled):
+			return "probe_canceled"
+		case result.responseStatus >= 400:
+			return "probe_http_error"
+		case err != nil:
+			return "upstream_request_failed"
+		}
+	}
 	if result.qualityJudgment != nil && result.qualityJudgment.Verdict != "correct" {
 		if result.qualityJudgment.Verdict == "incorrect" {
 			return "quality_incorrect"
@@ -56,14 +70,6 @@ func openAISessionPoolProbeReason(result openAIWSLatencyProbeResult, err error, 
 		default:
 			return "qualified"
 		}
-	case result.timedOut || errors.Is(err, context.DeadlineExceeded):
-		return "probe_timeout"
-	case errors.Is(err, context.Canceled):
-		return "probe_canceled"
-	case result.responseStatus >= 400:
-		return "probe_http_error"
-	case err != nil:
-		return "upstream_request_failed"
 	default:
 		return "no_successful_first_token"
 	}
@@ -80,21 +86,28 @@ type openAISessionPoolRefillDiagnostic struct {
 
 // 仅保存页面需要的探测元数据，绝不包含上游会话标识或凭据。
 type openAISessionPoolProbeRecord struct {
-	Round           int                     `json:"round"`
-	ProbeNumber     int                     `json:"probe_number"`
-	AccountID       int64                   `json:"account_id"`
-	AccountName     string                  `json:"account_name"`
-	Model           string                  `json:"model"`
-	Transport       OpenAIUpstreamTransport `json:"transport"`
-	FirstTokenMS    *int                    `json:"first_token_ms"`
-	Success         bool                    `json:"success"`
-	Qualified       bool                    `json:"qualified"`
-	Published       bool                    `json:"published"`
-	Reason          string                  `json:"reason"`
-	QualityJudgment *QualityJudgment        `json:"quality_judgment,omitempty"`
+	ResultID            string                  `json:"result_id,omitempty"`
+	QualityProbeEnabled *bool                   `json:"quality_probe_enabled,omitempty"`
+	Round               int                     `json:"round"`
+	ProbeNumber         int                     `json:"probe_number"`
+	AccountID           int64                   `json:"account_id"`
+	AccountName         string                  `json:"account_name"`
+	Model               string                  `json:"model"`
+	Transport           OpenAIUpstreamTransport `json:"transport"`
+	FirstTokenMS        *int                    `json:"first_token_ms"`
+	Success             bool                    `json:"success"`
+	Qualified           bool                    `json:"qualified"`
+	Published           bool                    `json:"published"`
+	Reason              string                  `json:"reason"`
+	QualityJudgment     *QualityJudgment        `json:"quality_judgment,omitempty"`
 }
 
 func (d *openAISessionPoolRefillDiagnostic) write(ctx context.Context) {
+	// 入池前复核可能改变最终原因，汇总必须与页面上的逐条结果一致。
+	d.outcomes = make(map[string]int)
+	for _, record := range d.results {
+		d.outcomes[record.Reason]++
+	}
 	level := logger.LevelInfo
 	if d.reason == "probe_rounds_exhausted" || d.reason == "cache_update_failed" {
 		level = logger.LevelWarn

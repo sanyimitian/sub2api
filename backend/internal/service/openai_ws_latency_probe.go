@@ -37,6 +37,7 @@ type openAIWSLatencyProbeResult struct {
 	responseStatus      int // 仅供备用池诊断，不改变成功判定。
 	qualityJudgment     *QualityJudgment
 	qualityQuestion     *conversationQualityQuestion
+	qualityProbeEnabled *bool
 }
 
 type openAIWSLatencyProbeSessionIDContextKey struct{}
@@ -74,6 +75,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx contex
 		return observed, configErr
 	}
 	qualityEnabled := isOpenAIPreparedProbe(ctx) && quality != nil && quality.Enabled
+	observed.qualityProbeEnabled = &qualityEnabled
 	if qualityEnabled {
 		observed.ms = -1 // 没有测到首字时不能在诊断中显示为 0 毫秒。
 	}
@@ -90,6 +92,12 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx contex
 	if qualityEnabled {
 		if err := validateConversationQualityConfig(quality); err != nil {
 			return observed, err
+		}
+		// 判题服务不可用时不消耗做题请求；不能退回只测延迟或让被测账号自判。
+		judges, unavailable := s.conversationQualityJudge.candidates(probeCtx, account.ID, quality)
+		if len(judges) == 0 {
+			observed.qualityJudgment = unavailable
+			return observed, nil
 		}
 		question := &conversationQualityQuestion{Prompt: quality.Prompt, ExpectedAnswer: quality.ExpectedAnswer}
 		if quality.QuestionKind == QualityRandomQuestionKind {

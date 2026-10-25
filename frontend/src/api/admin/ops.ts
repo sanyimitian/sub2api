@@ -874,6 +874,8 @@ export interface OpenAISessionPoolSnapshot {
 }
 
 export interface OpenAISessionPoolProbeResult {
+	result_id?: string
+	quality_probe_enabled?: boolean
 	quality_judgment?: {
 		verdict: 'correct' | 'incorrect' | 'unknown'
 		reason: string

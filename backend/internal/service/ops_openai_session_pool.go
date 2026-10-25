@@ -35,6 +35,8 @@ func (s *OpsService) GetOpenAISessionPoolSnapshot(ctx context.Context) (*OpenAIS
 
 // GetOpenAISessionPoolSnapshot 只读当前可领取候选，不修改租约，也不输出上游会话标识。
 func (s *OpenAIGatewayService) GetOpenAISessionPoolSnapshot(ctx context.Context) (*OpenAISessionPoolSnapshot, error) {
+	// 账号和缓存分别读取，使用读取开始时间作为保守的观察边界。
+	// 读取期间新发布的候选若不在旧快照中，应等待同步，不能判为已经不可领取。
 	snapshot := &OpenAISessionPoolSnapshot{Enabled: s.OpenAISessionPoolEnabled(ctx), ObservedAt: time.Now(), Candidates: []OpenAISessionPoolCandidateView{}}
 	if s.settingService != nil {
 		snapshot.TargetSize = s.settingService.GetOpenAISessionPoolSize(ctx)
@@ -62,8 +64,7 @@ func (s *OpenAIGatewayService) GetOpenAISessionPoolSnapshot(ctx context.Context)
 			return nil, fmt.Errorf("解析备用会话池失败: %w", err)
 		}
 	}
-	snapshot.ObservedAt = time.Now()
-	now := snapshot.ObservedAt.UnixMilli()
+	now := time.Now().UnixMilli()
 	pruneOpenAISessionPool(&pool, routes, now)
 	for _, candidate := range pool.Candidates {
 		if candidate.Committed || (candidate.LeaseID != "" && candidate.LeaseUntil > now) {
