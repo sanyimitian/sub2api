@@ -46,6 +46,7 @@ import { useAppStore } from '@/stores/app'
 import type { DegradationTestStatus } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTime } from '@/utils/format'
+import { useDegradationTestRuns } from '@/composables/useDegradationTestRuns'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -55,7 +56,8 @@ const refreshing = ref(false)
 const autoRefresh = ref(true)
 const loadError = ref('')
 const updatedAt = ref('')
-const runningIds = reactive(new Set<number>())
+const runs = useDegradationTestRuns()
+const pendingResults = new Map<number, number | null>()
 const runErrors = reactive<Record<number, string>>({})
 const togglingIds = reactive(new Set<number>())
 const toggleErrors = reactive<Record<number, string>>({})
@@ -69,9 +71,10 @@ let statusController: AbortController | null = null
 let statusRequestId = 0
 let historyRequestId = 0
 let pollTimer: ReturnType<typeof setInterval> | undefined
+let lastStatusRequestAt = 0
 
 function isRunning(item: DegradationTestStatus): boolean {
-  return runningIds.has(item.plan.id) || (!!item.plan.running_until && new Date(item.plan.running_until).getTime() > now.value)
+  return runs.isRunning(item.plan, now.value)
 }
 
 function invalidateStatusRequest() {
@@ -87,11 +90,23 @@ async function loadStatuses() {
   const controller = new AbortController()
   statusController = controller
   const request = ++statusRequestId
+  const fence = runs.fence()
+  lastStatusRequestAt = Date.now()
   refreshing.value = true
   try {
     const data = await adminAPI.degradationTests.listStatus(controller.signal)
     if (!active || controller.signal.aborted || request !== statusRequestId) return
+    runs.observe(data.map(item => item.plan), fence)
     items.value = data
+    for (const planId of pendingResults.keys()) {
+      if (!data.some(item => item.plan.id === planId)) pendingResults.delete(planId)
+    }
+    for (const item of data) {
+      if (!pendingResults.has(item.plan.id) || isRunning(item)) continue
+      if (item.latest_result && item.latest_result.id !== pendingResults.get(item.plan.id)) delete runErrors[item.plan.id]
+      else if (!runErrors[item.plan.id]) runErrors[item.plan.id] = t('admin.intelligenceStatus.resultUnavailable')
+      pendingResults.delete(item.plan.id)
+    }
     loadError.value = ''
     updatedAt.value = new Date().toISOString()
   } catch (error) {
@@ -108,24 +123,25 @@ async function loadStatuses() {
 
 async function runNow(item: DegradationTestStatus) {
   const planId = item.plan.id
-  if (!active || isRunning(item)) return
-  runningIds.add(planId)
+  if (!active || !runs.begin(item.plan)) return
+  pendingResults.set(planId, item.latest_result?.id ?? null)
   delete runErrors[planId]
   // An earlier status response must not replace this newly completed execution.
   invalidateStatusRequest()
   try {
-    const result = await adminAPI.degradationTests.run(planId)
+    const plan = await adminAPI.degradationTests.run(planId)
+    runs.accepted(plan)
     if (!active) return
-    items.value = items.value.map(current => current.plan.id === planId ? { ...current, latest_result: result } : current)
-    if (result.status === 'success') appStore.showSuccess(t('admin.intelligenceStatus.runSuccess'))
-    else appStore.showError(result.error_message || t('admin.intelligenceStatus.runFailed'))
+    invalidateStatusRequest()
+    items.value = items.value.map(current => current.plan.id === planId ? { ...current, plan } : current)
+    appStore.showSuccess(t('admin.intelligenceStatus.runStarted'))
   } catch (error) {
+    runs.uncertain(planId)
     if (!active) return
     runErrors[planId] = extractApiErrorMessage(error, t('admin.intelligenceStatus.runFailed'))
     appStore.showError(runErrors[planId])
   } finally {
     if (active) {
-      runningIds.delete(planId)
       // Also reconcile saved results when the execution response was lost.
       await loadStatuses()
     }
@@ -182,9 +198,12 @@ function closeHistory() {
 onMounted(() => {
   void loadStatuses()
   pollTimer = setInterval(() => {
+    const wasRunning = items.value.some(isRunning)
     now.value = Date.now()
-    if (autoRefresh.value && !document.hidden && !refreshing.value && !historyTarget.value && !togglingIds.size) void loadStatuses()
-  }, 15000)
+    const running = items.value.some(isRunning)
+    const scheduledRefresh = autoRefresh.value && !document.hidden && !historyTarget.value && Date.now() - lastStatusRequestAt >= 15000
+    if ((running || wasRunning || pendingResults.size > 0 || scheduledRefresh) && !refreshing.value && !togglingIds.size) void loadStatuses()
+  }, 5000)
 })
 
 onBeforeUnmount(() => {

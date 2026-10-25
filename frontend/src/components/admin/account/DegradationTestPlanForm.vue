@@ -49,6 +49,11 @@
         <p class="mt-1 text-xs text-gray-500">{{ t('admin.degradationTests.promptHelp') }}</p>
       </div>
       <div>
+        <label :for="`${formId}-timeout`" class="mb-1 block text-sm font-medium">{{ t('admin.degradationTests.timeoutMinutes') }}</label>
+        <input :id="`${formId}-timeout`" v-model.number="timeoutMinutes" data-testid="timeout-minutes" type="number" min="1" max="30" step="any" required class="input w-full">
+        <p class="mt-1 text-xs text-gray-500">{{ t('admin.degradationTests.timeoutHelp') }}</p>
+      </div>
+      <div>
         <label :for="`${formId}-retention`" class="mb-1 block text-sm font-medium">{{ t('admin.degradationTests.maxResults') }}</label>
         <input :id="`${formId}-retention`" class="input w-full bg-gray-50 dark:bg-dark-800" value="24" type="number" readonly>
         <p class="mt-1 text-xs text-gray-500">{{ t('admin.degradationTests.retentionHelp') }}</p>
@@ -76,6 +81,7 @@ import { DEFAULT_DEGRADATION_TEST_PROMPT } from '@/utils/degradationTestPreview'
 export interface DegradationTestPlanFormValue {
   model_id: string
   reasoning_effort: DegradationTestReasoningEffort
+  timeout_seconds: number
   cron_expression: string
   prompt: string
   max_results: number
@@ -93,9 +99,11 @@ const intervalValue = ref(initialInterval ? Number(initialInterval[1]) : 30)
 const intervalUnit = ref(initialInterval?.[2] ?? 'm')
 const intervalMaximum = computed(() => intervalUnit.value === 'd' ? 30 : intervalUnit.value === 'h' ? 720 : 43200)
 const validationError = ref('')
+const timeoutMinutes = ref((props.initial?.timeout_seconds ?? 600) / 60)
 const form = reactive<DegradationTestPlanFormValue>({
   model_id: props.initial?.model_id ?? '',
   reasoning_effort: props.initial?.reasoning_effort ?? '',
+  timeout_seconds: props.initial?.timeout_seconds ?? 600,
   cron_expression: props.initial?.cron_expression ?? '*/30 * * * *',
   prompt: props.initial ? (props.initial.prompt ?? '') : DEFAULT_DEGRADATION_TEST_PROMPT,
   max_results: 24,
@@ -104,6 +112,11 @@ const form = reactive<DegradationTestPlanFormValue>({
 
 function submit() {
   validationError.value = ''
+  const timeoutSeconds = Number(timeoutMinutes.value) * 60
+  if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 60 || timeoutSeconds > 1800) {
+    validationError.value = t('admin.degradationTests.invalidTimeout')
+    return
+  }
   let expression = form.cron_expression.trim()
   if (scheduleMode.value === 'interval') {
     const value = Number(intervalValue.value)
@@ -117,6 +130,6 @@ function submit() {
     validationError.value = t('admin.degradationTests.invalidPlan')
     return
   }
-  emit('submit', { ...form, max_results: 24, model_id: form.model_id.trim(), cron_expression: expression })
+  emit('submit', { ...form, timeout_seconds: timeoutSeconds, max_results: 24, model_id: form.model_id.trim(), cron_expression: expression })
 }
 </script>

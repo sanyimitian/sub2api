@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -63,6 +64,7 @@ func TestDegradationTestPlanValidation(t *testing.T) {
 
 type degradationPlanRepoStub struct {
 	DegradationTestPlanRepository
+	mu        sync.Mutex
 	plan      DegradationTestPlan
 	claim     bool
 	scheduled bool
@@ -81,26 +83,42 @@ func (r *degradationPlanRepoStub) Update(_ context.Context, plan *DegradationTes
 }
 
 func (r *degradationPlanRepoStub) GetByID(context.Context, int64) (*DegradationTestPlan, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	plan := r.plan
 	return &plan, nil
 }
 
-func (r *degradationPlanRepoStub) ClaimRun(_ context.Context, _ int64, scheduled bool, _, until time.Time) (*DegradationTestPlan, error) {
+func (r *degradationPlanRepoStub) ClaimRun(ctx context.Context, _ int64, scheduled bool, now time.Time) (*DegradationTestPlan, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	r.scheduled = scheduled
-	if !r.claim {
+	if !r.claim || (r.plan.RunningUntil != nil && r.plan.RunningUntil.After(now)) {
 		return nil, nil
 	}
+	timeout := r.plan.TimeoutSeconds
+	if timeout == 0 {
+		timeout = DegradationTestDefaultTimeoutSeconds
+	}
+	until := now.Add(time.Duration(timeout)*time.Second + degradationTestLeaseGrace)
+	r.plan.RunningUntil = &until
 	plan := r.plan
-	plan.RunningUntil = &until
-	return &plan, nil
+	plan.TimeoutSeconds = timeout
+	return cloneDegradationTestPlan(&plan), nil
 }
 
 func (r *degradationPlanRepoStub) CompleteRun(ctx context.Context, _ *DegradationTestPlan, _ time.Time, next *time.Time) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.completed = true
 	r.nextRun = next
+	r.plan.RunningUntil = nil
 	return nil
 }
 
@@ -182,6 +200,7 @@ func newDegradationRunnerTest(t *testing.T, tester degradationTesterFunc) (*Degr
 	svc := NewDegradationTestService(plans, results)
 	runner := NewDegradationTestRunnerService(plans, svc, nil, nil)
 	runner.accountTestSvc = tester
+	t.Cleanup(runner.Stop)
 	return runner, plans, results
 }
 
@@ -192,7 +211,7 @@ func TestDegradationTestManualRunPersistsSnapshotAndPreservesSchedule(t *testing
 		require.Equal(t, DefaultDegradationTestPrompt, prompts)
 		return &DegradationTestResult{Status: "success", ResponseText: "<html><svg/></html>"}, nil
 	})
-	result, err := runner.RunNow(context.Background(), 7)
+	result, err := runner.runOnePlan(context.Background(), 7, false)
 	require.NoError(t, err)
 	require.EqualValues(t, 12, result.ID)
 	require.Equal(t, "chosen-model", results.saved.ModelID)
@@ -234,13 +253,12 @@ func TestDegradationTestFailuresAreSavedAndScheduleAdvances(t *testing.T) {
 }
 
 func TestDegradationTestCancellationStillPersistsFailure(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	var runner *DegradationTestRunnerService
 	runner, plans, results := newDegradationRunnerTest(t, func(ctx context.Context, _ int64, _ string, _ string) (*DegradationTestResult, error) {
-		cancel()
+		runner.cancelBackground()
 		return &DegradationTestResult{Status: "success", ResponseText: "partial"}, ctx.Err()
 	})
-	result, err := runner.RunNow(ctx, 7)
+	result, err := runner.runOnePlan(context.Background(), 7, false)
 	require.NoError(t, err)
 	require.Equal(t, "failed", result.Status)
 	require.Equal(t, "context canceled", results.saved.ErrorMessage)
@@ -270,7 +288,7 @@ func TestDegradationTestPersistenceErrorReleasesLease(t *testing.T) {
 		return &DegradationTestResult{Status: "success"}, nil
 	})
 	results.err = errors.New("storage unavailable")
-	_, err := runner.RunNow(context.Background(), 7)
+	_, err := runner.runOnePlan(context.Background(), 7, false)
 	require.ErrorContains(t, err, "storage unavailable")
 	require.True(t, plans.completed)
 	require.Zero(t, len(runner.workers))

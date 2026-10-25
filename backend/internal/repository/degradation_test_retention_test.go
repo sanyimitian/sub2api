@@ -162,3 +162,27 @@ func TestDegradationTestReasoningEffortMigrationPreservesDefaultsAndHistory(t *t
 	require.NoError(t, db.QueryRow("SELECT reasoning_effort FROM degradation_test_results WHERE id=2").Scan(&effort))
 	require.Equal(t, "high", effort)
 }
+
+func TestDegradationTestTimeoutMigrationPreservesPlansWithTenMinuteDefault(t *testing.T) {
+	content, err := dbmigrations.FS.ReadFile("248_degradation_test_timeout.sql")
+	require.NoError(t, err)
+	db, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err)
+	defer db.Close()
+	_, err = db.Exec(`CREATE TABLE degradation_test_plans (id INTEGER PRIMARY KEY, model_id TEXT NOT NULL);
+		INSERT INTO degradation_test_plans VALUES (1, 'existing-model')`)
+	require.NoError(t, err)
+	_, err = db.Exec(strings.ReplaceAll(string(content), "ADD COLUMN IF NOT EXISTS", "ADD COLUMN"))
+	require.NoError(t, err)
+	var seconds int
+	var model string
+	require.NoError(t, db.QueryRow("SELECT model_id, timeout_seconds FROM degradation_test_plans WHERE id=1").Scan(&model, &seconds))
+	require.Equal(t, "existing-model", model)
+	require.Equal(t, 600, seconds)
+	_, err = db.Exec("UPDATE degradation_test_plans SET timeout_seconds=59 WHERE id=1")
+	require.Error(t, err)
+	_, err = db.Exec("UPDATE degradation_test_plans SET timeout_seconds=1801 WHERE id=1")
+	require.Error(t, err)
+	_, err = db.Exec("UPDATE degradation_test_plans SET timeout_seconds=1800 WHERE id=1")
+	require.NoError(t, err)
+}

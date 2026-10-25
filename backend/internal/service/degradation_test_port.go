@@ -15,6 +15,7 @@ type DegradationTestPlan struct {
 	CronExpression  string     `json:"cron_expression"`
 	Enabled         bool       `json:"enabled"`
 	MaxResults      int        `json:"max_results"`
+	TimeoutSeconds  int        `json:"timeout_seconds"`
 	LastRunAt       *time.Time `json:"last_run_at"`
 	NextRunAt       *time.Time `json:"next_run_at"`
 	RunningUntil    *time.Time `json:"running_until,omitempty"`
@@ -57,7 +58,8 @@ type DegradationTestPlanRepository interface {
 	Update(ctx context.Context, plan *DegradationTestPlan) (*DegradationTestPlan, error)
 	Delete(ctx context.Context, id int64) error
 	// ClaimRun atomically leases a plan; scheduled claims additionally require a due, enabled plan.
-	ClaimRun(ctx context.Context, id int64, scheduled bool, now, leaseUntil time.Time) (*DegradationTestPlan, error)
+	// The lease uses the timeout on the row being claimed, plus a minute for persistence.
+	ClaimRun(ctx context.Context, id int64, scheduled bool, now time.Time) (*DegradationTestPlan, error)
 	// CompleteRun releases only this lease and preserves schedules edited during execution.
 	// A nil nextRunAt records a manual run without changing the scheduled execution time.
 	CompleteRun(ctx context.Context, plan *DegradationTestPlan, finishedAt time.Time, nextRunAt *time.Time) error

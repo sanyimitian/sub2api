@@ -25,7 +25,7 @@ func degradationStatusDB(t *testing.T) *sql.DB {
 		    id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL, model_id TEXT NOT NULL,
 		    cron_expression TEXT NOT NULL, enabled BOOLEAN NOT NULL, max_results INTEGER NOT NULL DEFAULT 24,
 		    last_run_at TIMESTAMP, next_run_at TIMESTAMP, created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL,
-		    prompt TEXT NOT NULL, running_until TIMESTAMP, reasoning_effort TEXT NOT NULL DEFAULT ''
+		    prompt TEXT NOT NULL, running_until TIMESTAMP, reasoning_effort TEXT NOT NULL DEFAULT '', timeout_seconds INTEGER NOT NULL DEFAULT 600
 		);
 		CREATE TABLE degradation_test_results (
 		    id INTEGER PRIMARY KEY, plan_id INTEGER NOT NULL, model_id TEXT NOT NULL,

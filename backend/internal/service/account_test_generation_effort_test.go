@@ -95,7 +95,7 @@ func TestDegradationTestRunnerPassesAndSnapshotsClaimedEffort(t *testing.T) {
 	plans.plan.ReasoningEffort = "xhigh"
 	tester := &degradationEffortCaptureTester{}
 	runner.accountTestSvc = tester
-	result, err := runner.RunNow(context.Background(), 7)
+	result, err := runner.runOnePlan(context.Background(), 7, false)
 	require.NoError(t, err)
 	require.Equal(t, "xhigh", tester.effort)
 	require.Equal(t, "xhigh", result.ReasoningEffort)
