@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, ref } from 'vue'
 import ConversationQualityFields from '../ConversationQualityFields.vue'
-import { defaultConversationQualityConfig, readConversationQualityConfig, conversationQualityConfigForSave } from '@/utils/openaiSessionPool'
+import { CONVERSATION_CANDY_PROMPT, defaultConversationQualityConfig, readConversationQualityConfig, conversationQualityConfigForSave } from '@/utils/openaiSessionPool'
 
 const { getAll, getModelAllowlistCandidates } = vi.hoisted(() => ({ getAll: vi.fn(), getModelAllowlistCandidates: vi.fn() }))
 vi.mock('@/api/admin', () => ({ adminAPI: { groups: { getAll, getModelAllowlistCandidates } } }))
@@ -29,6 +29,33 @@ function mountFields(groupID = 0) {
 }
 
 describe('降智探测用户配置', () => {
+  it('糖果题参考答案由最坏取法验证，恢复默认题时使用正确答案', async () => {
+    expect(CONVERSATION_CANDY_PROMPT).toContain('圆形 7 9 8')
+    expect(CONVERSATION_CANDY_PROMPT).toContain('五角星形 7 6 4')
+    let largestInvalidDraw = 0
+    // 遍历苹果、桃子两种形状的所有取法；西瓜不构成目标配对，可全部取出。
+    for (let appleRound = 0; appleRound <= 7; appleRound++) {
+      for (let appleStar = 0; appleStar <= 7; appleStar++) {
+        for (let peachRound = 0; peachRound <= 9; peachRound++) {
+          for (let peachStar = 0; peachStar <= 6; peachStar++) {
+            if ((appleRound > 0 && peachStar > 0) || (peachRound > 0 && appleStar > 0)) continue
+            largestInvalidDraw = Math.max(largestInvalidDraw, appleRound + appleStar + peachRound + peachStar + 8 + 4)
+          }
+        }
+      }
+    }
+    expect(largestInvalidDraw).toBe(28)
+    expect(defaultConversationQualityConfig().expected_answer).toBe(String(largestInvalidDraw + 1))
+    const wrapper = mountFields()
+    wrapper.vm.config.prompt = '自定义题'
+    wrapper.vm.config.expected_answer = '自定义答案'
+    await flushPromises()
+    const reset = wrapper.findAll('button').find(button => button.text() === 'admin.accounts.sessionPool.useCandy')!
+    await reset.trigger('click')
+    expect(wrapper.vm.config.prompt).toBe(CONVERSATION_CANDY_PROMPT)
+    expect(wrapper.vm.config.expected_answer).toBe('29')
+    wrapper.unmount()
+  })
   it('可编辑固定题并切换随机题，随机题不要求填写固定题目和答案', async () => {
     const wrapper = mountFields()
     await flushPromises()

@@ -37,12 +37,14 @@ export const CONVERSATION_CANDY_PROMPT = `在一个黑色的袋子里放有三�
 圆形 7 9 8
 五角星形 7 6 4`
 
+export const CONVERSATION_CANDY_EXPECTED_ANSWER = '29'
+
 export function defaultConversationQualityConfig(): ConversationQualityConfig {
   return {
     enabled: false,
     question_kind: 'candy',
     prompt: CONVERSATION_CANDY_PROMPT,
-    expected_answer: '21',
+    expected_answer: CONVERSATION_CANDY_EXPECTED_ANSWER,
     reasoning_effort: 'medium',
     judge: {
       group_id: 0,

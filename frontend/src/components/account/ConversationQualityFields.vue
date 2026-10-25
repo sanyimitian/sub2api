@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { AdminGroup } from '@/types'
-import { CONVERSATION_CANDY_PROMPT, defaultConversationQualityConfig, type ConversationQualityConfig } from '@/utils/openaiSessionPool'
+import { CONVERSATION_CANDY_PROMPT, CONVERSATION_CANDY_EXPECTED_ANSWER, defaultConversationQualityConfig, type ConversationQualityConfig } from '@/utils/openaiSessionPool'
 
 const config = defineModel<ConversationQualityConfig>({ required: true })
 const { t } = useI18n()
@@ -53,7 +53,7 @@ async function loadJudgeModels() {
 }
 
 function useCandyQuestion() {
-  config.value = { ...config.value, prompt: CONVERSATION_CANDY_PROMPT, expected_answer: '21' }
+  config.value = { ...config.value, prompt: CONVERSATION_CANDY_PROMPT, expected_answer: CONVERSATION_CANDY_EXPECTED_ANSWER }
 }
 
 function resetJudgePrompt() {

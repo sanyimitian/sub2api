@@ -62,6 +62,12 @@ const (
 )
 
 func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, account *Account, model string, requiredTransport OpenAIUpstreamTransport) (openAIWSLatencyProbeResult, error) {
+	return s.forwardOpenAIWSLatencyProbeWithRelease(ctx, account, model, requiredTransport, nil)
+}
+
+// 答题网络请求结束后即可归还被测账号名额；后续判题只占用判题账号名额。
+// 调用方仍负责用 defer 处理发出网络请求之前就失败的情况。
+func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx context.Context, account *Account, model string, requiredTransport OpenAIUpstreamTransport, releaseSlot func()) (openAIWSLatencyProbeResult, error) {
 	observed := openAIWSLatencyProbeResult{accountID: account.ID, upstreamSessionID: openAIWSLatencyProbeSessionID(ctx)}
 	quality, configErr := account.OpenAISessionQualityConfig()
 	if configErr != nil && isOpenAIPreparedProbe(ctx) {
@@ -126,6 +132,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, 
 		SetOpenAIClientTransport(c, OpenAIClientTransportWS)
 	}
 	result, forwardErr := s.Forward(probeCtx, c, account, body)
+	if releaseSlot != nil {
+		releaseSlot()
+	}
 	if result != nil {
 		observed.upstreamModel = strings.TrimSpace(result.UpstreamModel)
 	}

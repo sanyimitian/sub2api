@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // 判题的候选账号选择、答案比对提示与严格 JSON 判定复用参考项目 quality_judge.go。
@@ -32,10 +33,15 @@ func NewConversationQualityJudgeService(accounts AccountRepository, groups Group
 		if err != nil {
 			return "", err
 		}
+		// 判题是独立请求，不能按相同答案派生亲和键并续接历史判题。
+		sessionID := "sub2api-quality-judge-" + uuid.NewString()
 		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("session_id", sessionID)
+		request.Header.Set("conversation_id", sessionID)
 		writer := &openAIWSLatencyProbeWriter{header: make(http.Header), started: time.Now(), firstMS: -1,
 			closed: make(chan bool), capture: true}
 		c := &gin.Context{Request: request, Writer: writer}
+		c.Set(openAIWSLatencyUpstreamSessionContextKey, sessionID)
 		switch {
 		case account.Platform == PlatformGemini:
 			_, err = gemini.Forward(ctx, c, account, body)
@@ -49,7 +55,7 @@ func NewConversationQualityJudgeService(accounts AccountRepository, groups Group
 			}
 		default:
 			SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
-			_, err = openai.ForwardAsAnthropic(ctx, c, account, body, "", "")
+			_, err = openai.ForwardAsAnthropic(ctx, c, account, body, sessionID, "")
 		}
 		if err != nil || ctx.Err() != nil || writer.Status() >= 400 || writer.failed || writer.overflow || !writer.completed || strings.TrimSpace(writer.output.String()) == "" {
 			return "", fmt.Errorf("判题请求未完整完成")

@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -530,12 +531,14 @@ func (s *OpenAIGatewayService) probeOpenAISessionPoolRoute(ctx context.Context, 
 		probeErr = err
 		return openAIWSLatencyProbeResult{failure: "account_slot_unavailable"}
 	}
+	releaseSlot := func() {}
 	if slot.ReleaseFunc != nil {
-		defer slot.ReleaseFunc()
+		releaseSlot = sync.OnceFunc(slot.ReleaseFunc)
 	}
+	defer releaseSlot()
 	probeCtx = context.WithValue(probeCtx, openAIPreparedProbeContextKey{}, true)
 	probeCtx = context.WithValue(probeCtx, openAIWSLatencyProbeSessionIDContextKey{}, "sub2api-prepared-"+uuid.NewString())
-	result, probeErr = s.forwardOpenAIWSLatencyProbe(probeCtx, fresh, route.model, route.transport)
+	result, probeErr = s.forwardOpenAIWSLatencyProbeWithRelease(probeCtx, fresh, route.model, route.transport, releaseSlot)
 	if probeErr == nil {
 		probeErr = probeCtx.Err()
 	}
