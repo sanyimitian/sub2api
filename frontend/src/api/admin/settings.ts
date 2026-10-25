@@ -639,6 +639,7 @@ export interface SystemSettings {
   openai_session_pool_enabled: boolean;
   openai_session_pool_size: number;
   openai_session_pool_first_token_timeout_seconds: number;
+  openai_session_pool_retry_interval_seconds: number;
   openai_ttft_mode: string;
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
@@ -979,6 +980,7 @@ export interface UpdateSettingsRequest {
   openai_session_pool_enabled?: boolean;
   openai_session_pool_size?: number;
   openai_session_pool_first_token_timeout_seconds?: number;
+  openai_session_pool_retry_interval_seconds?: number;
   openai_ttft_mode?: string;
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;

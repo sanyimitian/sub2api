@@ -212,6 +212,7 @@ type SystemSettings struct {
 	OpenAISessionPoolEnabled                  bool    `json:"openai_session_pool_enabled"`
 	OpenAISessionPoolSize                     int     `json:"openai_session_pool_size"`
 	OpenAISessionPoolFirstTokenTimeoutSeconds int     `json:"openai_session_pool_first_token_timeout_seconds"`
+	OpenAISessionPoolRetryIntervalSeconds     int     `json:"openai_session_pool_retry_interval_seconds"`
 	OpenAITTFTMode                            string  `json:"openai_ttft_mode"`
 	EnableFingerprintUnification              bool    `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough                 bool    `json:"enable_metadata_passthrough"`

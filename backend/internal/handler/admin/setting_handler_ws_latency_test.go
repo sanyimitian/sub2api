@@ -131,6 +131,28 @@ func TestUpdateSettingsSessionPoolFirstTokenTimeoutPersistsAndValidates(t *testi
 	}
 }
 
+func TestUpdateSettingsSessionPoolRetryIntervalPersistsAndValidates(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, nil)
+	defaults, err := h.settingService.GetAllSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1800, defaults.OpenAISessionPoolRetryIntervalSeconds)
+	for _, seconds := range []int{30, 31, 1800, 2700, 86400} {
+		rec := doUpdateSettings(t, h, map[string]any{"openai_session_pool_retry_interval_seconds": seconds}, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, fmt.Sprint(seconds), repo.values[service.SettingKeyOpenAISessionPoolRetryIntervalSeconds])
+		require.Contains(t, rec.Body.String(), fmt.Sprintf(`"openai_session_pool_retry_interval_seconds":%d`, seconds))
+		require.Equal(t, seconds, h.settingService.GetOpenAISessionPoolRetryIntervalSeconds(context.Background()))
+	}
+	rec := doUpdateSettings(t, h, map[string]any{"openai_session_pool_size": 12}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "86400", repo.values[service.SettingKeyOpenAISessionPoolRetryIntervalSeconds])
+	for _, invalid := range []any{-1, 0, 29, 86401, 30.5, "30"} {
+		rec = doUpdateSettings(t, h, map[string]any{"openai_session_pool_retry_interval_seconds": invalid}, nil)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		require.Equal(t, "86400", repo.values[service.SettingKeyOpenAISessionPoolRetryIntervalSeconds])
+	}
+}
+
 func TestUpdateSettingsPreparedSessionPoolSwitchDefaultsOffAndPersists(t *testing.T) {
 	h, repo := newStepUpSwitchTestHandler(t, nil)
 	settings, err := h.settingService.GetAllSettings(context.Background())

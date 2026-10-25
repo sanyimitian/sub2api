@@ -254,6 +254,7 @@ type UpdateSettingsRequest struct {
 	OpenAISessionPoolEnabled                  *bool    `json:"openai_session_pool_enabled"`
 	OpenAISessionPoolSize                     *int     `json:"openai_session_pool_size"`
 	OpenAISessionPoolFirstTokenTimeoutSeconds *int     `json:"openai_session_pool_first_token_timeout_seconds"`
+	OpenAISessionPoolRetryIntervalSeconds     *int     `json:"openai_session_pool_retry_interval_seconds"`
 	OpenAITTFTMode                            *string  `json:"openai_ttft_mode"`
 	EnableFingerprintUnification              *bool    `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough                 *bool    `json:"enable_metadata_passthrough"`
@@ -536,6 +537,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if req.OpenAISessionPoolFirstTokenTimeoutSeconds != nil && (*req.OpenAISessionPoolFirstTokenTimeoutSeconds < 1 || *req.OpenAISessionPoolFirstTokenTimeoutSeconds > 600) {
 		response.BadRequest(c, "首字等待时间必须为 1 至 600 秒的整数")
+		return
+	}
+	if req.OpenAISessionPoolRetryIntervalSeconds != nil && (*req.OpenAISessionPoolRetryIntervalSeconds < 30 || *req.OpenAISessionPoolRetryIntervalSeconds > 86400) {
+		response.BadRequest(c, "探测重试等待时间必须为 30 至 86400 秒的整数")
 		return
 	}
 	if req.OpenAISessionPoolSize != nil && (*req.OpenAISessionPoolSize < 1 || *req.OpenAISessionPoolSize > 100) {
@@ -1804,6 +1809,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpenAISessionPoolFirstTokenTimeoutSeconds
 		}(),
+		OpenAISessionPoolRetryIntervalSeconds: func() int {
+			if req.OpenAISessionPoolRetryIntervalSeconds != nil {
+				return *req.OpenAISessionPoolRetryIntervalSeconds
+			}
+			return previousSettings.OpenAISessionPoolRetryIntervalSeconds
+		}(),
 		OpenAISessionPoolSize: func() int {
 			if req.OpenAISessionPoolSize != nil {
 				return *req.OpenAISessionPoolSize
@@ -2470,6 +2481,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAISessionPoolEnabled:                               updatedSettings.OpenAISessionPoolEnabled,
 		OpenAISessionPoolSize:                                  updatedSettings.OpenAISessionPoolSize,
 		OpenAISessionPoolFirstTokenTimeoutSeconds:              updatedSettings.OpenAISessionPoolFirstTokenTimeoutSeconds,
+		OpenAISessionPoolRetryIntervalSeconds:                  updatedSettings.OpenAISessionPoolRetryIntervalSeconds,
 		OpenAITTFTMode:                                         updatedSettings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,

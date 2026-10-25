@@ -100,6 +100,18 @@ func (s *SettingService) GetOpenAISessionPoolFirstTokenTimeoutSeconds(ctx contex
 	return 10
 }
 
+// 每个账号参与五轮仍未补满时，按全局配置独立等待；缺少配置时为三十分钟。
+func (s *SettingService) GetOpenAISessionPoolRetryIntervalSeconds(ctx context.Context) int {
+	if s == nil || s.settingRepo == nil {
+		return 1800
+	}
+	s.getGatewayForwardingSettingsCached(ctx)
+	if cached, ok := gatewayForwardingCache.Load().(*cachedGatewayForwardingSettings); ok && cached != nil {
+		return parseOpenAIWSLatencySwitchInt(strconv.Itoa(cached.sessionPoolRetryIntervalSeconds), 1800, 30, 86400)
+	}
+	return 1800
+}
+
 // IsOpenAISessionPoolEnabled 缺少配置时保持关闭，兼容原调度与原按需慢切换。
 func (s *SettingService) IsOpenAISessionPoolEnabled(ctx context.Context) bool {
 	if s == nil || s.settingRepo == nil {

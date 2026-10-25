@@ -5396,6 +5396,17 @@
                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.sessionPoolFirstTokenTimeoutHint") }}</p>
                   </div>
                   <div>
+                    <label for="openai-session-pool-retry-interval" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.sessionPoolRetryInterval") }}</label>
+                    <div class="mt-2 flex gap-2">
+                      <input id="openai-session-pool-retry-interval" v-model.number="sessionPoolRetryIntervalValue" type="number" :min="sessionPoolRetryIntervalUnit === 'minutes' ? 0.5 : 30" :max="sessionPoolRetryIntervalUnit === 'minutes' ? 1440 : 86400" :step="sessionPoolRetryIntervalUnit === 'minutes' ? 'any' : 1" required class="input min-w-0 flex-1" data-testid="openai-session-pool-retry-interval" />
+                      <select v-model="sessionPoolRetryIntervalUnit" :aria-label="t('admin.settings.gatewayForwarding.sessionPoolRetryIntervalUnit')" class="input w-24 shrink-0" data-testid="openai-session-pool-retry-interval-unit">
+                        <option value="seconds">{{ t("admin.settings.gatewayForwarding.sessionPoolRetryIntervalSeconds") }}</option>
+                        <option value="minutes">{{ t("admin.settings.gatewayForwarding.sessionPoolRetryIntervalMinutes") }}</option>
+                      </select>
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.sessionPoolRetryIntervalHint") }}</p>
+                  </div>
+                  <div>
                     <label for="openai-ws-latency-switch-probe-count" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCount") }}</label>
                     <input id="openai-ws-latency-switch-probe-count" v-model.number="form.openai_ws_latency_switch_probe_count" type="number" min="2" max="20" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-probe-count" />
                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCountHint") }}</p>
@@ -10102,6 +10113,7 @@ const form = reactive<SettingsForm>({
   openai_session_pool_enabled: false,
   openai_session_pool_size: 6,
   openai_session_pool_first_token_timeout_seconds: 10,
+  openai_session_pool_retry_interval_seconds: 1800,
   openai_ws_latency_switch_probe_count: 6,
   openai_ws_latency_switch_wait_seconds: 300,
   openai_ws_latency_probe_reuse_seconds: 600,
@@ -10175,6 +10187,15 @@ function applyCaptchaSelection(provider: CaptchaProviderSelection | null): void 
   form.tencent_captcha_enabled = provider === "tencent";
   form.aliyun_captcha_enabled = provider === "aliyun";
 }
+
+// 统一按整数秒保存，切换显示单位时不改变等待时长。
+const sessionPoolRetryIntervalUnit = ref<"seconds" | "minutes">("minutes");
+const sessionPoolRetryIntervalValue = computed({
+  get: () => form.openai_session_pool_retry_interval_seconds / (sessionPoolRetryIntervalUnit.value === "minutes" ? 60 : 1),
+  set: (value: number) => {
+    form.openai_session_pool_retry_interval_seconds = Math.round(Number(value) * (sessionPoolRetryIntervalUnit.value === "minutes" ? 60 : 1));
+  },
+});
 
 // Keep the settings API representation as user IDs; the selector displays emails.
 const riskControlAllowlistedUserIds = computed<number[]>({
@@ -11761,6 +11782,7 @@ async function saveSettings() {
       openai_session_pool_enabled: form.openai_session_pool_enabled,
       openai_session_pool_size: Number(form.openai_session_pool_size),
       openai_session_pool_first_token_timeout_seconds: Number(form.openai_session_pool_first_token_timeout_seconds),
+      openai_session_pool_retry_interval_seconds: Number(form.openai_session_pool_retry_interval_seconds),
       openai_ws_latency_switch_probe_count: Number(form.openai_ws_latency_switch_probe_count),
       openai_ws_latency_switch_wait_seconds: Number(form.openai_ws_latency_switch_wait_seconds),
       openai_ws_latency_probe_reuse_seconds: Number(form.openai_ws_latency_probe_reuse_seconds),

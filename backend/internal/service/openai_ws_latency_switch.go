@@ -228,7 +228,15 @@ func (s *OpenAIGatewayService) updateOpenAIWSLatencyCandidatePool(ctx context.Co
 			logOpenAIWSLatencyCacheFailure(ctx, key, "encode", "state_encode_failed", attempt+1, err)
 			return pool, false
 		}
-		updated, err := cache.CompareAndSwapOpenAIWSLatencyState(cacheCtx, key, raw, next, openAIWSLatencyStateTTL)
+		// 可配置等待可能超过原两小时缓存期限；状态必须保存到最长等待结束以后。
+		ttl := openAIWSLatencyStateTTL
+		now := time.Now().UnixMilli()
+		for _, state := range pool.AccountProbes {
+			if remaining := time.Duration(state.RetryAfter-now) * time.Millisecond; remaining > ttl {
+				ttl = remaining + openAIWSLatencyStateTTL
+			}
+		}
+		updated, err := cache.CompareAndSwapOpenAIWSLatencyState(cacheCtx, key, raw, next, ttl)
 		if err != nil {
 			logOpenAIWSLatencyCacheFailure(ctx, key, "compare_and_swap", "state_write_failed", attempt+1, err)
 			return pool, false

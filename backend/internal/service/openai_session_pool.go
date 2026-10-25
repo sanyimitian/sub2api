@@ -53,7 +53,6 @@ func (s *OpenAIGatewayService) OpenAISessionPoolEnabled(ctx context.Context) boo
 }
 
 const openAISessionPoolKey = "candidate_pool:openai-prepared-sessions:v1"
-const openAISessionPoolRetryInterval = 30 * time.Minute
 
 type openAISessionPoolRoute struct {
 	account         *Account
@@ -313,7 +312,7 @@ func pruneOpenAISessionPoolAccountProbes(pool *openAIWSLatencyCandidatePool, rou
 	pool.RetryAfter = 0
 }
 
-func advanceOpenAISessionPoolAccountProbes(pool *openAIWSLatencyCandidatePool, completedAt map[int64]int64, now int64, full bool) {
+func advanceOpenAISessionPoolAccountProbes(pool *openAIWSLatencyCandidatePool, completedAt map[int64]int64, now int64, full bool, retryInterval time.Duration) {
 	if full {
 		for id, state := range pool.AccountProbes {
 			if state.RetryAfter <= now {
@@ -330,7 +329,7 @@ func advanceOpenAISessionPoolAccountProbes(pool *openAIWSLatencyCandidatePool, c
 		state.Rounds++
 		if state.Rounds >= openAIWSLatencyMaxProbeRounds {
 			state.Rounds = 0
-			state.RetryAfter = finished + openAISessionPoolRetryInterval.Milliseconds()
+			state.RetryAfter = finished + retryInterval.Milliseconds()
 		}
 		pool.AccountProbes[id] = state
 	}
@@ -557,13 +556,14 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 		if ctx.Err() != nil || !s.OpenAISessionPoolEnabled(ctx) {
 			break
 		}
+		retryInterval := time.Duration(s.settingService.GetOpenAISessionPoolRetryIntervalSeconds(ctx)) * time.Second
 		_, saved := s.updateOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey, func(pool *openAIWSLatencyCandidatePool) bool {
 			if pool.ProbeID != owner {
 				return false
 			}
 			now := time.Now().UnixMilli()
 			diagnostic.available = trimOpenAISessionPool(pool, routes, now, target)
-			advanceOpenAISessionPoolAccountProbes(pool, completedAt, now, diagnostic.available >= target)
+			advanceOpenAISessionPoolAccountProbes(pool, completedAt, now, diagnostic.available >= target, retryInterval)
 			return true
 		})
 		if !saved {

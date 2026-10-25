@@ -58,6 +58,7 @@ type cachedGatewayForwardingSettings struct {
 	sessionPoolEnabled                  bool
 	sessionPoolSize                     int
 	sessionPoolFirstTokenTimeoutSeconds int
+	sessionPoolRetryIntervalSeconds     int
 	openAITTFTMode                      string
 	fingerprintUnification              bool
 	metadataPassthrough                 bool
@@ -914,6 +915,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyOpenAISessionPoolEnabled,
 			SettingKeyOpenAISessionPoolSize,
 			SettingKeyOpenAISessionPoolFirstTokenTimeoutSeconds,
+			SettingKeyOpenAISessionPoolRetryIntervalSeconds,
 			SettingKeyOpenAITTFTMode,
 			SettingKeyEnableFingerprintUnification,
 			SettingKeyEnableMetadataPassthrough,
@@ -965,6 +967,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			sessionPoolEnabled:                  values[SettingKeyOpenAISessionPoolEnabled] == "true",
 			sessionPoolFirstTokenTimeoutSeconds: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAISessionPoolFirstTokenTimeoutSeconds], 10, 1, 600),
+			sessionPoolRetryIntervalSeconds:     parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAISessionPoolRetryIntervalSeconds], 1800, 30, 86400),
 			sessionPoolSize:                     parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAISessionPoolSize], 6, 1, 100),
 			latencySwitch:                       OpenAIWSLatencySwitchSettings{Enabled: values[SettingKeyOpenAIWSLatencySwitchEnabled] == "true", Consecutive: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchConsecutive], 3, 1, 20), SlowMS: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchSlowMS], 15000, 1000, 300000), MinTPS: parseOpenAIWSLatencyMinTPS(values[SettingKeyOpenAIWSLatencySwitchMinTPS]), ProbeCount: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchProbeCount], defaultOpenAIWSLatencyProbeCount, minOpenAIWSLatencyProbeCount, maxOpenAIWSLatencyProbeCount), WaitSeconds: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchWaitSeconds], DefaultOpenAIWSLatencySwitchWaitSeconds, MinOpenAIWSLatencySwitchWaitSeconds, MaxOpenAIWSLatencySwitchWaitSeconds), ProbeReuseSeconds: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencyProbeReuseSeconds], DefaultOpenAIWSLatencyProbeReuseSeconds, MinOpenAIWSLatencyProbeReuseSeconds, MaxOpenAIWSLatencyProbeReuseSeconds)},
 			openAITTFTMode:                      ttftMode,

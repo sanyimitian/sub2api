@@ -684,6 +684,7 @@ const (
 	SettingKeyOpenAISessionPoolEnabled                  = "openai_session_pool_enabled"
 	SettingKeyOpenAISessionPoolSize                     = "openai_session_pool_size"
 	SettingKeyOpenAISessionPoolFirstTokenTimeoutSeconds = "openai_session_pool_first_token_timeout_seconds"
+	SettingKeyOpenAISessionPoolRetryIntervalSeconds     = "openai_session_pool_retry_interval_seconds"
 	// SettingKeyOpenAITTFTMode 控制 first_token_ms 的统计口径。
 	SettingKeyOpenAITTFTMode = "openai_ttft_mode"
 	OpenAITTFTModeSemantic   = "semantic"

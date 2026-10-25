@@ -536,6 +536,14 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, fmt.Errorf("%s must be between 1 and 600", SettingKeyOpenAISessionPoolFirstTokenTimeoutSeconds)
 	}
 	updates[SettingKeyOpenAISessionPoolFirstTokenTimeoutSeconds] = strconv.Itoa(firstTokenSeconds)
+	retrySeconds := settings.OpenAISessionPoolRetryIntervalSeconds
+	if retrySeconds == 0 {
+		retrySeconds = 1800
+	}
+	if retrySeconds < 30 || retrySeconds > 86400 {
+		return nil, fmt.Errorf("%s must be between 30 and 86400", SettingKeyOpenAISessionPoolRetryIntervalSeconds)
+	}
+	updates[SettingKeyOpenAISessionPoolRetryIntervalSeconds] = strconv.Itoa(retrySeconds)
 	updates[SettingKeyOpenAITTFTMode] = mode
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
@@ -783,6 +791,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 		sessionPoolEnabled:                  settings.OpenAISessionPoolEnabled,
 		sessionPoolFirstTokenTimeoutSeconds: parseOpenAIWSLatencySwitchInt(strconv.Itoa(settings.OpenAISessionPoolFirstTokenTimeoutSeconds), 10, 1, 600),
+		sessionPoolRetryIntervalSeconds:     parseOpenAIWSLatencySwitchInt(strconv.Itoa(settings.OpenAISessionPoolRetryIntervalSeconds), 1800, 30, 86400),
 		sessionPoolSize:                     parseOpenAIWSLatencySwitchInt(strconv.Itoa(settings.OpenAISessionPoolSize), 6, 1, 100),
 		latencySwitch:                       openAIWSLatencySwitchSettingsFromValues(settings.OpenAIWSLatencySwitchEnabled, settings.OpenAIWSLatencySwitchConsecutive, settings.OpenAIWSLatencySwitchSlowMS, settings.OpenAIWSLatencySwitchMinTPS, settings.OpenAIWSLatencySwitchProbeCount, settings.OpenAIWSLatencySwitchWaitSeconds, settings.OpenAIWSLatencyProbeReuseSeconds),
 		openAITTFTMode:                      normalizeOpenAITTFTMode(settings.OpenAITTFTMode),
