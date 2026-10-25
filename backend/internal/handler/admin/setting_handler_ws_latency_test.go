@@ -109,6 +109,28 @@ func TestUpdateSettingsPreparedSessionPoolSizePersists(t *testing.T) {
 	}
 }
 
+func TestUpdateSettingsSessionPoolFirstTokenTimeoutPersistsAndValidates(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, nil)
+	defaults, err := h.settingService.GetAllSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 10, defaults.OpenAISessionPoolFirstTokenTimeoutSeconds)
+	for _, seconds := range []int{1, 20, 600} {
+		rec := doUpdateSettings(t, h, map[string]any{"openai_session_pool_first_token_timeout_seconds": seconds}, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, fmt.Sprint(seconds), repo.values[service.SettingKeyOpenAISessionPoolFirstTokenTimeoutSeconds])
+		require.Contains(t, rec.Body.String(), fmt.Sprintf(`"openai_session_pool_first_token_timeout_seconds":%d`, seconds))
+		require.Equal(t, seconds, h.settingService.GetOpenAISessionPoolFirstTokenTimeoutSeconds(context.Background()))
+	}
+	rec := doUpdateSettings(t, h, map[string]any{"openai_session_pool_size": 12}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "600", repo.values[service.SettingKeyOpenAISessionPoolFirstTokenTimeoutSeconds])
+	for _, invalid := range []any{-1, 0, 601, 1.5, "20"} {
+		rec = doUpdateSettings(t, h, map[string]any{"openai_session_pool_first_token_timeout_seconds": invalid}, nil)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		require.Equal(t, "600", repo.values[service.SettingKeyOpenAISessionPoolFirstTokenTimeoutSeconds])
+	}
+}
+
 func TestUpdateSettingsPreparedSessionPoolSwitchDefaultsOffAndPersists(t *testing.T) {
 	h, repo := newStepUpSwitchTestHandler(t, nil)
 	settings, err := h.settingService.GetAllSettings(context.Background())

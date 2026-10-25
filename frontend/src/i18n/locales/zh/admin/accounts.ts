@@ -54,7 +54,7 @@ export default {
         latencyProbe: "低延迟探测",
         retry: '重试',
         qualityProbe: "降智探测",
-        qualityHint: "开启后同时启用低延迟探测。只有做题通过且本次做题首字低于 10 秒的会话才入池；答错、超时或无法判定时丢弃本次对话并继续补池。",
+        qualityHint: "开启后同时启用低延迟探测。只有做题通过且本次做题首字低于系统设置的首字等待门槛的会话才入池；答错、超时或无法判定时丢弃本次对话并继续补池。",
         questionKind: "检测方式",
         fixedQuestion: "固定题目（糖果题／自定义）",
         randomQuestion: "随机推理题",

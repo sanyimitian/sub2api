@@ -528,6 +528,14 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	updates[SettingKeyOpenAISessionPoolEnabled] = strconv.FormatBool(settings.OpenAISessionPoolEnabled)
 	updates[SettingKeyOpenAISessionPoolSize] = strconv.Itoa(poolSize)
+	firstTokenSeconds := settings.OpenAISessionPoolFirstTokenTimeoutSeconds
+	if firstTokenSeconds == 0 {
+		firstTokenSeconds = 10
+	}
+	if firstTokenSeconds < 1 || firstTokenSeconds > 600 {
+		return nil, fmt.Errorf("%s must be between 1 and 600", SettingKeyOpenAISessionPoolFirstTokenTimeoutSeconds)
+	}
+	updates[SettingKeyOpenAISessionPoolFirstTokenTimeoutSeconds] = strconv.Itoa(firstTokenSeconds)
 	updates[SettingKeyOpenAITTFTMode] = mode
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
@@ -773,20 +781,21 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	})
 	gatewayForwardingSF.Forget("gateway_forwarding")
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
-		sessionPoolEnabled:               settings.OpenAISessionPoolEnabled,
-		sessionPoolSize:                  parseOpenAIWSLatencySwitchInt(strconv.Itoa(settings.OpenAISessionPoolSize), 6, 1, 100),
-		latencySwitch:                    openAIWSLatencySwitchSettingsFromValues(settings.OpenAIWSLatencySwitchEnabled, settings.OpenAIWSLatencySwitchConsecutive, settings.OpenAIWSLatencySwitchSlowMS, settings.OpenAIWSLatencySwitchMinTPS, settings.OpenAIWSLatencySwitchProbeCount, settings.OpenAIWSLatencySwitchWaitSeconds, settings.OpenAIWSLatencyProbeReuseSeconds),
-		openAITTFTMode:                   normalizeOpenAITTFTMode(settings.OpenAITTFTMode),
-		fingerprintUnification:           settings.EnableFingerprintUnification,
-		metadataPassthrough:              settings.EnableMetadataPassthrough,
-		cchSigning:                       settings.EnableCCHSigning,
-		claudeOAuthSystemPromptInjection: settings.EnableClaudeOAuthSystemPromptInjection,
-		claudeOAuthSystemPrompt:          settings.ClaudeOAuthSystemPrompt,
-		claudeOAuthSystemPromptBlocks:    settings.ClaudeOAuthSystemPromptBlocks,
-		anthropicCacheTTL1hInjection:     settings.EnableAnthropicCacheTTL1hInjection,
-		rewriteMessageCacheControl:       settings.RewriteMessageCacheControl,
-		clientDatelineNormalization:      settings.EnableClientDatelineNormalization,
-		expiresAt:                        time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
+		sessionPoolEnabled:                  settings.OpenAISessionPoolEnabled,
+		sessionPoolFirstTokenTimeoutSeconds: parseOpenAIWSLatencySwitchInt(strconv.Itoa(settings.OpenAISessionPoolFirstTokenTimeoutSeconds), 10, 1, 600),
+		sessionPoolSize:                     parseOpenAIWSLatencySwitchInt(strconv.Itoa(settings.OpenAISessionPoolSize), 6, 1, 100),
+		latencySwitch:                       openAIWSLatencySwitchSettingsFromValues(settings.OpenAIWSLatencySwitchEnabled, settings.OpenAIWSLatencySwitchConsecutive, settings.OpenAIWSLatencySwitchSlowMS, settings.OpenAIWSLatencySwitchMinTPS, settings.OpenAIWSLatencySwitchProbeCount, settings.OpenAIWSLatencySwitchWaitSeconds, settings.OpenAIWSLatencyProbeReuseSeconds),
+		openAITTFTMode:                      normalizeOpenAITTFTMode(settings.OpenAITTFTMode),
+		fingerprintUnification:              settings.EnableFingerprintUnification,
+		metadataPassthrough:                 settings.EnableMetadataPassthrough,
+		cchSigning:                          settings.EnableCCHSigning,
+		claudeOAuthSystemPromptInjection:    settings.EnableClaudeOAuthSystemPromptInjection,
+		claudeOAuthSystemPrompt:             settings.ClaudeOAuthSystemPrompt,
+		claudeOAuthSystemPromptBlocks:       settings.ClaudeOAuthSystemPromptBlocks,
+		anthropicCacheTTL1hInjection:        settings.EnableAnthropicCacheTTL1hInjection,
+		rewriteMessageCacheControl:          settings.RewriteMessageCacheControl,
+		clientDatelineNormalization:         settings.EnableClientDatelineNormalization,
+		expiresAt:                           time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 	})
 	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")
 	antigravityUserAgentVersion := antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)

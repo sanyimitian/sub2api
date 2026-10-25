@@ -298,6 +298,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIWSLatencyProbeReuseSeconds:                       settings.OpenAIWSLatencyProbeReuseSeconds,
 		OpenAISessionPoolEnabled:                               settings.OpenAISessionPoolEnabled,
 		OpenAISessionPoolSize:                                  settings.OpenAISessionPoolSize,
+		OpenAISessionPoolFirstTokenTimeoutSeconds:              settings.OpenAISessionPoolFirstTokenTimeoutSeconds,
 		OpenAITTFTMode:                                         settings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           settings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,

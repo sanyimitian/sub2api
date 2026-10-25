@@ -54,7 +54,7 @@ export default {
         latencyProbe: "Low-latency probe",
         retry: 'Retry',
         qualityProbe: "Quality probe",
-        qualityHint: "Also enables low-latency probing. Only sessions with a correct answer and first-token time below 10 seconds enter the pool. Incorrect, timed-out or inconclusive sessions are discarded and replaced.",
+        qualityHint: "Also enables low-latency probing. Only sessions with a correct answer and first-token time below the configured system threshold enter the pool. Incorrect, timed-out or inconclusive sessions are discarded and replaced.",
         questionKind: "Question type",
         fixedQuestion: "Fixed question (candy or custom)",
         randomQuestion: "Random reasoning question",

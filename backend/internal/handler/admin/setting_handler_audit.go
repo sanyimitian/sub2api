@@ -476,6 +476,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAISessionPoolEnabled != after.OpenAISessionPoolEnabled {
 		changed = append(changed, "openai_session_pool_enabled")
 	}
+	if before.OpenAISessionPoolFirstTokenTimeoutSeconds != after.OpenAISessionPoolFirstTokenTimeoutSeconds {
+		changed = append(changed, "openai_session_pool_first_token_timeout_seconds")
+	}
 	if before.OpenAISessionPoolSize != after.OpenAISessionPoolSize {
 		changed = append(changed, "openai_session_pool_size")
 	}

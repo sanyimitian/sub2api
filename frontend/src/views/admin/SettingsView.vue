@@ -5391,6 +5391,11 @@
                     <input id="openai-session-pool-size" v-model.number="form.openai_session_pool_size" type="number" min="1" max="100" step="1" required class="input mt-2 w-full" data-testid="openai-session-pool-size" />
                   </div>
                   <div>
+                    <label for="openai-session-pool-first-token-timeout" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.sessionPoolFirstTokenTimeout") }}</label>
+                    <input id="openai-session-pool-first-token-timeout" v-model.number="form.openai_session_pool_first_token_timeout_seconds" type="number" min="1" max="600" step="1" required class="input mt-2 w-full" data-testid="openai-session-pool-first-token-timeout" />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.sessionPoolFirstTokenTimeoutHint") }}</p>
+                  </div>
+                  <div>
                     <label for="openai-ws-latency-switch-probe-count" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCount") }}</label>
                     <input id="openai-ws-latency-switch-probe-count" v-model.number="form.openai_ws_latency_switch_probe_count" type="number" min="2" max="20" step="1" required class="input mt-2 w-full" data-testid="openai-ws-latency-switch-probe-count" />
                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.latencySwitchProbeCountHint") }}</p>
@@ -10096,6 +10101,7 @@ const form = reactive<SettingsForm>({
   openai_ws_latency_switch_min_tps: "",
   openai_session_pool_enabled: false,
   openai_session_pool_size: 6,
+  openai_session_pool_first_token_timeout_seconds: 10,
   openai_ws_latency_switch_probe_count: 6,
   openai_ws_latency_switch_wait_seconds: 300,
   openai_ws_latency_probe_reuse_seconds: 600,
@@ -11754,6 +11760,7 @@ async function saveSettings() {
       openai_ws_latency_switch_min_tps: Number(form.openai_ws_latency_switch_min_tps) || 0,
       openai_session_pool_enabled: form.openai_session_pool_enabled,
       openai_session_pool_size: Number(form.openai_session_pool_size),
+      openai_session_pool_first_token_timeout_seconds: Number(form.openai_session_pool_first_token_timeout_seconds),
       openai_ws_latency_switch_probe_count: Number(form.openai_ws_latency_switch_probe_count),
       openai_ws_latency_switch_wait_seconds: Number(form.openai_ws_latency_switch_wait_seconds),
       openai_ws_latency_probe_reuse_seconds: Number(form.openai_ws_latency_probe_reuse_seconds),

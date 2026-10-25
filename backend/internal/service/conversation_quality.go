@@ -67,9 +67,13 @@ func validateConversationQualityConfig(cfg *ConversationQualityConfig) error {
 	return nil
 }
 
-func openAISessionProbeTimeout(account *Account) time.Duration {
+func openAISessionProbeTimeout(account *Account, firstTokenMaxMS int) time.Duration {
 	if cfg, err := account.OpenAISessionQualityConfig(); err == nil && cfg != nil && cfg.Enabled {
 		return openAISessionQualityProbeTimeout
+	}
+	// 较大的首字门槛不能被旧十五秒总期限提前截断，首字之后留五秒收尾。
+	if timeout := time.Duration(firstTokenMaxMS)*time.Millisecond + 5*time.Second; timeout > openAIWSLatencyProbeTimeout {
+		return timeout
 	}
 	return openAIWSLatencyProbeTimeout
 }

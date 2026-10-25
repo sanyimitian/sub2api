@@ -509,6 +509,8 @@ export default {
         grokBaseURLModeUSWest2: 'Regional API (us-west-2)',
         grokBaseURLModeEUWest1: 'Regional API (eu-west-1)',
         sessionPoolTitle: 'OpenAI prepared low-latency sessions',
+        sessionPoolFirstTokenTimeout: 'Probe first-token wait (seconds)',
+        sessionPoolFirstTokenTimeoutHint: 'Shared by latency and quality probes across all accounts. Default: 10; range: 1–600. Cancel and record probes reaching the limit without a valid first token. Pool admission requires a first-token time strictly below this value; timely quality probes continue through answer completion and grading.',
         sessionPoolSize: 'Global idle session target (1–100)',
         sessionPoolHint: 'Off by default. When off, keep existing scheduling and on-demand slow switching without background preparation or pool allocation. When on, only individually enabled API-key accounts participate, preparing 6 sessions in total by default. Authorized groups share results; use normal scheduling when unavailable. Probes consume upstream quota.',
         latencySwitch: "Switch routes after slow Codex responses",

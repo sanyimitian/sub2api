@@ -54,20 +54,21 @@ const backendModeDBTimeout = 5 * time.Second
 
 // cachedGatewayForwardingSettings 缓存网关转发行为设置（进程内缓存，60s TTL）
 type cachedGatewayForwardingSettings struct {
-	latencySwitch                    OpenAIWSLatencySwitchSettings
-	sessionPoolEnabled               bool
-	sessionPoolSize                  int
-	openAITTFTMode                   string
-	fingerprintUnification           bool
-	metadataPassthrough              bool
-	cchSigning                       bool
-	claudeOAuthSystemPromptInjection bool
-	claudeOAuthSystemPrompt          string
-	claudeOAuthSystemPromptBlocks    string
-	anthropicCacheTTL1hInjection     bool
-	rewriteMessageCacheControl       bool
-	clientDatelineNormalization      bool
-	expiresAt                        int64 // unix nano
+	latencySwitch                       OpenAIWSLatencySwitchSettings
+	sessionPoolEnabled                  bool
+	sessionPoolSize                     int
+	sessionPoolFirstTokenTimeoutSeconds int
+	openAITTFTMode                      string
+	fingerprintUnification              bool
+	metadataPassthrough                 bool
+	cchSigning                          bool
+	claudeOAuthSystemPromptInjection    bool
+	claudeOAuthSystemPrompt             string
+	claudeOAuthSystemPromptBlocks       string
+	anthropicCacheTTL1hInjection        bool
+	rewriteMessageCacheControl          bool
+	clientDatelineNormalization         bool
+	expiresAt                           int64 // unix nano
 }
 
 var gatewayForwardingCache atomic.Value // *cachedGatewayForwardingSettings
@@ -912,6 +913,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyOpenAIWSLatencyProbeReuseSeconds,
 			SettingKeyOpenAISessionPoolEnabled,
 			SettingKeyOpenAISessionPoolSize,
+			SettingKeyOpenAISessionPoolFirstTokenTimeoutSeconds,
 			SettingKeyOpenAITTFTMode,
 			SettingKeyEnableFingerprintUnification,
 			SettingKeyEnableMetadataPassthrough,
@@ -961,20 +963,21 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			clientDatelineNormalization = v == "true"
 		}
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
-			sessionPoolEnabled:               values[SettingKeyOpenAISessionPoolEnabled] == "true",
-			sessionPoolSize:                  parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAISessionPoolSize], 6, 1, 100),
-			latencySwitch:                    OpenAIWSLatencySwitchSettings{Enabled: values[SettingKeyOpenAIWSLatencySwitchEnabled] == "true", Consecutive: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchConsecutive], 3, 1, 20), SlowMS: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchSlowMS], 15000, 1000, 300000), MinTPS: parseOpenAIWSLatencyMinTPS(values[SettingKeyOpenAIWSLatencySwitchMinTPS]), ProbeCount: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchProbeCount], defaultOpenAIWSLatencyProbeCount, minOpenAIWSLatencyProbeCount, maxOpenAIWSLatencyProbeCount), WaitSeconds: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchWaitSeconds], DefaultOpenAIWSLatencySwitchWaitSeconds, MinOpenAIWSLatencySwitchWaitSeconds, MaxOpenAIWSLatencySwitchWaitSeconds), ProbeReuseSeconds: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencyProbeReuseSeconds], DefaultOpenAIWSLatencyProbeReuseSeconds, MinOpenAIWSLatencyProbeReuseSeconds, MaxOpenAIWSLatencyProbeReuseSeconds)},
-			openAITTFTMode:                   ttftMode,
-			fingerprintUnification:           fp,
-			metadataPassthrough:              mp,
-			cchSigning:                       cch,
-			claudeOAuthSystemPromptInjection: systemPromptInjection,
-			claudeOAuthSystemPrompt:          systemPrompt,
-			claudeOAuthSystemPromptBlocks:    systemPromptBlocks,
-			anthropicCacheTTL1hInjection:     cacheTTL1h,
-			rewriteMessageCacheControl:       rewriteMessageCacheControl,
-			clientDatelineNormalization:      clientDatelineNormalization,
-			expiresAt:                        time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
+			sessionPoolEnabled:                  values[SettingKeyOpenAISessionPoolEnabled] == "true",
+			sessionPoolFirstTokenTimeoutSeconds: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAISessionPoolFirstTokenTimeoutSeconds], 10, 1, 600),
+			sessionPoolSize:                     parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAISessionPoolSize], 6, 1, 100),
+			latencySwitch:                       OpenAIWSLatencySwitchSettings{Enabled: values[SettingKeyOpenAIWSLatencySwitchEnabled] == "true", Consecutive: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchConsecutive], 3, 1, 20), SlowMS: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchSlowMS], 15000, 1000, 300000), MinTPS: parseOpenAIWSLatencyMinTPS(values[SettingKeyOpenAIWSLatencySwitchMinTPS]), ProbeCount: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchProbeCount], defaultOpenAIWSLatencyProbeCount, minOpenAIWSLatencyProbeCount, maxOpenAIWSLatencyProbeCount), WaitSeconds: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencySwitchWaitSeconds], DefaultOpenAIWSLatencySwitchWaitSeconds, MinOpenAIWSLatencySwitchWaitSeconds, MaxOpenAIWSLatencySwitchWaitSeconds), ProbeReuseSeconds: parseOpenAIWSLatencySwitchInt(values[SettingKeyOpenAIWSLatencyProbeReuseSeconds], DefaultOpenAIWSLatencyProbeReuseSeconds, MinOpenAIWSLatencyProbeReuseSeconds, MaxOpenAIWSLatencyProbeReuseSeconds)},
+			openAITTFTMode:                      ttftMode,
+			fingerprintUnification:              fp,
+			metadataPassthrough:                 mp,
+			cchSigning:                          cch,
+			claudeOAuthSystemPromptInjection:    systemPromptInjection,
+			claudeOAuthSystemPrompt:             systemPrompt,
+			claudeOAuthSystemPromptBlocks:       systemPromptBlocks,
+			anthropicCacheTTL1hInjection:        cacheTTL1h,
+			rewriteMessageCacheControl:          rewriteMessageCacheControl,
+			clientDatelineNormalization:         clientDatelineNormalization,
+			expiresAt:                           time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
 		return gatewayForwardingSettingsResult{
 			openAITTFTMode:                   ttftMode,

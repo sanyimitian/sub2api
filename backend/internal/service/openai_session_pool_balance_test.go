@@ -59,7 +59,7 @@ func TestOpenAISessionPoolModelBalanceDoesNotFillFailedModelWithOthers(t *testin
 	svc.refillOpenAISessionPool(context.Background())
 	pool := svc.getOpenAIWSLatencyCandidatePool(context.Background(), openAISessionPoolKey)
 	require.Equal(t, map[string]int{"gpt-6-sol": 2, "gpt-6.1-sol": 2}, openAISessionPoolModelCounts(&pool, time.Now().UnixMilli()))
-	require.Greater(t, pool.RetryAfter, time.Now().UnixMilli())
+	require.Greater(t, pool.AccountProbes[a.ID].RetryAfter, time.Now().UnixMilli())
 }
 
 func TestOpenAISessionPoolModelBalanceTrimsSkewAndPreservesOwnership(t *testing.T) {

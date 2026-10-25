@@ -22,7 +22,7 @@ import (
 //
 // 目标是提前筛选首字延迟低的会话，让新对话首次请求就能领取并使用，减少先遇到慢会话
 // 再重连切换的情况。所有显式启用探测的 OpenAI 接口密钥账号合计准备默认 6 个空闲会话，
-// 数量可配置；只接纳探测成功且首字严格低于 10 秒的会话，领取后由后台补充。
+// 数量可配置；只接纳探测成功且首字严格低于全局门槛（默认十秒）的会话，领取后由后台补充。
 //
 // 探测模型列表控制后台使用哪些模型测速，不限制候选可以服务的用户请求模型。
 // 例如使用 gpt-6-sol 探测合格后，只要账号模型白名单允许 gpt-6.1-sol，就可领取同一
@@ -56,11 +56,19 @@ const openAISessionPoolKey = "candidate_pool:openai-prepared-sessions:v1"
 const openAISessionPoolRetryInterval = 30 * time.Minute
 
 type openAISessionPoolRoute struct {
-	account       *Account
-	model         string
-	upstreamModel string
-	transport     OpenAIUpstreamTransport
-	fingerprint   string
+	account         *Account
+	model           string
+	upstreamModel   string
+	transport       OpenAIUpstreamTransport
+	fingerprint     string
+	firstTokenMaxMS int
+}
+
+func (route openAISessionPoolRoute) firstTokenLimitMS() int {
+	if route.firstTokenMaxMS > 0 {
+		return route.firstTokenMaxMS
+	}
+	return openAIWSLatencyCandidateMaxFirstTokenMS
 }
 
 func (s *OpenAIGatewayService) StartOpenAISessionPool() {
@@ -108,6 +116,7 @@ func (s *OpenAIGatewayService) openAISessionPoolRoutes(ctx context.Context) ([]o
 		return nil, err
 	}
 	checker := &defaultOpenAIAccountScheduler{service: s}
+	firstTokenMaxMS := s.settingService.GetOpenAISessionPoolFirstTokenTimeoutSeconds(ctx) * 1000
 	var routes []openAISessionPoolRoute
 	for i := range accounts {
 		account := &accounts[i]
@@ -131,7 +140,7 @@ func (s *OpenAIGatewayService) openAISessionPoolRoutes(ctx context.Context) ([]o
 				transport := s.openAISessionPoolTransport(account, ingress)
 				if !seen[transport] && checker.isAccountTransportCompatible(account, ingress) {
 					seen[transport] = true
-					routes = append(routes, openAISessionPoolRoute{account: account, model: model, upstreamModel: upstream, transport: transport, fingerprint: openAISessionPoolAccountFingerprint(account)})
+					routes = append(routes, openAISessionPoolRoute{account: account, model: model, upstreamModel: upstream, transport: transport, fingerprint: openAISessionPoolAccountFingerprint(account), firstTokenMaxMS: firstTokenMaxMS})
 				}
 			}
 		}
@@ -140,6 +149,9 @@ func (s *OpenAIGatewayService) openAISessionPoolRoutes(ctx context.Context) ([]o
 }
 
 func openAISessionPoolCandidateMatchesRoute(candidate openAIWSLatencyReusableCandidate, route openAISessionPoolRoute) bool {
+	if candidate.FirstTokenMS < 0 || candidate.FirstTokenMS >= route.firstTokenLimitMS() {
+		return false
+	}
 	if quality, err := route.account.OpenAISessionQualityConfig(); err != nil || (quality != nil && quality.Enabled && !candidate.QualityPassed) {
 		return false
 	}
@@ -164,7 +176,7 @@ func pruneOpenAISessionPool(pool *openAIWSLatencyCandidatePool, routes []openAIS
 				break
 			}
 		}
-		if !valid || candidate.UpstreamSessionID == "" || candidate.FirstTokenMS < 0 || candidate.FirstTokenMS >= openAIWSLatencyCandidateMaxFirstTokenMS {
+		if !valid || candidate.UpstreamSessionID == "" || candidate.FirstTokenMS < 0 {
 			continue
 		}
 		kept = append(kept, candidate)
@@ -254,6 +266,9 @@ func planOpenAISessionPoolProbes(pool *openAIWSLatencyCandidatePool, routes []op
 	byModel := make(map[string][]openAISessionPoolRoute)
 	models := make([]string, 0)
 	for _, route := range routes {
+		if pool.AccountProbes[route.account.ID].RetryAfter > now {
+			continue
+		}
 		if len(byModel[route.model]) == 0 {
 			models = append(models, route.model)
 		}
@@ -282,6 +297,45 @@ func planOpenAISessionPoolProbes(pool *openAIWSLatencyCandidatePool, routes []op
 	return planned
 }
 
+// 账号轮次跨补池任务保存；只有本轮真正被安排探测的账号才消耗一轮。
+// 不按冷却状态删减 routes，否则会误删冷却账号的合格候选、改变模型均分名额。
+func pruneOpenAISessionPoolAccountProbes(pool *openAIWSLatencyCandidatePool, routes []openAISessionPoolRoute, now int64) {
+	active := make(map[int64]bool)
+	for _, route := range routes {
+		active[route.account.ID] = true
+	}
+	for id, state := range pool.AccountProbes {
+		if !active[id] || (state.RetryAfter > 0 && state.RetryAfter <= now) {
+			delete(pool.AccountProbes, id)
+		}
+	}
+	// 旧版全局等待无法可靠归属到账号，升级后不沿用，避免挡住新增账号。
+	pool.RetryAfter = 0
+}
+
+func advanceOpenAISessionPoolAccountProbes(pool *openAIWSLatencyCandidatePool, completedAt map[int64]int64, now int64, full bool) {
+	if full {
+		for id, state := range pool.AccountProbes {
+			if state.RetryAfter <= now {
+				delete(pool.AccountProbes, id)
+			}
+		}
+		return
+	}
+	if pool.AccountProbes == nil {
+		pool.AccountProbes = make(map[int64]openAISessionPoolAccountProbeState)
+	}
+	for id, finished := range completedAt {
+		state := pool.AccountProbes[id]
+		state.Rounds++
+		if state.Rounds >= openAIWSLatencyMaxProbeRounds {
+			state.Rounds = 0
+			state.RetryAfter = finished + openAISessionPoolRetryInterval.Milliseconds()
+		}
+		pool.AccountProbes[id] = state
+	}
+}
+
 // 全局补充租约覆盖所有账号、模型和协议，避免多副本各自准备一整池。
 func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 	if ctx.Err() != nil || !s.OpenAISessionPoolEnabled(ctx) {
@@ -296,7 +350,7 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 	settings := s.settingService.GetOpenAIWSLatencySwitchSettings(ctx)
 	refillLease := 2 * time.Minute
 	for _, route := range routes {
-		if timeout := openAISessionProbeTimeout(route.account) + 30*time.Second; timeout > refillLease {
+		if timeout := openAISessionProbeTimeout(route.account, route.firstTokenLimitMS()) + 30*time.Second; timeout > refillLease {
 			refillLease = timeout
 		}
 	}
@@ -317,6 +371,7 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 		claimed = false
 		now := time.Now().UnixMilli()
 		available := trimOpenAISessionPool(pool, routes, now, target)
+		pruneOpenAISessionPoolAccountProbes(pool, routes, now)
 		availableBefore = available
 		switch {
 		case len(routes) == 0:
@@ -325,7 +380,7 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 			skipReason = "pool_full"
 		case pool.ProbeUntil > now:
 			skipReason = "refill_in_progress"
-		case pool.RetryAfter > now:
+		case len(planOpenAISessionPoolProbes(pool, routes, now, target, 1, make(map[string]int))) == 0:
 			skipReason = "retry_backoff"
 		default:
 			skipReason = ""
@@ -386,19 +441,29 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 			}
 			return
 		}
-		diagnostic.rounds = round + 1
 		planned := planOpenAISessionPoolProbes(&pool, routes, time.Now().UnixMilli(), target, settings.ProbeCount, attempts)
 		count := len(planned)
+		if count == 0 {
+			break
+		}
+		diagnostic.rounds = round + 1
 		type outcome struct {
-			route  openAISessionPoolRoute
-			result openAIWSLatencyProbeResult
-			number int
-			record *openAISessionPoolProbeRecord
+			route      openAISessionPoolRoute
+			result     openAIWSLatencyProbeResult
+			number     int
+			finishedAt int64
+			record     *openAISessionPoolProbeRecord
 		}
 		results := make(chan outcome, count)
 		publish := func(item outcome) {
 			route, result := item.route, item.result
-			if !result.ok || result.ms < 0 || result.ms >= openAIWSLatencyCandidateMaxFirstTokenMS || result.upstreamSessionID == "" || result.upstreamModel != route.upstreamModel {
+			if !result.ok || result.ms < 0 || result.upstreamSessionID == "" || result.upstreamModel != route.upstreamModel {
+				return
+			}
+			if result.ms >= s.settingService.GetOpenAISessionPoolFirstTokenTimeoutSeconds(ctx)*1000 {
+				diagnostic.notPublished++
+				item.record.Qualified = false
+				item.record.Reason = "first_token_too_slow"
 				return
 			}
 			if !s.OpenAISessionPoolEnabled(ctx) {
@@ -458,12 +523,17 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 		for i, route := range planned {
 			probeCtx := logger.IntoContext(ctx, logger.FromContext(ctx).With(zap.String("refill_id", owner), zap.Int("round", round+1), zap.Int("probe_number", i+1)))
 			go func(route openAISessionPoolRoute, probeCtx context.Context, number int) {
-				results <- outcome{route: route, result: s.probeOpenAISessionPoolRoute(probeCtx, route), number: number}
+				result := s.probeOpenAISessionPoolRoute(probeCtx, route)
+				results <- outcome{route: route, result: result, number: number, finishedAt: time.Now().UnixMilli()}
 			}(route, probeCtx, i+1)
 		}
 		pending := make([]outcome, 0, count)
+		completedAt := make(map[int64]int64)
 		for i := 0; i < count; i++ {
 			item := <-results
+			if item.finishedAt > completedAt[item.route.account.ID] {
+				completedAt[item.route.account.ID] = item.finishedAt
+			}
 			item.record = &openAISessionPoolProbeRecord{Round: round + 1, ProbeNumber: item.number,
 				AccountID: item.route.account.ID, AccountName: item.route.account.Name, Model: item.route.model,
 				Transport: item.route.transport, Success: item.result.ok, Qualified: item.result.failure == "qualified", Reason: item.result.failure, QualityJudgment: item.result.qualityJudgment, QualityProbeEnabled: item.result.qualityProbeEnabled}
@@ -479,10 +549,26 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 				pending = append(pending, item)
 			}
 		}
-		// 5 至 10 秒的结果等待本轮完成后按速度入池；低于 5 秒的结果已可提前领取。
+		// 未提前发布的合格结果等本轮完成后按速度入池；低于五秒的结果已可提前领取。
 		sort.SliceStable(pending, func(i, j int) bool { return pending[i].result.ms < pending[j].result.ms })
 		for _, item := range pending {
 			publish(item)
+		}
+		if ctx.Err() != nil || !s.OpenAISessionPoolEnabled(ctx) {
+			break
+		}
+		_, saved := s.updateOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey, func(pool *openAIWSLatencyCandidatePool) bool {
+			if pool.ProbeID != owner {
+				return false
+			}
+			now := time.Now().UnixMilli()
+			diagnostic.available = trimOpenAISessionPool(pool, routes, now, target)
+			advanceOpenAISessionPoolAccountProbes(pool, completedAt, now, diagnostic.available >= target)
+			return true
+		})
+		if !saved {
+			diagnostic.reason = "cache_update_failed"
+			return
 		}
 	}
 	_, saved := s.updateOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey, func(pool *openAIWSLatencyCandidatePool) bool {
@@ -491,8 +577,14 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 			return false
 		}
 		diagnostic.available = trimOpenAISessionPool(pool, routes, time.Now().UnixMilli(), target)
-		if diagnostic.available < target {
-			pool.RetryAfter = time.Now().Add(openAISessionPoolRetryInterval).UnixMilli()
+		diagnostic.retryAfterMS = 0
+		if diagnostic.available < target && len(planOpenAISessionPoolProbes(pool, routes, time.Now().UnixMilli(), target, 1, make(map[string]int))) == 0 {
+			for _, state := range pool.AccountProbes {
+				remaining := state.RetryAfter - time.Now().UnixMilli()
+				if remaining > 0 && (diagnostic.retryAfterMS == 0 || remaining < diagnostic.retryAfterMS) {
+					diagnostic.retryAfterMS = remaining
+				}
+			}
 		}
 		return true
 	})
@@ -505,9 +597,6 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 		diagnostic.reason = "cache_update_failed"
 	case saved && diagnostic.available < target:
 		diagnostic.reason = "probe_rounds_exhausted"
-	}
-	if saved && diagnostic.available < target {
-		diagnostic.retryAfterMS = openAISessionPoolRetryInterval.Milliseconds()
 	}
 }
 
@@ -539,7 +628,7 @@ func (s *OpenAIGatewayService) probeOpenAISessionPoolRoute(ctx context.Context, 
 	if !checker.isAccountRequestCompatible(ctx, fresh, OpenAIAccountScheduleRequest{Platform: PlatformOpenAI, RequestedModel: route.model, RequiredCapability: OpenAIEndpointCapabilityResponses}) {
 		return openAIWSLatencyProbeResult{failure: "account_request_incompatible"}
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, openAISessionProbeTimeout(fresh))
+	probeCtx, cancel := context.WithTimeout(ctx, openAISessionProbeTimeout(fresh, route.firstTokenLimitMS()))
 	defer cancel()
 	slot, err := s.tryAcquireAccountSlot(probeCtx, fresh.ID, fresh.Concurrency)
 	if err != nil || slot == nil || !slot.Acquired {
@@ -634,6 +723,7 @@ func (session *OpenAIWSLatencySession) reservePreparedCandidate(ctx context.Cont
 		eligible[account.ID] = account
 	}
 	eligibleCount = len(eligible)
+	firstTokenMaxMS := s.settingService.GetOpenAISessionPoolFirstTokenTimeoutSeconds(ctx) * 1000
 	if eligibleCount == 0 {
 		reason = "no_eligible_accounts"
 		return openAIWSLatencyReusableCandidate{}, "", false
@@ -678,7 +768,7 @@ func (session *OpenAIWSLatencySession) reservePreparedCandidate(ctx context.Cont
 				rejected = "account_changed"
 			case !openAISessionPoolQualityCandidateAllowed(a, *c):
 				rejected = "quality_not_passed"
-			case c.FirstTokenMS < 0 || c.FirstTokenMS >= openAIWSLatencyCandidateMaxFirstTokenMS:
+			case c.FirstTokenMS < 0 || c.FirstTokenMS >= firstTokenMaxMS:
 				rejected = "invalid_latency"
 			case !openAISessionPoolModelConfigured(a, c.UpstreamModel):
 				rejected = "model_not_configured"

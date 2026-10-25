@@ -244,31 +244,32 @@ type UpdateSettingsRequest struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	OpenAIWSLatencySwitchEnabled           *bool    `json:"openai_ws_latency_switch_enabled"`
-	OpenAIWSLatencySwitchConsecutive       *int     `json:"openai_ws_latency_switch_consecutive"`
-	OpenAIWSLatencySwitchSlowMS            *int     `json:"openai_ws_latency_switch_slow_ms"`
-	OpenAIWSLatencySwitchMinTPS            *float64 `json:"openai_ws_latency_switch_min_tps"`
-	OpenAIWSLatencySwitchProbeCount        *int     `json:"openai_ws_latency_switch_probe_count"`
-	OpenAIWSLatencySwitchWaitSeconds       *int     `json:"openai_ws_latency_switch_wait_seconds"`
-	OpenAIWSLatencyProbeReuseSeconds       *int     `json:"openai_ws_latency_probe_reuse_seconds"`
-	OpenAISessionPoolEnabled               *bool    `json:"openai_session_pool_enabled"`
-	OpenAISessionPoolSize                  *int     `json:"openai_session_pool_size"`
-	OpenAITTFTMode                         *string  `json:"openai_ttft_mode"`
-	EnableFingerprintUnification           *bool    `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough              *bool    `json:"enable_metadata_passthrough"`
-	EnableCCHSigning                       *bool    `json:"enable_cch_signing"`
-	EnableClaudeOAuthSystemPromptInjection *bool    `json:"enable_claude_oauth_system_prompt_injection"`
-	ClaudeOAuthSystemPrompt                *string  `json:"claude_oauth_system_prompt"`
-	ClaudeOAuthSystemPromptBlocks          *string  `json:"claude_oauth_system_prompt_blocks"`
-	EnableAnthropicCacheTTL1hInjection     *bool    `json:"enable_anthropic_cache_ttl_1h_injection"`
-	RewriteMessageCacheControl             *bool    `json:"rewrite_message_cache_control"`
-	EnableClientDatelineNormalization      *bool    `json:"enable_client_dateline_normalization"`
-	AntigravityUserAgentVersion            *string  `json:"antigravity_user_agent_version"`
-	OpenAICodexUserAgent                   *string  `json:"openai_codex_user_agent"`
-	OpenAICodexClientVersion               *string  `json:"openai_codex_client_version"`
-	OpenAICodexVersionAutoSyncEnabled      *bool    `json:"openai_codex_version_auto_sync_enabled"`
-	ClaudeCodeClientVersion                *string  `json:"claude_code_client_version"`
-	ClaudeCodeVersionAutoSyncEnabled       *bool    `json:"claude_code_version_auto_sync_enabled"`
+	OpenAIWSLatencySwitchEnabled              *bool    `json:"openai_ws_latency_switch_enabled"`
+	OpenAIWSLatencySwitchConsecutive          *int     `json:"openai_ws_latency_switch_consecutive"`
+	OpenAIWSLatencySwitchSlowMS               *int     `json:"openai_ws_latency_switch_slow_ms"`
+	OpenAIWSLatencySwitchMinTPS               *float64 `json:"openai_ws_latency_switch_min_tps"`
+	OpenAIWSLatencySwitchProbeCount           *int     `json:"openai_ws_latency_switch_probe_count"`
+	OpenAIWSLatencySwitchWaitSeconds          *int     `json:"openai_ws_latency_switch_wait_seconds"`
+	OpenAIWSLatencyProbeReuseSeconds          *int     `json:"openai_ws_latency_probe_reuse_seconds"`
+	OpenAISessionPoolEnabled                  *bool    `json:"openai_session_pool_enabled"`
+	OpenAISessionPoolSize                     *int     `json:"openai_session_pool_size"`
+	OpenAISessionPoolFirstTokenTimeoutSeconds *int     `json:"openai_session_pool_first_token_timeout_seconds"`
+	OpenAITTFTMode                            *string  `json:"openai_ttft_mode"`
+	EnableFingerprintUnification              *bool    `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough                 *bool    `json:"enable_metadata_passthrough"`
+	EnableCCHSigning                          *bool    `json:"enable_cch_signing"`
+	EnableClaudeOAuthSystemPromptInjection    *bool    `json:"enable_claude_oauth_system_prompt_injection"`
+	ClaudeOAuthSystemPrompt                   *string  `json:"claude_oauth_system_prompt"`
+	ClaudeOAuthSystemPromptBlocks             *string  `json:"claude_oauth_system_prompt_blocks"`
+	EnableAnthropicCacheTTL1hInjection        *bool    `json:"enable_anthropic_cache_ttl_1h_injection"`
+	RewriteMessageCacheControl                *bool    `json:"rewrite_message_cache_control"`
+	EnableClientDatelineNormalization         *bool    `json:"enable_client_dateline_normalization"`
+	AntigravityUserAgentVersion               *string  `json:"antigravity_user_agent_version"`
+	OpenAICodexUserAgent                      *string  `json:"openai_codex_user_agent"`
+	OpenAICodexClientVersion                  *string  `json:"openai_codex_client_version"`
+	OpenAICodexVersionAutoSyncEnabled         *bool    `json:"openai_codex_version_auto_sync_enabled"`
+	ClaudeCodeClientVersion                   *string  `json:"claude_code_client_version"`
+	ClaudeCodeVersionAutoSyncEnabled          *bool    `json:"claude_code_version_auto_sync_enabled"`
 
 	// codex_cli_only 加固（global-only）
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -531,6 +532,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if req.OpenAIWSLatencySwitchWaitSeconds != nil && (*req.OpenAIWSLatencySwitchWaitSeconds < service.MinOpenAIWSLatencySwitchWaitSeconds || *req.OpenAIWSLatencySwitchWaitSeconds > service.MaxOpenAIWSLatencySwitchWaitSeconds) {
 		response.BadRequest(c, "openai_ws_latency_switch_wait_seconds must be between 1 and 3600")
+		return
+	}
+	if req.OpenAISessionPoolFirstTokenTimeoutSeconds != nil && (*req.OpenAISessionPoolFirstTokenTimeoutSeconds < 1 || *req.OpenAISessionPoolFirstTokenTimeoutSeconds > 600) {
+		response.BadRequest(c, "首字等待时间必须为 1 至 600 秒的整数")
 		return
 	}
 	if req.OpenAISessionPoolSize != nil && (*req.OpenAISessionPoolSize < 1 || *req.OpenAISessionPoolSize > 100) {
@@ -1793,6 +1798,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpenAISessionPoolEnabled
 		}(),
+		OpenAISessionPoolFirstTokenTimeoutSeconds: func() int {
+			if req.OpenAISessionPoolFirstTokenTimeoutSeconds != nil {
+				return *req.OpenAISessionPoolFirstTokenTimeoutSeconds
+			}
+			return previousSettings.OpenAISessionPoolFirstTokenTimeoutSeconds
+		}(),
 		OpenAISessionPoolSize: func() int {
 			if req.OpenAISessionPoolSize != nil {
 				return *req.OpenAISessionPoolSize
@@ -2458,6 +2469,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIWSLatencyProbeReuseSeconds:                       updatedSettings.OpenAIWSLatencyProbeReuseSeconds,
 		OpenAISessionPoolEnabled:                               updatedSettings.OpenAISessionPoolEnabled,
 		OpenAISessionPoolSize:                                  updatedSettings.OpenAISessionPoolSize,
+		OpenAISessionPoolFirstTokenTimeoutSeconds:              updatedSettings.OpenAISessionPoolFirstTokenTimeoutSeconds,
 		OpenAITTFTMode:                                         updatedSettings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,

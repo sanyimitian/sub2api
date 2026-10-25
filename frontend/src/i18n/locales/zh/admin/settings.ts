@@ -502,6 +502,8 @@ export default {
         grokBaseURLModeUSWest2: '区域 API（us-west-2）',
         grokBaseURLModeEUWest1: '区域 API（eu-west-1）',
         sessionPoolTitle: 'OpenAI 低延迟备用会话池',
+        sessionPoolFirstTokenTimeout: '探测首字等待时间（秒）',
+        sessionPoolFirstTokenTimeoutHint: '所有账号的低延迟探测和降智探测共用，默认 10 秒，可设 1 至 600 秒。到达门槛仍无有效首字就取消并记录；入池首字必须严格低于该值。及时收到首字后，降智探测继续完成答题和判题。',
         sessionPoolSize: '全局空闲备用会话数（1–100）',
         sessionPoolHint: '默认关闭。关闭时沿用原调度和原首字慢切换流程，不主动补充或领取备用池。开启后，仅账号级开关也已开启的接口密钥账号参与，合计默认准备 6 个会话；有权限的分组共享，池空按原调度处理。探测会消耗上游额度。',
         latencySwitch: 'Codex 首字慢自动切换',

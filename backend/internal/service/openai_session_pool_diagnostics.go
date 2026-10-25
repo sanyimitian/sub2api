@@ -38,6 +38,10 @@ func (session *OpenAIWSLatencySession) poolDiagnostic(ctx context.Context, level
 }
 
 func openAISessionPoolProbeReason(result openAIWSLatencyProbeResult, err error, expectedModel string) string {
+	firstTokenMaxMS := result.firstTokenMaxMS
+	if firstTokenMaxMS <= 0 {
+		firstTokenMaxMS = openAIWSLatencyCandidateMaxFirstTokenMS
+	}
 	if errors.Is(err, errOpenAIWSLatencyFirstTokenTimeout) {
 		return "first_token_too_slow"
 	}
@@ -64,7 +68,7 @@ func openAISessionPoolProbeReason(result openAIWSLatencyProbeResult, err error, 
 	switch {
 	case result.ok && result.ms >= 0:
 		switch {
-		case result.ms >= openAIWSLatencyCandidateMaxFirstTokenMS:
+		case result.ms >= firstTokenMaxMS:
 			return "first_token_too_slow"
 		case result.upstreamSessionID == "":
 			return "upstream_session_missing"

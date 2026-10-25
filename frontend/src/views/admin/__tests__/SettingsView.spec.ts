@@ -1533,6 +1533,11 @@ describe("admin SettingsView payment visible method controls", () => {
     const size = wrapper.get('[data-testid="openai-session-pool-size"]');
     expect((size.element as HTMLInputElement).value).toBe("6");
     await size.setValue(12);
+    const firstTokenTimeout = wrapper.get('[data-testid="openai-session-pool-first-token-timeout"]');
+    expect((firstTokenTimeout.element as HTMLInputElement).value).toBe("10");
+    expect(firstTokenTimeout.attributes("min")).toBe("1");
+    expect(firstTokenTimeout.attributes("max")).toBe("600");
+    await firstTokenTimeout.setValue(20);
     const probeCount = wrapper.get('[data-testid="openai-ws-latency-switch-probe-count"]');
     expect((probeCount.element as HTMLInputElement).value).toBe("6");
     expect(probeCount.attributes("min")).toBe("2");
@@ -1561,6 +1566,7 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
     expect(updateSettings.mock.calls.at(-1)?.[0].openai_session_pool_enabled).toBe(false);
     expect(payload.openai_session_pool_size).toBe(12);
+    expect(payload.openai_session_pool_first_token_timeout_seconds).toBe(20);
     expect(payload.openai_ws_latency_switch_probe_count).toBe(4);
     expect(payload.openai_ws_latency_switch_wait_seconds).toBe(600);
     expect(payload.openai_ws_latency_probe_reuse_seconds).toBe(900);

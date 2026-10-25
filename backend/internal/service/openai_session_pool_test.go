@@ -386,7 +386,7 @@ func TestOpenAISessionPoolFailuresStopAfterFiveRounds(t *testing.T) {
 	require.EqualValues(t, 10, u.calls.Load())
 	pool := svc.getOpenAIWSLatencyCandidatePool(context.Background(), openAISessionPoolKey)
 	require.Empty(t, pool.Candidates)
-	require.Greater(t, pool.RetryAfter, time.Now().UnixMilli())
+	require.Greater(t, pool.AccountProbes[a.ID].RetryAfter, time.Now().UnixMilli())
 	require.Empty(t, pool.ProbeID)
 	svc.refillOpenAISessionPool(context.Background())
 	require.EqualValues(t, 10, u.calls.Load())

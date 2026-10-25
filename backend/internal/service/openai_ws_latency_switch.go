@@ -110,10 +110,16 @@ const openAIPreparedSessionContextKey = "openai_prepared_session_enabled"
 const openAIWSLatencyUpstreamSessionContextKey = "openai_ws_latency_upstream_session_id"
 
 type openAIWSLatencyCandidatePool struct {
-	ProbeID    string                             `json:"probe_id,omitempty"`
-	ProbeUntil int64                              `json:"probe_until,omitempty"`
-	Candidates []openAIWSLatencyReusableCandidate `json:"candidates,omitempty"`
-	RetryAfter int64                              `json:"retry_after,omitempty"`
+	ProbeID       string                                       `json:"probe_id,omitempty"`
+	ProbeUntil    int64                                        `json:"probe_until,omitempty"`
+	Candidates    []openAIWSLatencyReusableCandidate           `json:"candidates,omitempty"`
+	RetryAfter    int64                                        `json:"retry_after,omitempty"`
+	AccountProbes map[int64]openAISessionPoolAccountProbeState `json:"account_probes,omitempty"`
+}
+
+type openAISessionPoolAccountProbeState struct {
+	Rounds     int   `json:"rounds,omitempty"`
+	RetryAfter int64 `json:"retry_after,omitempty"`
 }
 
 func (s *OpenAIGatewayService) updateOpenAIWSLatencyState(ctx context.Context, key string, mutate func(*openAIWSLatencyState) bool) (openAIWSLatencyState, bool) {

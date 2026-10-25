@@ -33,6 +33,7 @@ type openAIWSLatencyProbeResult struct {
 	attemptedAccountIDs []int64
 	failure             string
 	ms                  int
+	firstTokenMaxMS     int
 	ok                  bool
 	timedOut            bool
 	responseStatus      int // 仅供备用池诊断，不改变成功判定。
@@ -63,7 +64,7 @@ const (
 	openAIWSLatencyMaxProbeRounds           = 5
 )
 
-var errOpenAIWSLatencyFirstTokenTimeout = fmt.Errorf("probe first token exceeded 10 seconds: %w", context.DeadlineExceeded)
+var errOpenAIWSLatencyFirstTokenTimeout = fmt.Errorf("probe first token deadline exceeded: %w", context.DeadlineExceeded)
 
 func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, account *Account, model string, requiredTransport OpenAIUpstreamTransport) (openAIWSLatencyProbeResult, error) {
 	return s.forwardOpenAIWSLatencyProbeWithRelease(ctx, account, model, requiredTransport, nil)
@@ -73,6 +74,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, 
 // 调用方仍负责用 defer 处理发出网络请求之前就失败的情况。
 func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx context.Context, account *Account, model string, requiredTransport OpenAIUpstreamTransport, releaseSlot func()) (openAIWSLatencyProbeResult, error) {
 	observed := openAIWSLatencyProbeResult{accountID: account.ID, upstreamSessionID: openAIWSLatencyProbeSessionID(ctx), ms: -1}
+	observed.firstTokenMaxMS = openAIWSLatencyCandidateMaxFirstTokenMS
+	if isOpenAIPreparedProbe(ctx) {
+		observed.firstTokenMaxMS = s.settingService.GetOpenAISessionPoolFirstTokenTimeoutSeconds(ctx) * 1000
+	}
 	quality, configErr := account.OpenAISessionQualityConfig()
 	if configErr != nil && isOpenAIPreparedProbe(ctx) {
 		return observed, configErr
@@ -82,6 +87,8 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx contex
 	timeout := openAIWSLatencyProbeTimeout
 	if qualityEnabled {
 		timeout = openAISessionQualityProbeTimeout
+	} else if isOpenAIPreparedProbe(ctx) {
+		timeout = openAISessionProbeTimeout(account, observed.firstTokenMaxMS)
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -140,10 +147,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx contex
 			cancelForward(errOpenAIWSLatencyFirstTokenTimeout)
 		})
 	}
-	firstTokenTimer := time.AfterFunc(time.Until(writer.started.Add(time.Duration(openAIWSLatencyCandidateMaxFirstTokenMS)*time.Millisecond)), expireFirstToken)
+	firstTokenTimer := time.AfterFunc(time.Until(writer.started.Add(time.Duration(observed.firstTokenMaxMS)*time.Millisecond)), expireFirstToken)
 	defer firstTokenTimer.Stop()
 	writer.onFirstToken = func(ms int) {
-		if ms >= openAIWSLatencyCandidateMaxFirstTokenMS {
+		if ms >= observed.firstTokenMaxMS {
 			expireFirstToken()
 			return
 		}
@@ -161,7 +168,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbeWithRelease(ctx contex
 	}
 	result, forwardErr := s.Forward(forwardCtx, c, account, body)
 	// 停止并同步定时回调，避免取消与首字同时到达时读写诊断状态发生竞争。
-	if writer.firstMS < 0 && time.Since(writer.started) >= time.Duration(openAIWSLatencyCandidateMaxFirstTokenMS)*time.Millisecond {
+	if writer.firstMS < 0 && time.Since(writer.started) >= time.Duration(observed.firstTokenMaxMS)*time.Millisecond {
 		expireFirstToken()
 	}
 	firstTokenDone.Do(func() { firstTokenTimer.Stop() })

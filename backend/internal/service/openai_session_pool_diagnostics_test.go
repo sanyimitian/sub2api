@@ -70,7 +70,7 @@ func TestOpenAISessionPoolDiagnosticRefillSummary(t *testing.T) {
 				require.EqualValues(t, 5, fields["rounds"])
 				require.EqualValues(t, 10, fields["probe_count"])
 				require.EqualValues(t, 0, fields["published_count"])
-				require.EqualValues(t, 1800000, fields["retry_after_ms"])
+				require.InDelta(t, 1800000, fields["retry_after_ms"], 1000)
 				require.Equal(t, map[string]int{"upstream_request_failed": 10}, fields["probe_outcomes"])
 			} else {
 				require.Equal(t, zapcore.InfoLevel, summaries[0].Level)

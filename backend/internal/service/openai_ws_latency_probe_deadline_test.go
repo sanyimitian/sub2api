@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -15,6 +16,57 @@ import (
 type probeDeadlineTestStep struct {
 	delay time.Duration
 	data  string
+}
+
+func TestOpenAISessionPoolGlobalFirstTokenThreshold(t *testing.T) {
+	for _, seconds := range []int{3, 20} {
+		for _, quality := range []bool{false, true} {
+			for _, noToken := range []bool{false, true} {
+				t.Run(fmt.Sprintf("seconds=%d/quality=%t/timeout=%t", seconds, quality, noToken), func(t *testing.T) {
+					synctest.Test(t, func(t *testing.T) {
+						s, a, _, judgeCalls := setupConversationQualityTest(t, "correct")
+						if !quality {
+							delete(a.Extra, OpenAISessionPoolQualityExtraKey)
+						}
+						s.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{a}}
+						settings := *gatewayForwardingCache.Load().(*cachedGatewayForwardingSettings)
+						settings.sessionPoolFirstTokenTimeoutSeconds = seconds
+						gatewayForwardingCache.Store(&settings)
+						first := time.Duration(seconds-2) * time.Second
+						u := &probeDeadlineTestUpstream{steps: []probeDeadlineTestStep{
+							{first, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"21\"}\n\n"},
+							{time.Second, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_custom_threshold\",\"status\":\"completed\",\"model\":\"gpt-5.1\"}}\n\n"},
+						}}
+						if noToken {
+							u.headerDelay = time.Duration(seconds+5) * time.Second
+						}
+						s.httpUpstream = u
+						ctx, logs := poolDiagnosticTestContext()
+						started := time.Now()
+						s.refillOpenAISessionPool(ctx)
+						pool := s.getOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey)
+						fields := logs.FilterMessage("openai.session_pool_refill_completed").All()[0].ContextMap()
+						if noToken {
+							require.Equal(t, time.Duration(5*seconds)*time.Second, time.Since(started))
+							require.Empty(t, pool.Candidates)
+							require.Equal(t, map[string]int{"first_token_too_slow": 5}, fields["probe_outcomes"])
+							require.Zero(t, judgeCalls.Load())
+						} else {
+							require.Equal(t, first+time.Second, time.Since(started))
+							require.Len(t, pool.Candidates, 1)
+							require.Equal(t, int(first.Milliseconds()), pool.Candidates[0].FirstTokenMS)
+							require.Equal(t, map[string]int{"qualified": 1}, fields["probe_outcomes"])
+							_, _, claimed := preparedHTTPSession(s, 1, "custom-threshold-user").reservePreparedCandidate(ctx, "gpt-5.1")
+							require.True(t, claimed, "取消、入池和领取都必须采用相同门槛")
+							if quality {
+								require.EqualValues(t, 1, judgeCalls.Load())
+							}
+						}
+					})
+				})
+			}
+		}
+	}
 }
 
 type probeDeadlineTestUpstream struct {
