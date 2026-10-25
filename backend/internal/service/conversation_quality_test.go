@@ -21,7 +21,7 @@ import (
 
 func conversationQualityTestConfig() *ConversationQualityConfig {
 	return &ConversationQualityConfig{Enabled: true, QuestionKind: "candy", Prompt: ConversationQualityCandyPrompt,
-		ExpectedAnswer: "29", ReasoningEffort: "high", Judge: &QualityJudgeConfig{GroupID: 9, ModelID: "judge", Prompt: "比较参考答案与实际回答"}}
+		ExpectedAnswer: "21", ReasoningEffort: "high", Judge: &QualityJudgeConfig{GroupID: 9, ModelID: "judge", Prompt: "比较参考答案与实际回答"}}
 }
 
 func TestConversationQualityConfigDependencyAndCandidateInvalidation(t *testing.T) {
@@ -65,6 +65,7 @@ type conversationQualityTestUpstream struct {
 	sessions []string
 	verdict  string
 	partial  bool
+	stream   string
 }
 
 func (u *conversationQualityTestUpstream) Do(r *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
@@ -76,7 +77,7 @@ func (u *conversationQualityTestUpstream) Do(r *http.Request, _ string, _ int64,
 	u.bodies = append(u.bodies, body)
 	u.sessions = append(u.sessions, r.Header.Get("session_id"))
 	u.mu.Unlock()
-	text := "29"
+	text := "21"
 	if u.verdict != "" {
 		text = fmt.Sprintf(`{"verdict":%q,"reason":"答案比对完成"}`, u.verdict)
 	}
@@ -84,6 +85,9 @@ func (u *conversationQualityTestUpstream) Do(r *http.Request, _ string, _ int64,
 	sse := "data: " + string(delta) + "\n\n"
 	if !u.partial {
 		sse += "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-5.1\",\"status\":\"completed\",\"usage\":{\"input_tokens\":30,\"output_tokens\":10}}}\n\n"
+	}
+	if u.stream != "" {
+		sse = u.stream
 	}
 	return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(sse)), Request: r}, nil
 }
@@ -163,6 +167,18 @@ func TestConversationQualityIncompleteAnswerCannotEnterPool(t *testing.T) {
 	require.Zero(t, calls.Load(), "未完整生成的答案不能交给判题器判为通过")
 }
 
+func TestConversationQualityRefusalInCompletedResponseCannotEnterPool(t *testing.T) {
+	s, a, upstream, calls := setupConversationQualityTest(t, "correct")
+	// 上游先输出答案片段，最终完成事件中才标明拒答；不能只检查拒答增量事件。
+	upstream.stream = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"21\"}\n\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_refused\",\"model\":\"gpt-5.1\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"refusal\",\"refusal\":\"无法回答\"}]}]}}\n\n"
+	ctx := context.WithValue(context.Background(), openAIPreparedProbeContextKey{}, true)
+	ctx = context.WithValue(ctx, openAIWSLatencyProbeSessionIDContextKey{}, "quality-refusal")
+	result, _ := s.forwardOpenAIWSLatencyProbe(ctx, &a, "gpt-5.1", OpenAIUpstreamTransportHTTPSSE)
+	require.False(t, result.ok, "最终结果含拒答时，已输出的答案片段也不能视为答题通过")
+	require.Zero(t, calls.Load(), "拒答不应继续交给判题器")
+}
+
 func TestConversationQualityConfigurationChangeRejectsOldPool(t *testing.T) {
 	s, a, _, _ := setupConversationQualityTest(t, "correct")
 	seedPreparedPool(t, s, a, 1) // 相同配置指纹也不能代替真实的质量通过标记。
@@ -179,6 +195,24 @@ func TestConversationQualityConfigurationChangeRejectsOldPool(t *testing.T) {
 	s.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{a}}
 	_, _, reserved = session.reservePreparedCandidate(context.Background(), "gpt-5.1")
 	require.False(t, reserved, "判分规则变化后旧结果不得继续领取")
+}
+
+func TestConversationQualityPassedCandidateStillRequiresLatencyBelowTenSeconds(t *testing.T) {
+	for _, ms := range []int{-1, 9999, 10000, 10001} {
+		t.Run(fmt.Sprint(ms), func(t *testing.T) {
+			s, a, _, _ := setupConversationQualityTest(t, "correct")
+			seedPreparedPool(t, s, a, 1)
+			_, updated := s.updateOpenAIWSLatencyCandidatePool(context.Background(), openAISessionPoolKey, func(pool *openAIWSLatencyCandidatePool) bool {
+				pool.Candidates[0].QualityPassed = true
+				pool.Candidates[0].FirstTokenMS = ms
+				return true
+			})
+			require.True(t, updated)
+			session := preparedHTTPSession(s, 1, "latency-boundary")
+			_, _, reserved := session.reservePreparedCandidate(context.Background(), "gpt-5.1")
+			require.Equal(t, ms == 9999, reserved, "答题通过也必须满足首字严格低于十秒，未知延迟不能领取")
+		})
+	}
 }
 
 func TestConversationQualityJudgeRealGatewayTransport(t *testing.T) {

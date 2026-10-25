@@ -279,15 +279,15 @@ func (w *openAIWSLatencyProbeWriter) captureOutput(payload, eventType string) {
 		if !w.completed {
 			w.failed = true
 		}
-		if w.output.Len() == 0 {
-			for _, item := range gjson.Get(payload, "response.output").Array() {
-				for _, content := range item.Get("content").Array() {
-					if content.Get("type").String() == "output_text" {
-						appendText(content.Get("text").String())
-					}
-					if content.Get("type").String() == "refusal" {
-						w.failed = true
-					}
+		// 最终结果可能只在此处标明拒答；即使已收到正文增量，也必须检查。
+		captureFinalText := w.output.Len() == 0
+		for _, item := range gjson.Get(payload, "response.output").Array() {
+			for _, content := range item.Get("content").Array() {
+				if content.Get("type").String() == "refusal" {
+					w.failed = true
+				}
+				if captureFinalText && content.Get("type").String() == "output_text" {
+					appendText(content.Get("text").String())
 				}
 			}
 		}
