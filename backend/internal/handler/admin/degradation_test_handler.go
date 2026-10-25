@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -14,7 +15,11 @@ import (
 // DegradationTestHandler handles admin degradation-test-plan management.
 type DegradationTestHandler struct {
 	degradationTestSvc *service.DegradationTestService
-	runner             *service.DegradationTestRunnerService
+	runner             degradationTestPlanRunner
+}
+
+type degradationTestPlanRunner interface {
+	RunNow(context.Context, int64) (*service.DegradationTestPlan, error)
 }
 
 // NewDegradationTestHandler creates a new DegradationTestHandler.
@@ -30,6 +35,7 @@ type createDegradationTestPlanRequest struct {
 	CronExpression  string  `json:"cron_expression" binding:"required"`
 	Enabled         *bool   `json:"enabled"`
 	MaxResults      *int    `json:"max_results"` // Accepted for older clients; retention is fixed at 24.
+	TimeoutSeconds  *int    `json:"timeout_seconds" binding:"omitempty,min=60,max=1800"`
 }
 
 type updateDegradationTestPlanRequest struct {
@@ -39,6 +45,7 @@ type updateDegradationTestPlanRequest struct {
 	CronExpression  *string `json:"cron_expression"`
 	Enabled         *bool   `json:"enabled"`
 	MaxResults      *int    `json:"max_results"` // Accepted for older clients; retention is fixed at 24.
+	TimeoutSeconds  *int    `json:"timeout_seconds" binding:"omitempty,min=60,max=1800"`
 }
 
 // ListStatus GET /admin/degradation-test-plans/status
@@ -83,12 +90,16 @@ func (h *DegradationTestHandler) Create(c *gin.Context) {
 		CronExpression:  req.CronExpression,
 		Enabled:         true,
 		MaxResults:      service.DegradationTestMaxResults,
+		TimeoutSeconds:  service.DegradationTestDefaultTimeoutSeconds,
 	}
 	if req.Prompt != nil {
 		plan.Prompt = *req.Prompt
 	}
 	if req.Enabled != nil {
 		plan.Enabled = *req.Enabled
+	}
+	if req.TimeoutSeconds != nil {
+		plan.TimeoutSeconds = *req.TimeoutSeconds
 	}
 
 	created, err := h.degradationTestSvc.CreatePlan(c.Request.Context(), plan)
@@ -133,6 +144,9 @@ func (h *DegradationTestHandler) Update(c *gin.Context) {
 	}
 	if req.Enabled != nil {
 		existing.Enabled = *req.Enabled
+	}
+	if req.TimeoutSeconds != nil {
+		existing.TimeoutSeconds = *req.TimeoutSeconds
 	}
 
 	updated, err := h.degradationTestSvc.UpdatePlan(c.Request.Context(), existing)
@@ -190,7 +204,7 @@ func (h *DegradationTestHandler) RunNow(c *gin.Context) {
 		response.BadRequest(c, "invalid plan id")
 		return
 	}
-	result, err := h.runner.RunNow(c.Request.Context(), planID)
+	plan, err := h.runner.RunNow(c.Request.Context(), planID)
 	if err != nil {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
@@ -199,10 +213,12 @@ func (h *DegradationTestHandler) RunNow(c *gin.Context) {
 			response.Error(c, http.StatusConflict, err.Error())
 		case errors.Is(err, service.ErrDegradationTestCapacity):
 			response.Error(c, http.StatusTooManyRequests, err.Error())
+		case errors.Is(err, service.ErrDegradationTestStopped):
+			response.Error(c, http.StatusServiceUnavailable, err.Error())
 		default:
 			response.InternalError(c, err.Error())
 		}
 		return
 	}
-	c.JSON(http.StatusOK, result)
+	c.JSON(http.StatusAccepted, plan)
 }

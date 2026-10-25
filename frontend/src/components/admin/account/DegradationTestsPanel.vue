@@ -90,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -103,6 +103,7 @@ import { formatDateTime } from '@/utils/format'
 import type { DegradationTestPlan, DegradationTestResult } from '@/types'
 import DegradationTestPlanForm, { type DegradationTestPlanFormValue } from './DegradationTestPlanForm.vue'
 import DegradationTestResultsGallery from './DegradationTestResultsGallery.vue'
+import { useDegradationTestRuns } from '@/composables/useDegradationTestRuns'
 
 const props = defineProps<{ show: boolean; accountId: number | null; accountName?: string; modelOptions: SelectOption[]; initialPlanId?: number | null }>()
 const emit = defineEmits<{ close: [] }>()
@@ -117,7 +118,9 @@ const showAddForm = ref(false)
 const editingPlanId = ref<number | null>(null)
 const expandedPlanId = ref<number | null>(null)
 const deletingPlan = ref<DegradationTestPlan | null>(null)
-const runningPlanIds = reactive(new Set<number>())
+const runs = useDegradationTestRuns()
+const now = ref(Date.now())
+const pendingResults = new Map<number, { previousRun: string | null; previousResult: number | null }>()
 const panelError = ref('')
 const resultsError = ref('')
 const detailsPlanId = ref<number | null>(null)
@@ -139,7 +142,7 @@ function errorMessage(error: unknown): string {
 
 function isCurrent(token: number): boolean { return token === scope && props.show }
 function isRunning(plan: DegradationTestPlan): boolean {
-  return runningPlanIds.has(plan.id) || (!!plan.running_until && new Date(plan.running_until).getTime() > Date.now())
+  return runs.isRunning(plan, now.value)
 }
 function scheduleLabel(expression: string): string {
   const interval = expression?.match(/^@every\s+(\d+)(m|h)$/)
@@ -157,10 +160,12 @@ async function loadPlans(quiet = false) {
   if (!props.show || !props.accountId) return
   const token = scope
   const request = ++plansRequestId
+  const fence = runs.fence()
   if (!quiet) loading.value = true
   try {
     const data = await adminAPI.degradationTests.listByAccount(props.accountId)
     if (!isCurrent(token) || request !== plansRequestId) return
+    runs.observe(data, fence)
     plans.value = data
     panelError.value = ''
     if (pendingInitialPlanId !== null) {
@@ -192,6 +197,16 @@ async function loadResults(planId: number, quiet = false) {
     if (!isCurrent(token) || request !== resultsRequestId || expandedPlanId.value !== planId) return
     results.value = data.slice(0, 10)
     resultsError.value = ''
+    const pending = pendingResults.get(planId)
+    const plan = plans.value.find(item => item.id === planId)
+    if (pending && plan && !isRunning(plan)) {
+      const latest = data[0]
+      const hasNewResult = !!latest && (pending.previousResult !== null
+        ? latest.id !== pending.previousResult
+        : !pending.previousRun || new Date(latest.finished_at).getTime() > new Date(pending.previousRun).getTime())
+      if (hasNewResult) pendingResults.delete(planId)
+      else resultsError.value = t('admin.degradationTests.resultUnavailable')
+    }
   } catch (error) {
     if (!isCurrent(token) || request !== resultsRequestId) return
     resultsError.value = errorMessage(error)
@@ -301,36 +316,33 @@ async function handleDelete() {
 }
 
 async function runNow(plan: DegradationTestPlan) {
-  if (isRunning(plan)) return
+  if (!runs.begin(plan)) return
   const token = scope
-  runningPlanIds.add(plan.id)
+  const previousResult = expandedPlanId.value === plan.id ? (results.value[0]?.id ?? null) : null
+  pendingResults.set(plan.id, { previousRun: plan.last_run_at, previousResult })
   panelError.value = ''
   if (expandedPlanId.value !== plan.id) {
     expandedPlanId.value = plan.id
     void loadResults(plan.id)
   }
   try {
-    const result = await adminAPI.degradationTests.run(plan.id)
+    const claimed = await adminAPI.degradationTests.run(plan.id)
+    runs.accepted(claimed)
     if (!isCurrent(token)) return
-    if (expandedPlanId.value === plan.id) {
-      resultsRequestId++
-      loadingResults.value = false
-      resultsError.value = ''
-      results.value = [result, ...results.value.filter(item => item.id !== result.id)].slice(0, 10)
-    }
-    if (result.status === 'success') appStore.showSuccess(t('admin.degradationTests.runSuccess'))
-    else appStore.showError(result.error_message || t('admin.degradationTests.runFailed'))
-    if (detailsPlanId.value === plan.id) void loadDetails(plan.id, true)
+    plansRequestId++
+    plans.value = plans.value.map(item => item.id === plan.id ? claimed : item)
+    appStore.showSuccess(t('admin.degradationTests.runStarted'))
     await loadPlans(true)
   } catch (error) {
+    runs.uncertain(plan.id)
     if (isCurrent(token)) {
-      panelError.value = errorMessage(error)
-      appStore.showError(panelError.value)
-      // A lost HTTP response does not mean the server failed to save the result.
-      if (expandedPlanId.value === plan.id) void loadResults(plan.id, true)
+      const message = errorMessage(error)
+      appStore.showError(message)
+      await loadPlans(true)
+      if (isCurrent(token)) panelError.value = message
     }
   } finally {
-    runningPlanIds.delete(plan.id)
+    if (isCurrent(token) && expandedPlanId.value === plan.id) void loadResults(plan.id, true)
   }
 }
 
@@ -351,10 +363,12 @@ watch(() => [props.show, props.accountId, props.initialPlanId] as const, ([visib
   loadingResults.value = false
   panelError.value = ''
   resultsError.value = ''
+  pendingResults.clear()
   pendingInitialPlanId = props.initialPlanId ?? null
   if (!visible || !accountId) return
   void loadPlans()
   pollTimer = setInterval(async () => {
+    now.value = Date.now()
     if (polling || loading.value || saving.value) return
     polling = true
     const token = scope
@@ -363,7 +377,7 @@ watch(() => [props.show, props.accountId, props.initialPlanId] as const, ([visib
       if (isCurrent(token) && expandedPlanId.value && !loadingResults.value) await loadResults(expandedPlanId.value, true)
       if (isCurrent(token) && detailsPlanId.value && !detailsLoading.value) await loadDetails(detailsPlanId.value, true)
     } finally { polling = false }
-  }, 10000)
+  }, 5000)
 }, { immediate: true })
 
 onBeforeUnmount(() => {

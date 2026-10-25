@@ -8,6 +8,34 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 enableAutoUnmount(afterEach)
 
 describe('scheduled generation plan form', () => {
+  it('uses a ten minute timeout by default and saves edited minutes as seconds', async () => {
+    const wrapper = mount(DegradationTestPlanForm, { props: { modelOptions: [] } })
+    expect(wrapper.get<HTMLInputElement>('[data-testid="timeout-minutes"]').element.value).toBe('10')
+    await wrapper.get('input[list]').setValue('model')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('submit')?.[0]?.[0]).toMatchObject({ timeout_seconds: 600 })
+    await wrapper.get('[data-testid="timeout-minutes"]').setValue(30)
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('submit')?.[1]?.[0]).toMatchObject({ timeout_seconds: 1800 })
+  })
+
+  it.each([0, 31])('rejects an execution timeout of %s minutes', async minutes => {
+    const wrapper = mount(DegradationTestPlanForm, { props: { modelOptions: [] } })
+    await wrapper.get('input[list]').setValue('model')
+    await wrapper.get('[data-testid="timeout-minutes"]').setValue(minutes)
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('submit')).toBeUndefined()
+    expect(wrapper.get('[role="alert"]').text()).toContain('invalidTimeout')
+  })
+
+  it('preserves an existing timeout when editing', async () => {
+    const initial = { model_id: 'model', prompt: 'Draw SVG', cron_expression: '@every 30m', timeout_seconds: 90 } as DegradationTestPlan
+    const wrapper = mount(DegradationTestPlanForm, { props: { modelOptions: [], initial } })
+    expect(wrapper.get<HTMLInputElement>('[data-testid="timeout-minutes"]').element.value).toBe('1.5')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('submit')?.[0]?.[0]).toMatchObject({ timeout_seconds: 90 })
+  })
+
   it.each(['high', 'xhigh'])('saves the selected %s reasoning effort with the plan', async effort => {
     const wrapper = mount(DegradationTestPlanForm, { props: { modelOptions: [] } })
     await wrapper.get('input[list]').setValue('reasoning-model')

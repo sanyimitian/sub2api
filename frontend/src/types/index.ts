@@ -2511,6 +2511,7 @@ export interface DegradationTestPlan {
   account_id: number
   model_id: string
   reasoning_effort?: DegradationTestReasoningEffort
+  timeout_seconds?: number
   prompt: string
   cron_expression: string
   enabled: boolean
@@ -2548,6 +2549,7 @@ export interface CreateDegradationTestPlanRequest {
   account_id: number
   model_id: string
   reasoning_effort?: DegradationTestReasoningEffort
+  timeout_seconds?: number
   prompt?: string
   cron_expression: string
   enabled?: boolean
@@ -2557,6 +2559,7 @@ export interface CreateDegradationTestPlanRequest {
 export interface UpdateDegradationTestPlanRequest {
   model_id?: string
   reasoning_effort?: DegradationTestReasoningEffort
+  timeout_seconds?: number
   prompt?: string
   cron_expression?: string
   enabled?: boolean

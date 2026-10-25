@@ -15,9 +15,12 @@ var degradationTestCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Do
 const DefaultDegradationTestPrompt = "创建一个html,内容是svg绘制一个鹈鹕骑自行车的2D动画"
 
 const (
-	DegradationTestMaxResults         = 24
-	DegradationTestDefaultResultLimit = 10
-	DegradationTestMaxPromptLength    = 20000
+	DegradationTestMaxResults            = 24
+	DegradationTestDefaultResultLimit    = 10
+	DegradationTestMaxPromptLength       = 20000
+	DegradationTestDefaultTimeoutSeconds = 600
+	DegradationTestMinTimeoutSeconds     = 60
+	DegradationTestMaxTimeoutSeconds     = 1800
 )
 
 // DegradationTestService provides CRUD operations for scheduled test plans and results.
@@ -42,6 +45,9 @@ func (s *DegradationTestService) CreatePlan(ctx context.Context, plan *Degradati
 	if plan != nil {
 		// Retention is fixed; normalize values sent by older clients.
 		plan.MaxResults = DegradationTestMaxResults
+		if plan.TimeoutSeconds == 0 {
+			plan.TimeoutSeconds = DegradationTestDefaultTimeoutSeconds
+		}
 	}
 	if err := validateDegradationTestPlan(plan); err != nil {
 		return nil, err
@@ -74,6 +80,9 @@ func (s *DegradationTestService) ListStatus(ctx context.Context) ([]*Degradation
 func (s *DegradationTestService) UpdatePlan(ctx context.Context, plan *DegradationTestPlan) (*DegradationTestPlan, error) {
 	if plan != nil {
 		plan.MaxResults = DegradationTestMaxResults
+		if plan.TimeoutSeconds == 0 {
+			plan.TimeoutSeconds = DegradationTestDefaultTimeoutSeconds
+		}
 	}
 	if err := validateDegradationTestPlan(plan); err != nil {
 		return nil, err
@@ -137,6 +146,9 @@ func computeDegradationNextRun(cronExpr string, from time.Time) (time.Time, erro
 func validateDegradationTestPlan(plan *DegradationTestPlan) error {
 	if plan == nil || plan.AccountID <= 0 {
 		return fmt.Errorf("account_id must be positive")
+	}
+	if plan.TimeoutSeconds != 0 && (plan.TimeoutSeconds < DegradationTestMinTimeoutSeconds || plan.TimeoutSeconds > DegradationTestMaxTimeoutSeconds) {
+		return fmt.Errorf("timeout_seconds must be between %d and %d", DegradationTestMinTimeoutSeconds, DegradationTestMaxTimeoutSeconds)
 	}
 	if err := validateDegradationTestReasoningEffort(plan.ReasoningEffort); err != nil {
 		return err

@@ -28,7 +28,7 @@ describe('independent model quality test API', () => {
   })
 
   it('saves and executes only generation plans through the new API', async () => {
-    const request = { account_id: 7, model_id: 'selected-model', reasoning_effort: 'xhigh' as const, prompt: 'Draw SVG', cron_expression: '@every 2h', max_results: 24 }
+    const request = { account_id: 7, model_id: 'selected-model', reasoning_effort: 'xhigh' as const, timeout_seconds: 600, prompt: 'Draw SVG', cron_expression: '@every 2h', max_results: 24 }
     await degradationTestsAPI.create(request)
     expect(post).toHaveBeenLastCalledWith('/admin/degradation-test-plans', request)
     await degradationTestsAPI.update(1, { enabled: false })
@@ -36,7 +36,7 @@ describe('independent model quality test API', () => {
     await degradationTestsAPI.update(1, { reasoning_effort: '' })
     expect(put).toHaveBeenLastCalledWith('/admin/degradation-test-plans/1', { reasoning_effort: '' })
     await degradationTestsAPI.run(1)
-    expect(post).toHaveBeenLastCalledWith('/admin/degradation-test-plans/1/run', undefined, { timeout: 310000 })
+    expect(post).toHaveBeenLastCalledWith('/admin/degradation-test-plans/1/run', undefined, { timeout: 30000 })
     await degradationTestsAPI.delete(1)
     expect(deleteRequest).toHaveBeenLastCalledWith('/admin/degradation-test-plans/1')
     expect(scheduledTestsAPI).not.toHaveProperty('run')

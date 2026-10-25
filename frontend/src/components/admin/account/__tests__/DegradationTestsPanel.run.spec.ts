@@ -16,6 +16,7 @@ const { listByAccount, listResults, run, create, deletePlan, showSuccess, showEr
 vi.mock('@/api/admin', () => ({ adminAPI: { degradationTests: { listByAccount, listResults, run, create, delete: deletePlan } } }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showSuccess, showError }) }))
 enableAutoUnmount(afterEach)
+afterEach(() => vi.useRealTimers())
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -69,7 +70,8 @@ describe('scheduled test immediate runs', () => {
     expect(wrapper.find('[data-testid="run-plan-2"]').exists()).toBe(false)
   })
 
-  it('runs a disabled plan once, disables duplicate clicks, and displays the returned failure', async () => {
+  it('keeps an accepted disabled plan locked until polling obtains its completed result', async () => {
+    vi.useFakeTimers()
     const pending = deferred<object>()
     run.mockReturnValueOnce(pending.promise)
     const wrapper = await openPanel()
@@ -78,11 +80,21 @@ describe('scheduled test immediate runs', () => {
     expect(button.attributes('disabled')).toBeDefined()
     expect(run).toHaveBeenCalledTimes(1)
     expect(run).toHaveBeenCalledWith(1)
-    pending.resolve({ id: 10, status: 'failed', error_message: 'account quota exhausted' })
+    const claimed = { id: 1, model_id: 'model-1', enabled: false, running_until: new Date(Date.now() + 600000).toISOString() }
+    listByAccount.mockResolvedValue([claimed])
+    pending.resolve(claimed)
+    await flushPromises()
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(showSuccess).toHaveBeenCalledWith('admin.degradationTests.runStarted')
+    await button.trigger('click')
+    expect(run).toHaveBeenCalledTimes(1)
+    listByAccount.mockResolvedValue([{ ...claimed, running_until: null }])
+    listResults.mockResolvedValue([{ id: 10, status: 'failed', error_message: 'account quota exhausted' }])
+    await vi.advanceTimersByTimeAsync(5000)
     await flushPromises()
     expect(wrapper.getComponent(DegradationTestResultsGallery).props('results')).toEqual([expect.objectContaining({ id: 10, error_message: 'account quota exhausted' })])
-    expect(showError).toHaveBeenCalledWith('account quota exhausted')
     expect(button.attributes('disabled')).toBeUndefined()
+    vi.useRealTimers()
   })
 
   it('saves the selected account, editable prompt and interval from the form', async () => {
@@ -96,6 +108,40 @@ describe('scheduled test immediate runs', () => {
     expect(create).toHaveBeenCalledWith({ account_id: 1, ...value })
   })
 
+  it('keeps server running leases disabled through a polling failure and after closing and reopening', async () => {
+    vi.useFakeTimers()
+    const claimed = { id: 1, model_id: 'model-1', enabled: false, running_until: new Date(Date.now() + 600000).toISOString() }
+    listByAccount.mockResolvedValue([claimed])
+    const wrapper = await openPanel()
+    expect(wrapper.get('[data-testid="run-plan-1"]').attributes('disabled')).toBeDefined()
+    listByAccount.mockRejectedValueOnce(new Error('poll failed'))
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(wrapper.get('[data-testid="run-plan-1"]').attributes('disabled')).toBeDefined()
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="run-plan-1"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="run-plan-1"]').trigger('click')
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('keeps a missing-result warning visible across later successful polls', async () => {
+    vi.useFakeTimers()
+    const original = { id: 1, model_id: 'model-1', enabled: false, cron_expression: '@every 30m', last_run_at: '2026-10-25T00:00:00Z', running_until: null }
+    listByAccount.mockResolvedValue([original])
+    listResults.mockResolvedValue([{ id: 8, status: 'success', finished_at: original.last_run_at }])
+    const wrapper = await openPanel()
+    await wrapper.get('[data-testid="toggle-results-1"]').trigger('click')
+    await flushPromises()
+    run.mockResolvedValueOnce({ ...original, running_until: new Date(Date.now() + 600000).toISOString() })
+    await wrapper.get('[data-testid="run-plan-1"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('resultUnavailable')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(wrapper.get('[role="alert"]').text()).toContain('resultUnavailable')
+    expect(showSuccess).toHaveBeenCalledWith('admin.degradationTests.runStarted')
+  })
+
   it('ignores a late manual result after changing accounts', async () => {
     const pending = deferred<object>()
     run.mockReturnValueOnce(pending.promise)
@@ -104,7 +150,7 @@ describe('scheduled test immediate runs', () => {
     listByAccount.mockResolvedValue([])
     await wrapper.setProps({ accountId: 2 })
     await flushPromises()
-    pending.resolve({ id: 10, status: 'success', response_text: 'old account output' })
+    pending.resolve({ id: 1, running_until: new Date(Date.now() + 600000).toISOString() })
     await flushPromises()
     expect(wrapper.findComponent(DegradationTestResultsGallery).exists()).toBe(false)
     expect(showSuccess).not.toHaveBeenCalled()

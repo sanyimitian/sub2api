@@ -2,12 +2,14 @@ package admin
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -145,6 +147,7 @@ func TestDegradationTestRejectsInvalidCreateInputs(t *testing.T) {
 		{"prompt": ""}, {"prompt": "  "}, {"model_id": ""},
 		{"prompt": strings.Repeat("a", 20001)}, {"cron_expression": "@every 5s"},
 		{"reasoning_effort": "extreme"},
+		{"timeout_seconds": 0}, {"timeout_seconds": 59}, {"timeout_seconds": 1801},
 	} {
 		router, repo := newDegradationHandlerTest()
 		body := map[string]any{"account_id": 1, "model_id": "selected", "cron_expression": "@every 30m"}
@@ -159,6 +162,79 @@ func TestDegradationTestRejectsInvalidCreateInputs(t *testing.T) {
 		router.ServeHTTP(response, request)
 		require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
 		require.Nil(t, repo.plan)
+	}
+}
+
+func TestDegradationTestTimeoutCreateDefaultUpdateAndValidation(t *testing.T) {
+	router, repo := newDegradationHandlerTest()
+	for _, tc := range []struct {
+		method, path, body string
+		want               int
+	}{
+		{http.MethodPost, "/plans", `{"account_id":1,"model_id":"model","cron_expression":"@every 30m"}`, 600},
+		{http.MethodPut, "/plans/1", `{"timeout_seconds":1800}`, 1800},
+		{http.MethodPut, "/plans/1", `{"enabled":false}`, 1800},
+		{http.MethodPut, "/plans/1", `{"timeout_seconds":60}`, 60},
+	} {
+		request := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		require.Equal(t, tc.want, repo.plan.TimeoutSeconds)
+		var returned service.DegradationTestPlan
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &returned))
+		require.Equal(t, tc.want, returned.TimeoutSeconds)
+	}
+	for _, timeout := range []int{-1, 0, 59, 1801} {
+		payload, err := json.Marshal(map[string]int{"timeout_seconds": timeout})
+		require.NoError(t, err)
+		request := httptest.NewRequest(http.MethodPut, "/plans/1", strings.NewReader(string(payload)))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+		require.Equal(t, 60, repo.plan.TimeoutSeconds)
+	}
+}
+
+type degradationHandlerAsyncRunner struct {
+	plan *service.DegradationTestPlan
+	err  error
+}
+
+func (r degradationHandlerAsyncRunner) RunNow(context.Context, int64) (*service.DegradationTestPlan, error) {
+	return r.plan, r.err
+}
+
+func TestDegradationTestRunNowReturnsAcceptedClaimAndStatusErrors(t *testing.T) {
+	until := time.Now().Add(11 * time.Minute)
+	for _, tc := range []struct {
+		err    error
+		status int
+	}{
+		{nil, http.StatusAccepted},
+		{sql.ErrNoRows, http.StatusNotFound},
+		{service.ErrDegradationTestRunning, http.StatusConflict},
+		{service.ErrDegradationTestCapacity, http.StatusTooManyRequests},
+		{service.ErrDegradationTestStopped, http.StatusServiceUnavailable},
+	} {
+		h := &DegradationTestHandler{runner: degradationHandlerAsyncRunner{
+			plan: &service.DegradationTestPlan{ID: 7, TimeoutSeconds: 600, RunningUntil: &until}, err: tc.err,
+		}}
+		router := gin.New()
+		router.POST("/plans/:id/run", h.RunNow)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/plans/7/run", nil))
+		require.Equal(t, tc.status, response.Code)
+		if tc.err == nil {
+			var accepted service.DegradationTestPlan
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &accepted))
+			require.EqualValues(t, 7, accepted.ID)
+			require.Equal(t, 600, accepted.TimeoutSeconds)
+			require.True(t, accepted.RunningUntil.Equal(until))
+			require.NotContains(t, response.Body.String(), "response_text")
+		}
 	}
 }
 

@@ -84,12 +84,12 @@ export async function listResults(planId: number, limit?: number): Promise<Degra
   return data ?? []
 }
 
-/** Execute a saved plan immediately and return the recorded result. */
-export async function run(planId: number): Promise<DegradationTestResult> {
-  const { data } = await apiClient.post<DegradationTestResult>(
+/** Claim a background execution; HTTP 202 returns the plan and its running lease. */
+export async function run(planId: number): Promise<DegradationTestPlan> {
+  const { data } = await apiClient.post<DegradationTestPlan>(
     `/admin/degradation-test-plans/${planId}/run`,
     undefined,
-    { timeout: 310000 }
+    { timeout: 30000 }
   )
   return data
 }

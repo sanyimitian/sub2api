@@ -13,14 +13,16 @@ import (
 )
 
 const (
-	degradationTestDefaultMaxWorkers = 10
-	degradationTestExecutionTimeout  = 4 * time.Minute
-	degradationTestLeaseDuration     = 5 * time.Minute
+	degradationTestDefaultMaxWorkers  = 10
+	degradationTestLeaseGrace         = time.Minute
+	degradationTestPersistenceTimeout = 3 * time.Second
+	degradationTestStopTimeout        = 8 * time.Second
 )
 
 var (
 	ErrDegradationTestRunning  = errors.New("this test plan is already running")
 	ErrDegradationTestCapacity = errors.New("all test execution slots are busy; try again shortly")
+	ErrDegradationTestStopped  = errors.New("test runner is stopping; try again shortly")
 )
 
 type degradationAccountTester interface {
@@ -34,10 +36,15 @@ type DegradationTestRunnerService struct {
 	accountTestSvc degradationAccountTester
 	cfg            *config.Config
 
-	cron      *cron.Cron
-	startOnce sync.Once
-	stopOnce  sync.Once
-	workers   chan struct{}
+	cron             *cron.Cron
+	startOnce        sync.Once
+	stopOnce         sync.Once
+	workers          chan struct{}
+	lifecycleMu      sync.Mutex
+	stopping         bool
+	backgroundCtx    context.Context
+	cancelBackground context.CancelFunc
+	workerWG         sync.WaitGroup
 }
 
 // NewDegradationTestRunnerService creates a new runner.
@@ -47,12 +54,15 @@ func NewDegradationTestRunnerService(
 	accountTestSvc *AccountTestService,
 	cfg *config.Config,
 ) *DegradationTestRunnerService {
+	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
 	return &DegradationTestRunnerService{
-		planRepo:       planRepo,
-		degradationSvc: degradationSvc,
-		accountTestSvc: accountTestSvc,
-		cfg:            cfg,
-		workers:        make(chan struct{}, degradationTestDefaultMaxWorkers),
+		planRepo:         planRepo,
+		degradationSvc:   degradationSvc,
+		accountTestSvc:   accountTestSvc,
+		cfg:              cfg,
+		workers:          make(chan struct{}, degradationTestDefaultMaxWorkers),
+		backgroundCtx:    backgroundCtx,
+		cancelBackground: cancelBackground,
 	}
 }
 
@@ -87,19 +97,34 @@ func (s *DegradationTestRunnerService) Stop() {
 		return
 	}
 	s.stopOnce.Do(func() {
+		// Serialize admission with WaitGroup.Add before waiting: no request can
+		// start a worker after shutdown has begun waiting for the existing ones.
+		s.lifecycleMu.Lock()
+		s.stopping = true
+		s.cancelBackground()
+		s.lifecycleMu.Unlock()
+		cronStopped := context.Background()
 		if s.cron != nil {
-			ctx := s.cron.Stop()
-			select {
-			case <-ctx.Done():
-			case <-time.After(3 * time.Second):
-				logger.LegacyPrintf("service.degradation_test_runner", "[DegradationTestRunner] cron stop timed out")
+			cronStopped = s.cron.Stop()
+		}
+		done := make(chan struct{})
+		go func() {
+			s.workerWG.Wait()
+			if s.cron != nil {
+				<-cronStopped.Done()
 			}
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(degradationTestStopTimeout):
+			logger.LegacyPrintf("service.degradation_test_runner", "[DegradationTestRunner] worker shutdown timed out")
 		}
 	})
 }
 
 func (s *DegradationTestRunnerService) runScheduled() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(s.backgroundCtx, 10*time.Second)
 	defer cancel()
 
 	now := time.Now()
@@ -117,9 +142,7 @@ func (s *DegradationTestRunnerService) runScheduled() {
 	var wg sync.WaitGroup
 
 	for _, plan := range plans {
-		select {
-		case s.workers <- struct{}{}:
-		default:
+		if err := s.reserveWorker(); err != nil {
 			// Leave excess due plans for the next tick, without an unbounded goroutine queue.
 			wg.Wait()
 			return
@@ -127,7 +150,7 @@ func (s *DegradationTestRunnerService) runScheduled() {
 		wg.Add(1)
 		go func(p *DegradationTestPlan) {
 			defer wg.Done()
-			defer func() { <-s.workers }()
+			defer s.releaseWorker()
 			if _, err := s.runOnePlan(context.Background(), p.ID, true); err != nil && !errors.Is(err, ErrDegradationTestRunning) {
 				logger.LegacyPrintf("service.degradation_test_runner", "[DegradationTestRunner] plan=%d execution error: %v", p.ID, err)
 			}
@@ -137,33 +160,98 @@ func (s *DegradationTestRunnerService) runScheduled() {
 	wg.Wait()
 }
 
-// RunNow also runs disabled plans and never advances their regular schedule.
-func (s *DegradationTestRunnerService) RunNow(ctx context.Context, planID int64) (*DegradationTestResult, error) {
-	if _, err := s.planRepo.GetByID(ctx, planID); err != nil {
+// RunNow atomically claims a plan and returns immediately. Accepted work is
+// owned by the service, so a closed HTTP request cannot cancel generation.
+// Disabled plans are allowed; manual runs never advance the regular schedule.
+func (s *DegradationTestRunnerService) RunNow(ctx context.Context, planID int64) (*DegradationTestPlan, error) {
+	existing, err := s.planRepo.GetByID(ctx, planID)
+	if err != nil {
 		return nil, err
+	}
+	if existing.RunningUntil != nil && existing.RunningUntil.After(time.Now()) {
+		return nil, ErrDegradationTestRunning
+	}
+	if err := s.reserveWorker(); err != nil {
+		return nil, err
+	}
+	startedAt := time.Now()
+	plan, err := s.claimPlan(ctx, planID, false, startedAt)
+	if err != nil {
+		s.releaseWorker()
+		return nil, err
+	}
+	// HTTP serialization and background execution receive distinct snapshots.
+	accepted := cloneDegradationTestPlan(plan)
+	go func() {
+		defer s.releaseWorker()
+		if _, err := s.executeClaimedPlan(plan, false, startedAt); err != nil {
+			logger.LegacyPrintf("service.degradation_test_runner", "[DegradationTestRunner] plan=%d execution error: %v", plan.ID, err)
+		}
+	}()
+	return accepted, nil
+}
+
+func (s *DegradationTestRunnerService) reserveWorker() error {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if s.stopping {
+		return ErrDegradationTestStopped
 	}
 	select {
 	case s.workers <- struct{}{}:
-		defer func() { <-s.workers }()
+		s.workerWG.Add(1)
+		return nil
 	default:
-		return nil, ErrDegradationTestCapacity
+		return ErrDegradationTestCapacity
 	}
-	return s.runOnePlan(ctx, planID, false)
 }
 
-func (s *DegradationTestRunnerService) runOnePlan(parentCtx context.Context, planID int64, scheduled bool) (*DegradationTestResult, error) {
-	startedAt := time.Now()
+func (s *DegradationTestRunnerService) releaseWorker() {
+	<-s.workers
+	s.workerWG.Done()
+}
+
+func cloneDegradationTestPlan(plan *DegradationTestPlan) *DegradationTestPlan {
+	copy := *plan
+	for _, pair := range [][2]**time.Time{{&copy.LastRunAt, &plan.LastRunAt}, {&copy.NextRunAt, &plan.NextRunAt}, {&copy.RunningUntil, &plan.RunningUntil}} {
+		if *pair[1] != nil {
+			value := **pair[1]
+			*pair[0] = &value
+		}
+	}
+	return &copy
+}
+
+func (s *DegradationTestRunnerService) claimPlan(parentCtx context.Context, planID int64, scheduled bool, startedAt time.Time) (*DegradationTestPlan, error) {
 	claimCtx, claimCancel := context.WithTimeout(parentCtx, 10*time.Second)
-	plan, err := s.planRepo.ClaimRun(claimCtx, planID, scheduled, startedAt, startedAt.Add(degradationTestLeaseDuration))
-	claimCancel()
+	defer claimCancel()
+	stopCancellation := context.AfterFunc(s.backgroundCtx, claimCancel)
+	defer stopCancellation()
+	plan, err := s.planRepo.ClaimRun(claimCtx, planID, scheduled, startedAt)
 	if err != nil {
 		return nil, err
 	}
 	if plan == nil {
 		return nil, ErrDegradationTestRunning
 	}
+	return plan, nil
+}
 
-	runCtx, runCancel := context.WithTimeout(parentCtx, degradationTestExecutionTimeout)
+func (s *DegradationTestRunnerService) runOnePlan(parentCtx context.Context, planID int64, scheduled bool) (*DegradationTestResult, error) {
+	startedAt := time.Now()
+	plan, err := s.claimPlan(parentCtx, planID, scheduled, startedAt)
+	if err != nil {
+		return nil, err
+	}
+	return s.executeClaimedPlan(plan, scheduled, startedAt)
+}
+
+func (s *DegradationTestRunnerService) executeClaimedPlan(plan *DegradationTestPlan, scheduled bool, startedAt time.Time) (*DegradationTestResult, error) {
+	timeoutSeconds := plan.TimeoutSeconds
+	if timeoutSeconds == 0 {
+		timeoutSeconds = DegradationTestDefaultTimeoutSeconds
+	}
+	runCtx, runCancel := context.WithDeadline(s.backgroundCtx, startedAt.Add(time.Duration(timeoutSeconds)*time.Second))
 	result, runErr := s.invokeTest(runCtx, plan)
 	if runErr == nil {
 		runErr = runCtx.Err()
@@ -178,7 +266,11 @@ func (s *DegradationTestRunnerService) runOnePlan(parentCtx context.Context, pla
 	}
 	if runErr != nil {
 		result.Status = "failed"
-		result.ErrorMessage = runErr.Error()
+		if errors.Is(runErr, context.DeadlineExceeded) {
+			result.ErrorMessage = fmt.Sprintf("Generation execution timed out after %d seconds: %v", timeoutSeconds, runErr)
+		} else {
+			result.ErrorMessage = runErr.Error()
+		}
 	}
 	if result.Status != "success" && result.Status != "failed" {
 		result.Status = "failed"
@@ -192,7 +284,7 @@ func (s *DegradationTestRunnerService) runOnePlan(parentCtx context.Context, pla
 	result.LatencyMs = finishedAt.Sub(startedAt).Milliseconds()
 
 	// A disconnected HTTP client or an upstream timeout must not erase the execution result.
-	persistCtx, persistCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	persistCtx, persistCancel := context.WithTimeout(context.Background(), degradationTestPersistenceTimeout)
 	saveErr := s.degradationSvc.SaveResult(persistCtx, plan.ID, plan.MaxResults, result)
 	persistCancel()
 
@@ -205,7 +297,7 @@ func (s *DegradationTestRunnerService) runOnePlan(parentCtx context.Context, pla
 			nextRun = &next
 		}
 	}
-	completeCtx, completeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	completeCtx, completeCancel := context.WithTimeout(context.Background(), degradationTestPersistenceTimeout)
 	completeErr := s.planRepo.CompleteRun(completeCtx, plan, finishedAt, nextRun)
 	completeCancel()
 	if err := errors.Join(saveErr, completeErr); err != nil {
