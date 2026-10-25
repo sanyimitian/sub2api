@@ -23,6 +23,9 @@ export default {
           "unknownReason": "No reason provided",
           "reasons": {
             "qualified": "Qualified, not published",
+            "quality_incorrect": "Incorrect answer; session discarded",
+            "quality_inconclusive": "Quality inconclusive; session discarded",
+            "quality_not_passed": "Quality probe not passed",
             "first_token_too_slow": "First token too slow",
             "upstream_session_missing": "Upstream session identifier missing",
             "upstream_model_mismatch": "Upstream model mismatch",

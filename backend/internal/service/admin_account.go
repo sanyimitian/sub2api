@@ -934,12 +934,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
 	_, poolEnabledChanged := updates[OpenAISessionPoolEnabledExtraKey]
 	_, poolModelsChanged := updates[OpenAISessionPoolModelsExtraKey]
-	if poolEnabledChanged || poolModelsChanged {
+	_, poolQualityChanged := updates[OpenAISessionPoolQualityExtraKey]
+	if poolEnabledChanged || poolModelsChanged || poolQualityChanged {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {
 			return err
 		}
-		if err := ValidateOpenAISessionPoolExtra(account.Platform, account.Type, updates); err != nil {
+		if err := ValidateOpenAISessionPoolExtra(account.Platform, account.Type, mergeOpenAISessionPoolExtra(account.Extra, updates)); err != nil {
 			return err
 		}
 	}
@@ -1016,7 +1017,8 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	needMixedChannelCheck := input.GroupIDs != nil && !input.SkipMixedChannelCheck
 	_, sessionPoolEnabledChanged := input.Extra[OpenAISessionPoolEnabledExtraKey]
 	_, sessionPoolModelsChanged := input.Extra[OpenAISessionPoolModelsExtraKey]
-	sessionPoolSettingChanged := sessionPoolEnabledChanged || sessionPoolModelsChanged
+	_, sessionPoolQualityChanged := input.Extra[OpenAISessionPoolQualityExtraKey]
+	sessionPoolSettingChanged := sessionPoolEnabledChanged || sessionPoolModelsChanged || sessionPoolQualityChanged
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
@@ -1046,7 +1048,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			if account == nil {
 				return nil, ErrAccountNotFound
 			}
-			if err := ValidateOpenAISessionPoolExtra(account.Platform, account.Type, input.Extra); err != nil {
+			if err := ValidateOpenAISessionPoolExtra(account.Platform, account.Type, mergeOpenAISessionPoolExtra(account.Extra, input.Extra)); err != nil {
 				return nil, err
 			}
 		}

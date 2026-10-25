@@ -117,6 +117,7 @@ func provideCleanup(
 	antigravityOAuth *service.AntigravityOAuthService,
 	grokOAuth *service.GrokOAuthService,
 	openAIGateway *service.OpenAIGatewayService,
+	conversationQualityJudge *service.ConversationQualityJudgeService,
 	scheduledTestRunner *service.ScheduledTestRunnerService,
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
@@ -132,6 +133,7 @@ func provideCleanup(
 	pluginManager *service.PluginManager,
 ) func() {
 	if openAIGateway != nil {
+		openAIGateway.SetConversationQualityJudge(conversationQualityJudge)
 		openAIGateway.StartOpenAISessionPool()
 	}
 

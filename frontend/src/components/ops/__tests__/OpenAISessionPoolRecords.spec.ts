@@ -67,6 +67,20 @@ describe('备用会话池与探测记录', () => {
     wrapper.unmount()
   })
 
+  it('探测历史显示降智判定和可读的失败原因', async () => {
+    const group = probeGroups[0]
+    listSystemLogs.mockResolvedValueOnce({ items: [{ ...group, extra: { ...group.extra, probe_results: [{
+      ...group.extra.probe_results[0], published: false, qualified: false, success: false, reason: 'quality_inconclusive',
+      quality_judgment: { verdict: 'unknown', reason: 'judge_request_failed' }
+    }] } }], total: 1 })
+    const wrapper = createWrapper()
+    await wrapper.vm.refresh()
+    const judgment = wrapper.get('[data-testid="pool-quality-judgment"]')
+    expect(judgment.text()).toContain('admin.accounts.sessionPool.verdicts.unknown')
+    expect(judgment.text()).toContain('admin.accounts.sessionPool.judgeReasons.judge_request_failed')
+    wrapper.unmount()
+  })
+
   it('缓存读取失败展示错误，不冒充空池；记录仍可正常查看', async () => {
     getSnapshot.mockRejectedValue(new Error('cache unavailable'))
     const wrapper = createWrapper()

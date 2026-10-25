@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent, ref } from 'vue'
+import { defaultConversationQualityConfig } from '@/utils/openaiSessionPool'
 import { flushPromises, mount } from '@vue/test-utils'
 import OpenAISessionPoolFields from '../OpenAISessionPoolFields.vue'
 import { openAISessionPoolModelsForSave, parseOpenAISessionPoolModels, readOpenAISessionPoolModels } from '@/utils/openaiSessionPool'
@@ -76,5 +78,24 @@ describe('备用会话配置', () => {
     expect(parseOpenAISessionPoolModels('  ')).toEqual([])
     expect(openAISessionPoolModelsForSave(true, [' model-a ', 'model-a', 'model-b'])).toEqual(['model-a', 'model-b'])
     expect(openAISessionPoolModelsForSave(false, ['hidden'], { openai_session_pool_models: ['saved'] })).toEqual(['saved'])
+  })
+})
+
+describe('对话探测开关依赖', () => {
+  it('开启降智自动开启低延迟，关闭低延迟同时关闭降智', async () => {
+    const Harness = defineComponent({
+      components: { OpenAISessionPoolFields },
+      setup() { return { enabled: ref(false), quality: ref(defaultConversationQualityConfig()) } },
+      template: '<OpenAISessionPoolFields v-model:enabled="enabled" v-model:quality="quality" />'
+    })
+    const wrapper = mount(Harness, { global: { stubs: { ConversationQualityFields: true } } })
+    await wrapper.get('[data-testid="openai-session-pool-quality-enabled"]').trigger('click')
+    expect(wrapper.get('[data-testid="openai-session-pool-enabled"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('[data-testid="openai-session-pool-quality-enabled"]').attributes('aria-checked')).toBe('true')
+    await wrapper.get('[data-testid="openai-session-pool-enabled"]').trigger('click')
+    expect(wrapper.get('[data-testid="openai-session-pool-quality-enabled"]').attributes('aria-checked')).toBe('false')
+    await wrapper.get('[data-testid="openai-session-pool-enabled"]').trigger('click')
+    expect(wrapper.get('[data-testid="openai-session-pool-quality-enabled"]').attributes('aria-checked')).toBe('false')
+    wrapper.unmount()
   })
 })

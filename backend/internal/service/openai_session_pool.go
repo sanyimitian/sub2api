@@ -112,6 +112,9 @@ func (s *OpenAIGatewayService) openAISessionPoolRoutes(ctx context.Context) ([]o
 		if !account.OpenAISessionPoolEnabled() || !account.IsSchedulable() {
 			continue
 		}
+		if err := ValidateOpenAISessionPoolExtra(account.Platform, account.Type, account.Extra); err != nil {
+			continue
+		}
 		for _, model := range account.OpenAISessionPoolModels() {
 			request := OpenAIAccountScheduleRequest{Platform: PlatformOpenAI, RequestedModel: model, RequiredCapability: OpenAIEndpointCapabilityResponses}
 			if !checker.isAccountRequestCompatible(ctx, account, request) {
@@ -135,6 +138,9 @@ func (s *OpenAIGatewayService) openAISessionPoolRoutes(ctx context.Context) ([]o
 }
 
 func openAISessionPoolCandidateMatchesRoute(candidate openAIWSLatencyReusableCandidate, route openAISessionPoolRoute) bool {
+	if quality, err := route.account.OpenAISessionQualityConfig(); err != nil || (quality != nil && quality.Enabled && !candidate.QualityPassed) {
+		return false
+	}
 	return candidate.AccountID == route.account.ID && candidate.UpstreamModel == route.upstreamModel && candidate.Transport == route.transport && candidate.AccountFingerprint == route.fingerprint && (candidate.ProbeModel == "" || candidate.ProbeModel == route.model)
 }
 
@@ -286,6 +292,12 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 	}
 	target := s.settingService.GetOpenAISessionPoolSize(ctx)
 	settings := s.settingService.GetOpenAIWSLatencySwitchSettings(ctx)
+	refillLease := 2 * time.Minute
+	for _, route := range routes {
+		if timeout := openAISessionProbeTimeout(route.account) + 30*time.Second; timeout > refillLease {
+			refillLease = timeout
+		}
+	}
 	rand.Shuffle(len(routes), func(i, j int) { routes[i], routes[j] = routes[j], routes[i] })
 	// 型号单独随机排序，避免多账号或多协议的型号更容易获得余数名额。
 	modelOrder := make(map[string]int)
@@ -319,7 +331,7 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 		if skipReason != "" {
 			return true
 		}
-		pool.ProbeID, pool.ProbeUntil = owner, now+(2*time.Minute).Milliseconds()
+		pool.ProbeID, pool.ProbeUntil = owner, now+refillLease.Milliseconds()
 		claimed = true
 		return true
 	})
@@ -358,7 +370,7 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 				return false
 			}
 			available = trimOpenAISessionPool(pool, routes, time.Now().UnixMilli(), target)
-			pool.ProbeUntil = time.Now().Add(2 * time.Minute).UnixMilli()
+			pool.ProbeUntil = time.Now().Add(refillLease).UnixMilli()
 			return true
 		})
 		if leaseChecked && owned {
@@ -408,7 +420,7 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 					publishReason = "model_quota_full"
 					return false
 				}
-				pool.Candidates = append(pool.Candidates, openAIWSLatencyReusableCandidate{ResultID: resultID, AccountID: route.account.ID, UpstreamSessionID: result.upstreamSessionID, UpstreamModel: result.upstreamModel, ProbeModel: route.model, FirstTokenMS: result.ms, ExpiresAt: time.Now().Add(time.Duration(settings.ProbeReuseSeconds) * time.Second).UnixMilli(), AccountFingerprint: route.fingerprint, Transport: route.transport})
+				pool.Candidates = append(pool.Candidates, openAIWSLatencyReusableCandidate{ResultID: resultID, AccountID: route.account.ID, UpstreamSessionID: result.upstreamSessionID, UpstreamModel: result.upstreamModel, ProbeModel: route.model, FirstTokenMS: result.ms, ExpiresAt: time.Now().Add(time.Duration(settings.ProbeReuseSeconds) * time.Second).UnixMilli(), AccountFingerprint: route.fingerprint, Transport: route.transport, QualityPassed: result.qualityJudgment != nil && result.qualityJudgment.Verdict == "correct"})
 				return true
 			})
 			if published {
@@ -437,8 +449,8 @@ func (s *OpenAIGatewayService) refillOpenAISessionPool(ctx context.Context) {
 			item := <-results
 			item.record = &openAISessionPoolProbeRecord{Round: round + 1, ProbeNumber: item.number,
 				AccountID: item.route.account.ID, AccountName: item.route.account.Name, Model: item.route.model,
-				Transport: item.route.transport, Success: item.result.ok, Qualified: item.result.failure == "qualified", Reason: item.result.failure}
-			if item.result.ok && item.result.ms >= 0 {
+				Transport: item.route.transport, Success: item.result.ok, Qualified: item.result.failure == "qualified", Reason: item.result.failure, QualityJudgment: item.result.qualityJudgment}
+			if (item.result.ok || item.result.qualityJudgment != nil) && item.result.ms >= 0 {
 				ms := item.result.ms
 				item.record.FirstTokenMS = &ms
 			}
@@ -511,7 +523,7 @@ func (s *OpenAIGatewayService) probeOpenAISessionPoolRoute(ctx context.Context, 
 	if !checker.isAccountRequestCompatible(ctx, fresh, OpenAIAccountScheduleRequest{Platform: PlatformOpenAI, RequestedModel: route.model, RequiredCapability: OpenAIEndpointCapabilityResponses}) {
 		return openAIWSLatencyProbeResult{failure: "account_request_incompatible"}
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, openAIWSLatencyProbeTimeout)
+	probeCtx, cancel := context.WithTimeout(ctx, openAISessionProbeTimeout(fresh))
 	defer cancel()
 	slot, err := s.tryAcquireAccountSlot(probeCtx, fresh.ID, fresh.Concurrency)
 	if err != nil || slot == nil || !slot.Acquired {
@@ -646,6 +658,8 @@ func (session *OpenAIWSLatencySession) reservePreparedCandidate(ctx context.Cont
 				rejected = "transport_mismatch"
 			case c.AccountFingerprint != openAISessionPoolAccountFingerprint(a):
 				rejected = "account_changed"
+			case !openAISessionPoolQualityCandidateAllowed(a, *c):
+				rejected = "quality_not_passed"
 			case c.FirstTokenMS < 0 || c.FirstTokenMS >= openAIWSLatencyCandidateMaxFirstTokenMS:
 				rejected = "invalid_latency"
 			case !openAISessionPoolModelConfigured(a, c.UpstreamModel):

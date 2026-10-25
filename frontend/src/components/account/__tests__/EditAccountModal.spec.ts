@@ -61,6 +61,7 @@ vi.mock('vue-i18n', async () => {
 
 import EditAccountModal from '../EditAccountModal.vue'
 import OpenAISessionPoolFields from '../OpenAISessionPoolFields.vue'
+import { defaultConversationQualityConfig } from '@/utils/openaiSessionPool'
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -344,6 +345,29 @@ describe('EditAccountModal', () => {
     const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
     expect(extra?.openai_session_pool_enabled).toBe(false)
     expect(extra?.openai_session_pool_models).not.toEqual([])
+    wrapper.unmount()
+  })
+
+  it('读取已有降智探测配置并保存用户修改的参考答案', async () => {
+    const account = buildAccount()
+    const config = defaultConversationQualityConfig()
+    config.enabled = true
+    config.judge = { group_id: 9, model_id: 'saved-judge', prompt: '用户判题提示' }
+    account.extra = { openai_session_pool_enabled: true, openai_session_pool_models: ['model-a'], openai_session_pool_quality: config }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const fields = wrapper.getComponent(OpenAISessionPoolFields)
+    expect(fields.props('quality')).toEqual(config)
+    fields.vm.$emit('update:quality', { ...config, expected_answer: '自定义答案' })
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_session_pool_quality).toEqual({ ...config, expected_answer: '自定义答案' })
+    await fields.get('[data-testid="openai-session-pool-enabled"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls.at(-1)?.[1]?.extra?.openai_session_pool_quality.enabled).toBe(false)
     wrapper.unmount()
   })
 

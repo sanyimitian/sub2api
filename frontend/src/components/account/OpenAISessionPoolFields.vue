@@ -3,7 +3,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import Toggle from '@/components/common/Toggle.vue'
-import { DEFAULT_OPENAI_SESSION_POOL_MODEL, defaultOpenAISessionPoolModel } from '@/utils/openaiSessionPool'
+import ConversationQualityFields from './ConversationQualityFields.vue'
+import { DEFAULT_OPENAI_SESSION_POOL_MODEL, defaultOpenAISessionPoolModel, defaultConversationQualityConfig, type ConversationQualityConfig } from '@/utils/openaiSessionPool'
 
 interface PreviewCredentials {
   platform: string
@@ -15,6 +16,7 @@ interface PreviewCredentials {
 
 const enabled = defineModel<boolean>('enabled', { default: false })
 const models = defineModel<string[]>('models', { default: () => ['gpt-6-sol'] })
+const quality = defineModel<ConversationQualityConfig>('quality', { default: defaultConversationQualityConfig })
 const props = withDefaults(defineProps<{
   fallbackModels?: string[]
   accountId?: number
@@ -24,6 +26,20 @@ const props = withDefaults(defineProps<{
 
 const id = `session-pool-models-${Math.random().toString(36).slice(2, 9)}`
 const { t } = useI18n()
+
+function setLatencyEnabled(value: boolean) {
+  enabled.value = value
+  if (!value && quality.value.enabled) quality.value = { ...quality.value, enabled: false }
+}
+
+function setQualityEnabled(value: boolean) {
+  if (value) enabled.value = true
+  quality.value = { ...quality.value, enabled: value }
+}
+
+watch(enabled, value => {
+  if (!value && quality.value.enabled) quality.value = { ...quality.value, enabled: false }
+})
 const isOpen = ref(false)
 const search = ref('')
 const loading = ref(false)
@@ -122,12 +138,20 @@ onUnmounted(() => {
 
 <template>
   <div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-testid="openai-session-pool-fields">
+    <div>
+      <h3 class="input-label mb-1">{{ t('admin.accounts.sessionPool.title') }}</h3>
+      <p class="text-xs text-gray-600 dark:text-gray-300">{{ t('admin.accounts.sessionPool.hint') }}</p>
+    </div>
+    <div class="flex items-center justify-between gap-4">
+      <label :id="id + '-latency-label'" class="text-sm font-medium">{{ t('admin.accounts.sessionPool.latencyProbe') }}</label>
+      <Toggle :model-value="enabled" :aria-labelledby="id + '-latency-label'" data-testid="openai-session-pool-enabled" @update:model-value="setLatencyEnabled" />
+    </div>
     <div class="flex items-center justify-between gap-4">
       <div>
-        <label :id="id + '-label'" class="input-label mb-1">{{ t('admin.accounts.sessionPool.title') }}</label>
-        <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.sessionPool.hint') }}</p>
+        <label :id="id + '-quality-label'" class="text-sm font-medium">{{ t('admin.accounts.sessionPool.qualityProbe') }}</label>
+        <p :id="id + '-quality-hint'" class="mt-1 text-xs text-gray-600 dark:text-gray-300">{{ t('admin.accounts.sessionPool.qualityHint') }}</p>
       </div>
-      <Toggle v-model="enabled" :aria-labelledby="id + '-label'" data-testid="openai-session-pool-enabled" />
+      <Toggle :model-value="quality.enabled" :aria-labelledby="id + '-quality-label'" :aria-describedby="id + '-quality-hint'" data-testid="openai-session-pool-quality-enabled" @update:model-value="setQualityEnabled" />
     </div>
     <div v-if="enabled" class="space-y-1.5">
       <label :for="id" class="input-label">{{ t('admin.accounts.sessionPool.models') }}</label>
@@ -187,5 +211,6 @@ onUnmounted(() => {
       </div>
       <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.sessionPool.modelsHint') }}</p>
     </div>
+    <ConversationQualityFields v-if="enabled && quality.enabled" v-model="quality" />
   </div>
 </template>

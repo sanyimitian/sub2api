@@ -102,6 +102,7 @@ type openAIWSLatencyReusableCandidate struct {
 	Committed          bool                    `json:"committed,omitempty"`
 	AccountFingerprint string                  `json:"account_fingerprint,omitempty"`
 	Transport          OpenAIUpstreamTransport `json:"transport,omitempty"`
+	QualityPassed      bool                    `json:"quality_passed,omitempty"`
 }
 
 const openAIPreparedSessionContextKey = "openai_prepared_session_enabled"

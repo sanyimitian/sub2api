@@ -1676,6 +1676,7 @@
         v-if="account.platform === 'openai' && account.type === 'apikey'"
         v-model:enabled="openAISessionPoolEnabled"
         v-model:models="openAISessionPoolModels"
+        v-model:quality="openAISessionQuality"
         :account-id="account.id"
         :fallback-models="openAISessionPoolAvailableModels"
       />
@@ -3159,7 +3160,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import OpenAISessionPoolFields from './OpenAISessionPoolFields.vue'
-import { openAISessionPoolModelsForSave, readOpenAISessionPoolModels } from '@/utils/openaiSessionPool'
+import { defaultConversationQualityConfig, readConversationQualityConfig, conversationQualityConfigForSave, openAISessionPoolModelsForSave, readOpenAISessionPoolModels } from '@/utils/openaiSessionPool'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -3677,6 +3678,7 @@ const upstreamBillingRateSyncEnabled = ref(false)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 // 上游ID：直接上游声明请求标识的响应头名，留空不记录。
 const openAISessionPoolEnabled = ref(false)
+const openAISessionQuality = ref(defaultConversationQualityConfig())
 const openAISessionPoolModels = ref<string[]>(['gpt-6-sol'])
 const upstreamRequestIdHeader = ref('')
 const readUpstreamRequestIdHeader = (extra: unknown): string => {
@@ -4212,6 +4214,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	mixedScheduling.value = extra?.mixed_scheduling === true
 	allowOverages.value = extra?.allow_overages === true
 	openAISessionPoolEnabled.value = extra?.openai_session_pool_enabled === true
+	openAISessionQuality.value = readConversationQualityConfig(extra)
 	openAISessionPoolModels.value = readOpenAISessionPoolModels(extra)
 	upstreamRequestIdHeader.value = readUpstreamRequestIdHeader(extra)
 	openAIImagesUrlToB64JsonEnabled.value = extra?.images_url_to_b64_json === true
@@ -5728,6 +5731,7 @@ const handleSubmit = async () => {
         newExtra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
       } else if (props.account.type === 'apikey') {
         newExtra.openai_session_pool_enabled = openAISessionPoolEnabled.value
+        newExtra.openai_session_pool_quality = conversationQualityConfigForSave(openAISessionPoolEnabled.value, openAISessionQuality.value)
         newExtra.openai_session_pool_models = openAISessionPoolModelsForSave(openAISessionPoolEnabled.value, openAISessionPoolModels.value, currentExtra)
         newExtra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
         newExtra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)

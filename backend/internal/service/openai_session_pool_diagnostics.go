@@ -38,6 +38,12 @@ func (session *OpenAIWSLatencySession) poolDiagnostic(ctx context.Context, level
 }
 
 func openAISessionPoolProbeReason(result openAIWSLatencyProbeResult, err error, expectedModel string) string {
+	if result.qualityJudgment != nil && result.qualityJudgment.Verdict != "correct" {
+		if result.qualityJudgment.Verdict == "incorrect" {
+			return "quality_incorrect"
+		}
+		return "quality_inconclusive"
+	}
 	switch {
 	case result.ok && result.ms >= 0:
 		switch {
@@ -74,17 +80,18 @@ type openAISessionPoolRefillDiagnostic struct {
 
 // 仅保存页面需要的探测元数据，绝不包含上游会话标识或凭据。
 type openAISessionPoolProbeRecord struct {
-	Round        int                     `json:"round"`
-	ProbeNumber  int                     `json:"probe_number"`
-	AccountID    int64                   `json:"account_id"`
-	AccountName  string                  `json:"account_name"`
-	Model        string                  `json:"model"`
-	Transport    OpenAIUpstreamTransport `json:"transport"`
-	FirstTokenMS *int                    `json:"first_token_ms"`
-	Success      bool                    `json:"success"`
-	Qualified    bool                    `json:"qualified"`
-	Published    bool                    `json:"published"`
-	Reason       string                  `json:"reason"`
+	Round           int                     `json:"round"`
+	ProbeNumber     int                     `json:"probe_number"`
+	AccountID       int64                   `json:"account_id"`
+	AccountName     string                  `json:"account_name"`
+	Model           string                  `json:"model"`
+	Transport       OpenAIUpstreamTransport `json:"transport"`
+	FirstTokenMS    *int                    `json:"first_token_ms"`
+	Success         bool                    `json:"success"`
+	Qualified       bool                    `json:"qualified"`
+	Published       bool                    `json:"published"`
+	Reason          string                  `json:"reason"`
+	QualityJudgment *QualityJudgment        `json:"quality_judgment,omitempty"`
 }
 
 func (d *openAISessionPoolRefillDiagnostic) write(ctx context.Context) {

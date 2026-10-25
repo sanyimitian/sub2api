@@ -75,6 +75,7 @@ vi.mock('vue-i18n', async () => {
 
 import CreateAccountModal from '../CreateAccountModal.vue'
 import OpenAISessionPoolFields from '../OpenAISessionPoolFields.vue'
+import { defaultConversationQualityConfig } from '@/utils/openaiSessionPool'
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -326,6 +327,29 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       openai_session_pool_enabled: true,
     })
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_session_pool_models.length).toBeGreaterThan(0)
+    wrapper.unmount()
+  })
+
+  it('创建账号保存用户选择的随机降智探测配置', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('quality account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    const config = defaultConversationQualityConfig()
+    config.enabled = true
+    config.question_kind = 'random_reasoning'
+    config.judge = { group_id: 9, model_id: 'custom-judge', prompt: '用户选择的判题提示' }
+    const fields = wrapper.getComponent(OpenAISessionPoolFields)
+    fields.vm.$emit('update:enabled', true)
+    fields.vm.$emit('update:quality', config)
+    await flushPromises()
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).toMatchObject({
+      openai_session_pool_enabled: true,
+      openai_session_pool_quality: config,
+    })
     wrapper.unmount()
   })
 

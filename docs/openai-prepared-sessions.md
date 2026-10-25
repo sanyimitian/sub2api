@@ -2,7 +2,7 @@
 
 ## 配置入口
 
-功能采用两级手动开关，均默认关闭：先在系统设置开启“OpenAI 低延迟备用会话池”总开关，再在账号创建或编辑页，为 OpenAI 的 API Key（接口密钥）账号开启“低延迟备用会话”。未保存过总开关的已有部署也保持关闭。每个账号分别通过可搜索的多选下拉框选择该账号可用的探测模型，默认是 gpt-6-sol，最多 20 个。未开启的账号不产生备用会话；OAuth（授权登录）账号不提供后台探测候选。
+功能采用两级手动开关，均默认关闭：先在系统设置开启“OpenAI 低延迟备用会话池”总开关，再在账号创建或编辑页，为 OpenAI 的 API Key（接口密钥）账号在“对话探测”中开启“低延迟探测”。未保存过总开关的已有部署也保持关闭。每个账号分别通过可搜索的多选下拉框选择该账号可用的探测模型，默认是 gpt-6-sol，最多 20 个。未开启的账号不产生备用会话；OAuth（授权登录）账号不提供后台探测候选。
 
 系统设置中的“OpenAI 低延迟备用会话池”配置：
 
@@ -13,7 +13,26 @@
 | 后台探测并发 | 6 | 2–20，单轮实际数量不超过当前缺口 |
 | 探测结果复用保留时间 | 600 秒 | 1–3600 秒，按保存值计算新候选有效期 |
 
-账号配置保存在 Extra（附加配置）的 openai_session_pool_enabled 和 openai_session_pool_models 字段。全局总开关是 openai_session_pool_enabled，全局目标设置是 openai_session_pool_size。后台并发与复用时间沿用原有首字慢切换设置字段，界面已移至备用池区域；慢切换开关不控制后台备用池。
+账号配置保存在 Extra（附加配置）的 openai_session_pool_enabled、openai_session_pool_models 和 openai_session_pool_quality 字段。全局总开关是 openai_session_pool_enabled，全局目标设置是 openai_session_pool_size。后台并发与复用时间沿用原有首字慢切换设置字段，界面已移至备用池区域；慢切换开关不控制后台备用池。
+
+## 降智探测
+
+账号的“对话探测”提供“低延迟探测”和“降智探测”。开启降智会自动开启低延迟；关闭低延迟会同时关闭降智。已有账号默认只保留原低延迟配置，降智默认关闭。
+
+开启降智后，以做题请求替代原先回复 OK 的探测请求，探测模型仍使用账号原有模型选择。用户自行配置：
+
+| 配置 | 行为 |
+| --- | --- |
+| 固定题目 | 默认提供参考项目的糖果题和参考答案 21，可编辑题目、答案或恢复糖果题 |
+| 随机推理题 | 每次随机生成路径计数或加权异或题，由程序本地计算参考答案，无需填写固定题目和答案 |
+| 答题推理强度 | 可选择沿用模型默认值或指定强度，具体支持范围由上游模型决定 |
+| 判题分组、模型及提示词 | 用户独立选择；从该分组内选择支持模型的可用账号，跳过当前被测账号；判题只接收参考答案和实际回答，不接收原题 |
+
+出题、本地求解及判题逻辑参考防降智项目的普通质量规则。判题严格接受包含 verdict（结论）和 reason（理由）的结果，只有 correct（正确）算通过；incorrect（错误）、unknown（无法确定）、格式错误、拒答、截断或超时均不入池。不执行移组、关闭账号或调整调度开关等账号处置，只丢弃本次探测会话并按补池规则继续重试。
+
+只有答案完整生成、判题明确通过，且**这次做题请求的首字严格低于 10 秒**，才能入池。首字沿用网站当前配置的计时口径，按语义输出或可见输出计时；不是整段答案耗时，也不包含后续判题耗时。做题最多运行 10 分钟，判题在同一总期限内最多 90 秒、每路最多 30 秒。完整答案与判题完成前不提前入池，即使首字低于 5 秒也一样。
+
+后续用户领取的就是本次做题使用的同一个上游会话标识。修改开启中的题型、参考答案、推理强度或判题配置，会使未使用的旧候选失效。判题另行占用判题账号并发槽位并消耗上游额度。探测历史展示质量结论和判题理由，池中候选包含质量通过标记。
 
 ## 探测与领取
 
@@ -43,7 +62,7 @@
 
 备用池总开关开启时，达到切换条件后只领取同一个后台池，不启动独立探测。没有授权且兼容的候选就保留原线路。已有慢对话继续采用原来的安全接管方式：在用户消息边界发出重试或重连信号，要求完整上下文，不能拿旧线路的增量引用直接冒充完整上下文。新对话直接使用备用会话，不需要此重连步骤。
 
-范围是现有 Codex Responses（响应接口）的普通、流式和长连接入口；需要稳定的用户会话标识。上下文压缩请求沿用已经建立的绑定，不领取新候选、不计慢切换。聊天补全、图像及其他专用入口沿用原流程。速度筛选测量的是首字延迟，不是回答质量评测。
+范围是现有 Codex Responses（响应接口）的普通、流式和长连接入口；需要稳定的用户会话标识。上下文压缩请求沿用已经建立的绑定，不领取新候选、不计慢切换。聊天补全、图像及其他专用入口沿用原流程。低延迟探测筛选首字延迟；开启降智探测后，另外要求答题质量通过。
 
 ## 诊断事件
 
@@ -68,12 +87,12 @@
 
 | 场景 | 原因码与含义 |
 | --- | --- |
-| 探测结果 | `qualified` 合格；`first_token_too_slow` 首字达到或超过 10 秒；`probe_timeout` 超时；`probe_canceled` 取消；`probe_http_error` 探测收到 HTTP 错误状态；`upstream_request_failed` 转发失败；`no_successful_first_token` 未取得成功首字；`upstream_session_missing` 缺少上游会话；`upstream_model_mismatch` 实际模型不符 |
+| 探测结果 | `quality_incorrect` 答题错误；`quality_inconclusive` 质量无法判定；`qualified` 合格；`first_token_too_slow` 首字达到或超过 10 秒；`probe_timeout` 超时；`probe_canceled` 取消；`probe_http_error` 探测收到 HTTP 错误状态；`upstream_request_failed` 转发失败；`no_successful_first_token` 未取得成功首字；`upstream_session_missing` 缺少上游会话；`upstream_model_mismatch` 实际模型不符 |
 | 无法开始单路探测 | `account_lookup_failed` 账号读取失败；`account_configuration_changed` 账号配置变化或不可调度；`account_request_incompatible` 账号不兼容当前探测请求；`account_slot_unavailable` 未取得账号并发槽位 |
 | 补充任务 | `target_reached` 已达到目标；`probe_rounds_exhausted` 本次最多 5 轮后仍不足；`refill_lease_lost` 补充租约失效；`cache_update_failed` 缓存更新失败；`refill_canceled` 已取消；`feature_disabled` 进行中关闭功能 |
 | 未开始补充 | `pool_full` 空闲池已满；`no_eligible_routes` 无可探测的账号、模型和协议组合；`refill_in_progress` 其他任务持有补充租约；`retry_backoff` 退避中 |
 | 领取失败 | `pool_empty` 池空；`no_eligible_accounts` 当前分组没有符合权限、配置及调度要求的账号；`channel_pricing_restricted` 渠道价格限制；`no_matching_candidate` 有候选但不匹配当前请求，查看拒绝计数 |
-| 候选拒绝分类 | `expired` 过期；`account_not_eligible` 账号不在本次可用集合；`leased` 被预占；`already_committed` 已独占；`transport_mismatch` 协议不匹配；`account_changed` 凭据或代理等配置变化；`model_not_configured` 原探测模型已不在探测列表；`invalid_latency` 首字速度不合格；`upstream_session_missing` 缺少上游会话。当前请求模型不被账号允许时，该账号会被提前排除，不计为探测模型不匹配 |
+| 候选拒绝分类 | `expired` 过期；`account_not_eligible` 账号不在本次可用集合；`leased` 被预占；`already_committed` 已独占；`transport_mismatch` 协议不匹配；`account_changed` 凭据或代理等配置变化；`model_not_configured` 原探测模型已不在探测列表；`invalid_latency` 首字速度不合格；`quality_not_passed` 缺少当前配置要求的质量通过标记；`upstream_session_missing` 缺少上游会话。当前请求模型不被账号允许时，该账号会被提前排除，不计为探测模型不匹配 |
 | 放弃或接管失败 | `pending_expired` 待接管过期；`incremental_context_incompatible` 旧线路的增量上下文不能交给新会话；`target_excluded` 目标已被本次调度排除；`candidate_no_longer_eligible` 候选已不符合要求；`target_unavailable` 未选到目标；`candidate_commit_failed` 未取得候选所有权；`ownership_state_not_updated` 已独占但会话状态未保存 |
 
 ### 排查顺序

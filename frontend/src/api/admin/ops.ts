@@ -856,6 +856,7 @@ export interface OpsSystemLog {
 export type OpsSystemLogListResponse = PaginatedResponse<OpsSystemLog>
 
 export interface OpenAISessionPoolCandidate {
+  quality_passed?: boolean
   result_id: string
   account_id: number
   account_name: string
@@ -873,6 +874,13 @@ export interface OpenAISessionPoolSnapshot {
 }
 
 export interface OpenAISessionPoolProbeResult {
+	quality_judgment?: {
+		verdict: 'correct' | 'incorrect' | 'unknown'
+		reason: string
+		account_id?: number
+		group_id?: number
+		model_id?: string
+	}
   round: number
   probe_number: number
   account_id: number

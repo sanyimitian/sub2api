@@ -503,6 +503,7 @@ type OpenAIGatewayService struct {
 	openaiSessionPoolCancel             context.CancelFunc
 	openaiSessionPoolDone               chan struct{}
 	openaiSessionPoolWake               chan struct{}
+	conversationQualityJudge            *ConversationQualityJudgeService
 	responseHeaderFilter                *responseheaders.CompiledHeaderFilter
 	codexSnapshotThrottle               *accountWriteThrottle
 	openAIModelsCache                   openAIModelsCache

@@ -23,6 +23,9 @@ export default {
           "unknownReason": "结果未提供原因",
           "reasons": {
             "qualified": "合格，未入池",
+            "quality_incorrect": "答题未通过，丢弃本次对话",
+            "quality_inconclusive": "质量无法判定，丢弃本次对话",
+            "quality_not_passed": "未通过质量探测",
             "first_token_too_slow": "首字延迟过高",
             "upstream_session_missing": "上游未返回会话标识",
             "upstream_model_mismatch": "上游模型不匹配",

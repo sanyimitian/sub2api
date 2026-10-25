@@ -35,6 +35,10 @@ const reasonLabel = (reason: string) => {
   const key = `admin.ops.switchRecords.pool.reasons.${reason}`
   return te(key) ? t(key) : t('admin.ops.switchRecords.pool.unknownReason')
 }
+const qualityReasonLabel = (reason: string) => {
+  const key = `admin.accounts.sessionPool.judgeReasons.${reason}`
+  return te(key) ? t(key) : reason
+}
 const transportLabel = (value: string) => value === 'http_sse' ? 'HTTP' : value.startsWith('responses_websocket') ? 'WebSocket' : value
 
 async function loadPool() {
@@ -172,7 +176,12 @@ onUnmounted(() => {
                 <td class="px-4 py-2">{{ result.model }}</td>
                 <td class="px-4 py-2">{{ transportLabel(result.transport) }}</td>
                 <td class="whitespace-nowrap px-4 py-2 font-mono">{{ result.first_token_ms == null ? '—' : `${result.first_token_ms} ms` }}</td>
-                <td class="px-4 py-2"><span :class="result.published ? 'text-emerald-700 dark:text-emerald-300' : 'text-gray-700 dark:text-gray-300'">{{ result.published ? t('admin.ops.switchRecords.pool.published') : reasonLabel(result.reason) }}</span></td>
+                <td class="px-4 py-2">
+                  <span :class="result.published ? 'text-emerald-700 dark:text-emerald-300' : 'text-gray-700 dark:text-gray-300'">{{ result.published ? t('admin.ops.switchRecords.pool.published') : reasonLabel(result.reason) }}</span>
+                  <p v-if="result.quality_judgment" class="mt-1 max-w-sm break-words text-xs text-gray-600 dark:text-gray-300" data-testid="pool-quality-judgment">
+                    {{ t(`admin.accounts.sessionPool.verdicts.${result.quality_judgment.verdict}`) }} · {{ qualityReasonLabel(result.quality_judgment.reason) }}
+                  </p>
+                </td>
               </tr>
             </tbody>
           </table>

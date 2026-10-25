@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +35,8 @@ type openAIWSLatencyProbeResult struct {
 	ok                  bool
 	timedOut            bool
 	responseStatus      int // 仅供备用池诊断，不改变成功判定。
+	qualityJudgment     *QualityJudgment
+	qualityQuestion     *conversationQualityQuestion
 }
 
 type openAIWSLatencyProbeSessionIDContextKey struct{}
@@ -60,12 +63,44 @@ const (
 
 func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, account *Account, model string, requiredTransport OpenAIUpstreamTransport) (openAIWSLatencyProbeResult, error) {
 	observed := openAIWSLatencyProbeResult{accountID: account.ID, upstreamSessionID: openAIWSLatencyProbeSessionID(ctx)}
-	probeCtx, cancel := context.WithTimeout(ctx, openAIWSLatencyProbeTimeout)
+	quality, configErr := account.OpenAISessionQualityConfig()
+	if configErr != nil && isOpenAIPreparedProbe(ctx) {
+		return observed, configErr
+	}
+	qualityEnabled := isOpenAIPreparedProbe(ctx) && quality != nil && quality.Enabled
+	if qualityEnabled {
+		observed.ms = -1 // 没有测到首字时不能在诊断中显示为 0 毫秒。
+	}
+	timeout := openAIWSLatencyProbeTimeout
+	if qualityEnabled {
+		timeout = openAISessionQualityProbeTimeout
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	// 探测只发送合成测试输入，不复制真实用户消息、工具结果、旧响应引用或旧会话标识。
 	// 使用本路新生成的会话标识发送探测，并保留该标识供用户接管；本地结果编号不能替代它。
 	// 探测会占用上游额度，但不计入用户账单；接管时必须另行发送用户的完整有效上下文。
 	probeBody := map[string]any{"model": model, "stream": true, "store": false, "max_output_tokens": 64, "input": []any{map[string]any{"role": "user", "content": "Reply with the single word OK."}}}
+	if qualityEnabled {
+		if err := validateConversationQualityConfig(quality); err != nil {
+			return observed, err
+		}
+		question := &conversationQualityQuestion{Prompt: quality.Prompt, ExpectedAnswer: quality.ExpectedAnswer}
+		if quality.QuestionKind == QualityRandomQuestionKind {
+			questions, err := generateQualityRandomSamples(1, rand.Reader)
+			if err != nil {
+				return observed, err
+			}
+			question = questions[0]
+		}
+		observed.qualityQuestion = question
+		probeBody["input"] = []any{map[string]any{"role": "user", "content": question.Prompt + "\n\n只输出最终答案，不要解释。"}}
+		// 与参考项目普通质量规则一致，为推理和完整答案留出空间。
+		delete(probeBody, "max_output_tokens")
+		if quality.ReasoningEffort != "" {
+			probeBody["reasoning"] = map[string]any{"effort": quality.ReasoningEffort}
+		}
+	}
 	if observed.upstreamSessionID != "" {
 		probeBody["prompt_cache_key"] = observed.upstreamSessionID
 	}
@@ -79,7 +114,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, 
 		request.Header.Set("session_id", observed.upstreamSessionID)
 		request.Header.Set("conversation_id", observed.upstreamSessionID)
 	}
-	writer := &openAIWSLatencyProbeWriter{header: make(http.Header), mode: s.openAITTFTMode(ctx), started: time.Now(), firstMS: -1, closed: make(chan bool)}
+	writer := &openAIWSLatencyProbeWriter{header: make(http.Header), mode: s.openAITTFTMode(ctx), started: time.Now(), firstMS: -1, closed: make(chan bool), capture: qualityEnabled}
 	c := &gin.Context{Request: request, Writer: writer}
 	if observed.upstreamSessionID != "" {
 		c.Set(openAIWSLatencyUpstreamSessionContextKey, observed.upstreamSessionID)
@@ -102,11 +137,27 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, 
 	} else if forwardErr == nil && result != nil && result.SucceededForScheduling() && result.FirstTokenMs != nil {
 		observed.ms, observed.ok = *result.FirstTokenMs, true
 	} else if errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
-		observed.ms, observed.timedOut = int(time.Since(writer.started).Milliseconds()), true
+		observed.timedOut = true
+		if !qualityEnabled {
+			observed.ms = int(time.Since(writer.started).Milliseconds())
+		}
 	}
 	observed.responseStatus = writer.status // 未写出响应时为零，不能以默认 200 误报成功。
 	if writer.failed || writer.Status() >= 400 {
 		observed.ok = false
+	}
+	if qualityEnabled {
+		if writer.firstMS >= 0 {
+			observed.ms = writer.firstMS
+		}
+		observed.qualityJudgment = &QualityJudgment{Verdict: "unknown", Reason: "answer_incomplete"}
+		if forwardErr == nil && probeCtx.Err() == nil && observed.ok && writer.completed && !writer.failed && !writer.overflow && strings.TrimSpace(writer.output.String()) != "" {
+			observed.qualityJudgment = s.conversationQualityJudge.Judge(probeCtx, account.ID, quality, observed.qualityQuestion.ExpectedAnswer, writer.output.String())
+		}
+		// 首字快不代表答题完成；超时、拒答、截断、判题未知均不能进池。
+		if observed.qualityJudgment == nil || observed.qualityJudgment.Verdict != "correct" {
+			observed.ok = false
+		}
 	}
 	return observed, forwardErr
 }
@@ -114,15 +165,21 @@ func (s *OpenAIGatewayService) forwardOpenAIWSLatencyProbe(ctx context.Context, 
 // Discards generated text and retains at most one bounded SSE line. The timing
 // uses the site's normal TTFT definition, including its visible-output option.
 type openAIWSLatencyProbeWriter struct {
-	header  http.Header
-	status  int
-	size    int
-	line    []byte
-	mode    string
-	started time.Time
-	firstMS int
-	failed  bool
-	closed  chan bool
+	header       http.Header
+	status       int
+	size         int
+	line         []byte
+	mode         string
+	started      time.Time
+	firstMS      int
+	failed       bool
+	closed       chan bool
+	capture      bool
+	completed    bool
+	overflow     bool
+	lineOverflow bool
+	stopReason   string
+	output       strings.Builder
 }
 
 func (w *openAIWSLatencyProbeWriter) Header() http.Header { return w.header }
@@ -159,11 +216,20 @@ func (w *openAIWSLatencyProbeWriter) Write(data []byte) (int, error) {
 		if b != '\n' {
 			if len(w.line) < 65536 {
 				w.line = append(w.line, b)
+			} else {
+				w.lineOverflow = true
 			}
 			continue
 		}
 		line := strings.TrimSpace(string(w.line))
 		w.line = w.line[:0]
+		if w.lineOverflow {
+			w.lineOverflow = false
+			if w.capture {
+				w.overflow = true
+			}
+			continue
+		}
 		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
@@ -178,6 +244,54 @@ func (w *openAIWSLatencyProbeWriter) Write(data []byte) (int, error) {
 		if w.firstMS < 0 && openAIStreamDataStartsTTFT(payload, eventType, false, w.mode) {
 			w.firstMS = int(time.Since(w.started).Milliseconds())
 		}
+		if w.capture {
+			w.captureOutput(payload, eventType)
+		}
 	}
 	return len(data), nil
+}
+
+func (w *openAIWSLatencyProbeWriter) captureOutput(payload, eventType string) {
+	appendText := func(text string) {
+		if w.output.Len()+len(text) > 64000 {
+			w.overflow = true
+			return
+		}
+		w.output.WriteString(text)
+	}
+	switch eventType {
+	case "response.output_text.delta":
+		appendText(gjson.Get(payload, "delta").String())
+	case "response.refusal.delta", "response.incomplete":
+		w.failed = true
+	case "response.completed":
+		status := gjson.Get(payload, "response.status").String()
+		w.completed = status == "" || status == "completed"
+		if !w.completed {
+			w.failed = true
+		}
+		if w.output.Len() == 0 {
+			for _, item := range gjson.Get(payload, "response.output").Array() {
+				for _, content := range item.Get("content").Array() {
+					if content.Get("type").String() == "output_text" {
+						appendText(content.Get("text").String())
+					}
+					if content.Get("type").String() == "refusal" {
+						w.failed = true
+					}
+				}
+			}
+		}
+	case "content_block_delta":
+		if gjson.Get(payload, "delta.type").String() == "text_delta" {
+			appendText(gjson.Get(payload, "delta.text").String())
+		}
+	case "message_delta":
+		w.stopReason = gjson.Get(payload, "delta.stop_reason").String()
+	case "message_stop":
+		w.completed = w.stopReason == "end_turn"
+		if !w.completed {
+			w.failed = true
+		}
+	}
 }

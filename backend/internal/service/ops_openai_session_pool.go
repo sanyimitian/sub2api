@@ -9,13 +9,14 @@ import (
 )
 
 type OpenAISessionPoolCandidateView struct {
-	ResultID     string                  `json:"result_id"`
-	AccountID    int64                   `json:"account_id"`
-	AccountName  string                  `json:"account_name"`
-	Model        string                  `json:"model"`
-	Transport    OpenAIUpstreamTransport `json:"transport"`
-	FirstTokenMS int                     `json:"first_token_ms"`
-	ExpiresAt    time.Time               `json:"expires_at"`
+	QualityPassed bool                    `json:"quality_passed"`
+	ResultID      string                  `json:"result_id"`
+	AccountID     int64                   `json:"account_id"`
+	AccountName   string                  `json:"account_name"`
+	Model         string                  `json:"model"`
+	Transport     OpenAIUpstreamTransport `json:"transport"`
+	FirstTokenMS  int                     `json:"first_token_ms"`
+	ExpiresAt     time.Time               `json:"expires_at"`
 }
 
 type OpenAISessionPoolSnapshot struct {
@@ -75,7 +76,8 @@ func (s *OpenAIGatewayService) GetOpenAISessionPoolSnapshot(ctx context.Context)
 					model = candidate.UpstreamModel
 				}
 				snapshot.Candidates = append(snapshot.Candidates, OpenAISessionPoolCandidateView{
-					ResultID: candidate.ResultID, AccountID: candidate.AccountID, AccountName: route.account.Name,
+					QualityPassed: candidate.QualityPassed,
+					ResultID:      candidate.ResultID, AccountID: candidate.AccountID, AccountName: route.account.Name,
 					Model: model, Transport: candidate.Transport, FirstTokenMS: candidate.FirstTokenMS,
 					ExpiresAt: time.UnixMilli(candidate.ExpiresAt),
 				})

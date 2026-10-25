@@ -58,6 +58,19 @@ func (a *Account) OpenAISessionPoolEnabled() bool {
 }
 
 func ValidateOpenAISessionPoolExtra(platform, accountType string, extra map[string]any) error {
+	account := &Account{Platform: platform, Type: accountType, Extra: extra}
+	quality, err := account.OpenAISessionQualityConfig()
+	if err != nil {
+		return infraerrors.BadRequest("OPENAI_SESSION_POOL_QUALITY_INVALID", err.Error())
+	}
+	if quality != nil && quality.Enabled {
+		if !account.OpenAISessionPoolEnabled() {
+			return infraerrors.BadRequest("OPENAI_SESSION_POOL_QUALITY_REQUIRES_LATENCY", "降智探测必须同时开启低延迟探测，且仅支持 OpenAI 接口密钥账号")
+		}
+		if err := validateConversationQualityConfig(quality); err != nil {
+			return infraerrors.BadRequest("OPENAI_SESSION_POOL_QUALITY_INVALID", err.Error())
+		}
+	}
 	if raw, exists := extra[OpenAISessionPoolModelsExtraKey]; exists {
 		var values []string
 		switch v := raw.(type) {
@@ -102,13 +115,21 @@ func openAISessionPoolAccountFingerprint(account *Account) string {
 	if account == nil {
 		return ""
 	}
+	quality, err := account.OpenAISessionQualityConfig()
+	if err != nil {
+		return ""
+	}
+	if quality != nil && !quality.Enabled {
+		quality = nil
+	}
 	raw, err := json.Marshal(struct {
 		ID          int64
 		Platform    string
 		Type        string
 		ProxyID     *int64
 		Credentials map[string]any
-	}{account.ID, account.Platform, account.Type, account.ProxyID, account.Credentials})
+		Quality     *ConversationQualityConfig `json:",omitempty"`
+	}{account.ID, account.Platform, account.Type, account.ProxyID, account.Credentials, quality})
 	if err != nil {
 		return ""
 	}
