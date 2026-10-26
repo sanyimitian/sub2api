@@ -8,6 +8,7 @@
             <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.intelligenceStatus.description') }}</p>
           </div>
           <div class="flex flex-wrap items-center gap-3">
+            <button type="button" class="btn btn-primary gap-1.5 text-xs" data-testid="add-plan" @click="showCreateDialog = true"><Icon name="plus" size="sm" aria-hidden="true" />{{ t('admin.degradationTests.addPlan') }}</button>
             <label class="inline-flex items-center gap-2 text-xs text-gray-500"><input v-model="autoRefresh" type="checkbox" class="rounded border-gray-300 text-primary-600" data-testid="auto-refresh">{{ t('admin.intelligenceStatus.autoRefresh') }}</label>
             <button type="button" class="btn btn-secondary gap-1.5 text-xs" data-testid="refresh-status" :disabled="refreshing" @click="loadStatuses()"><Icon name="refresh" size="sm" :class="refreshing ? 'animate-spin' : ''" aria-hidden="true" />{{ t('admin.intelligenceStatus.refresh') }}</button>
           </div>
@@ -29,6 +30,7 @@
       </div>
     </div>
 
+    <CreateDegradationTestPlanDialog v-if="showCreateDialog" @close="showCreateDialog = false" @created="handlePlanCreated" />
     <DegradationTestsPanel :show="historyTarget !== null" :account-id="historyTarget?.plan.account_id ?? null" :account-name="historyTarget?.account_name" :initial-plan-id="historyTarget?.plan.id" :model-options="historyModels" @close="closeHistory" />
   </AppLayout>
 </template>
@@ -39,6 +41,7 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import IntelligenceStatusCard from '@/components/admin/IntelligenceStatusCard.vue'
 import DegradationTestsPanel from '@/components/admin/account/DegradationTestsPanel.vue'
+import CreateDegradationTestPlanDialog from '@/components/admin/account/CreateDegradationTestPlanDialog.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import { Icon } from '@/components/icons'
 import { adminAPI } from '@/api/admin'
@@ -63,6 +66,7 @@ const togglingIds = reactive(new Set<number>())
 const toggleErrors = reactive<Record<number, string>>({})
 const historyTarget = ref<DegradationTestStatus | null>(null)
 const historyModels = ref<SelectOption[]>([])
+const showCreateDialog = ref(false)
 const now = ref(Date.now())
 const successCount = computed(() => items.value.filter(item => item.latest_result?.status === 'success').length)
 const failedCount = computed(() => items.value.filter(item => item.latest_result && item.latest_result.status !== 'success').length)
@@ -188,6 +192,11 @@ async function openHistory(item: DegradationTestStatus) {
   }
 }
 
+function handlePlanCreated() {
+  showCreateDialog.value = false
+  void loadStatuses()
+}
+
 function closeHistory() {
   historyRequestId++
   historyTarget.value = null
@@ -201,7 +210,7 @@ onMounted(() => {
     const wasRunning = items.value.some(isRunning)
     now.value = Date.now()
     const running = items.value.some(isRunning)
-    const scheduledRefresh = autoRefresh.value && !document.hidden && !historyTarget.value && Date.now() - lastStatusRequestAt >= 15000
+    const scheduledRefresh = autoRefresh.value && !document.hidden && !historyTarget.value && !showCreateDialog.value && Date.now() - lastStatusRequestAt >= 15000
     if ((running || wasRunning || pendingResults.size > 0 || scheduledRefresh) && !refreshing.value && !togglingIds.size) void loadStatuses()
   }, 5000)
 })

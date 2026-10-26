@@ -3,6 +3,7 @@ import { enableAutoUnmount, flushPromises, shallowMount } from '@vue/test-utils'
 import IntelligenceStatusView from '../IntelligenceStatusView.vue'
 import IntelligenceStatusCard from '@/components/admin/IntelligenceStatusCard.vue'
 import DegradationTestsPanel from '@/components/admin/account/DegradationTestsPanel.vue'
+import CreateDegradationTestPlanDialog from '@/components/admin/account/CreateDegradationTestPlanDialog.vue'
 import type { DegradationTestPlan, DegradationTestStatus } from '@/types'
 
 const { listStatus, run, update, getAvailableModels, showSuccess, showError } = vi.hoisted(() => ({
@@ -38,6 +39,45 @@ describe('intelligence status overview', () => {
     vi.resetAllMocks()
     listStatus.mockResolvedValue([item(1), item(2, 'failed'), item(3, null)])
     getAvailableModels.mockResolvedValue([])
+  })
+
+  it.each([true, false])('opens and cancels plan creation with an empty overview: %s', async empty => {
+    if (empty) listStatus.mockResolvedValueOnce([])
+    const wrapper = await openView()
+    expect(wrapper.findComponent(CreateDegradationTestPlanDialog).exists()).toBe(false)
+    await wrapper.get('[data-testid="add-plan"]').trigger('click')
+    const dialog = wrapper.getComponent(CreateDegradationTestPlanDialog)
+    expect(wrapper.getComponent(DegradationTestsPanel).props('show')).toBe(false)
+    dialog.vm.$emit('close')
+    await flushPromises()
+    expect(wrapper.findComponent(CreateDegradationTestPlanDialog).exists()).toBe(false)
+    expect(listStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes cards immediately after creation even when automatic refresh is disabled', async () => {
+    const wrapper = await openView()
+    await wrapper.get('[data-testid="auto-refresh"]').setValue(false)
+    await wrapper.get('[data-testid="add-plan"]').trigger('click')
+    const created = item(4, null)
+    listStatus.mockResolvedValueOnce([item(1), item(2, 'failed'), item(3, null), created])
+    wrapper.getComponent(CreateDegradationTestPlanDialog).vm.$emit('created', created.plan)
+    await flushPromises()
+    expect(wrapper.findComponent(CreateDegradationTestPlanDialog).exists()).toBe(false)
+    expect(listStatus).toHaveBeenCalledTimes(2)
+    expect(wrapper.findAllComponents(IntelligenceStatusCard)[3].props('item')).toEqual(created)
+    expect((wrapper.get('[data-testid="auto-refresh"]').element as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('pauses routine polling while adding a plan and resumes after cancellation', async () => {
+    vi.useFakeTimers()
+    const wrapper = await openView()
+    await wrapper.get('[data-testid="add-plan"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(listStatus).toHaveBeenCalledTimes(1)
+    wrapper.getComponent(CreateDegradationTestPlanDialog).vm.$emit('close')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(listStatus).toHaveBeenCalledTimes(2)
   })
 
   it('loads all plans, preserving latest failures, disabled plans, and untested plans', async () => {
