@@ -337,8 +337,8 @@ func (s *AccountTestService) testAntigravityGeneration(c *gin.Context, account *
 		return s.sendErrorAndEnd(c, fmt.Sprintf("model %s not in whitelist", modelID))
 	}
 	var body []byte
-	if strings.HasPrefix(mappedModel, "gemini-") {
-		body, err = gateway.buildGeminiTestRequest(projectID, mappedModel)
+	if shouldUseAntigravityGeminiTestRequest(modelID, mappedModel) {
+		body, err = gateway.buildGeminiTestRequestWithPrompt(projectID, mappedModel, accountTestGenerationPrompt(c))
 	} else {
 		body, err = gateway.buildClaudeTestRequest(projectID, mappedModel)
 	}
