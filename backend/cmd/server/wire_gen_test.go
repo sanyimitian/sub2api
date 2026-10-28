@@ -101,6 +101,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // opencodeGoUsage
 		nil, // auditLog
 		nil, // openAIAutoReset
+		service.NewUsageService(nil, nil, nil, nil), // downstreamAutoRates
 		nil, // promptAudit
 		nil, // pluginManager
 	)

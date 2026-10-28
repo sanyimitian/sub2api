@@ -1,6 +1,57 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
+      <section class="card space-y-4 p-4 sm:p-6" aria-labelledby="auto-rate-title">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 id="auto-rate-title" class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ t('admin.downstreamAssessment.autoTitle') }}</h2>
+            <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ t('admin.downstreamAssessment.autoHelp') }}</p>
+          </div>
+          <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+            <input v-model="autoConfig.enabled" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" :disabled="autoLoading" />
+            {{ t('admin.downstreamAssessment.autoEnabled') }}
+          </label>
+        </div>
+        <template v-if="!autoLoading">
+          <fieldset>
+            <legend class="input-label">{{ t('admin.downstreamAssessment.autoMode') }}</legend>
+            <div class="inline-flex max-w-full flex-wrap gap-1 rounded border border-gray-300 p-1 dark:border-dark-600">
+              <label v-for="mode in (['daily', 'weekly'] as const)" :key="mode" class="cursor-pointer rounded px-3 py-1.5 text-sm focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary-500" :class="autoConfig.mode === mode ? 'bg-primary-600 text-white' : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700'">
+                <input v-model="autoConfig.mode" type="radio" name="auto-rate-mode" :value="mode" class="sr-only" />
+                {{ t(`admin.downstreamAssessment.autoMode${mode === 'daily' ? 'Daily' : 'Weekly'}`) }}
+              </label>
+            </div>
+            <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">{{ t(autoConfig.mode === 'daily' ? 'admin.downstreamAssessment.autoHelpDaily' : 'admin.downstreamAssessment.autoHelpWeekly') }}</p>
+          </fieldset>
+          <fieldset>
+            <legend class="input-label">{{ t('admin.downstreamAssessment.autoGroups') }}</legend>
+            <div class="flex flex-wrap gap-x-5 gap-y-2">
+              <label v-for="group in groups" :key="group.id" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                <input v-model="autoConfig.group_ids" type="checkbox" :value="group.id" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                {{ group.name }}
+              </label>
+            </div>
+          </fieldset>
+          <div class="overflow-x-auto">
+            <table class="w-full max-w-xl text-sm">
+              <thead><tr class="text-left text-gray-600 dark:text-gray-300"><th class="pb-2">{{ t(autoConfig.mode === 'daily' ? 'admin.downstreamAssessment.autoMinTokensDaily' : 'admin.downstreamAssessment.autoMinTokensWeekly') }}</th><th class="pb-2">{{ t('admin.downstreamAssessment.autoMultiplier') }}</th><th class="w-10 pb-2"><span class="sr-only">{{ t('common.actions') }}</span></th></tr></thead>
+              <tbody><tr v-for="(tier, index) in autoConfig.tiers" :key="index">
+                <td class="py-1 pr-3"><input v-model.number="tier.min_tokens" type="number" min="0.000000001" step="0.000000001" class="input" :aria-label="t(autoConfig.mode === 'daily' ? 'admin.downstreamAssessment.autoMinTokensDaily' : 'admin.downstreamAssessment.autoMinTokensWeekly')" /></td>
+                <td class="py-1 pr-3"><input v-model.number="tier.rate_multiplier" type="number" min="0.0001" max="100" step="0.0001" class="input" :aria-label="t('admin.downstreamAssessment.autoMultiplier')" /></td>
+                <td><button type="button" class="btn btn-secondary p-2" :aria-label="t('admin.downstreamAssessment.removeTier')" :title="t('admin.downstreamAssessment.removeTier')" @click="autoConfig.tiers.splice(index, 1)"><Icon name="trash" size="sm" /></button></td>
+              </tr></tbody>
+            </table>
+            <p class="mt-1 text-xs text-gray-600 dark:text-gray-300">{{ t('admin.downstreamAssessment.autoTierUnit') }}</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <button type="button" class="btn btn-secondary" :disabled="autoConfig.tiers.length >= 20" @click="autoConfig.tiers.push({ min_tokens: 0.5, rate_multiplier: 0.17 })"><Icon name="plus" size="sm" />{{ t('admin.downstreamAssessment.addTier') }}</button>
+            <button type="button" class="btn btn-primary" :disabled="autoSaving || !autoValid" @click="saveAutoRates">{{ autoSaving ? t('common.loading') : t('common.save') }}</button>
+            <span v-if="autoConfig.last_run_date" class="text-xs text-gray-600 dark:text-gray-300">{{ t('admin.downstreamAssessment.lastRun', { date: autoConfig.last_run_date }) }}</span>
+          </div>
+          <p v-if="autoError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ autoError }} <button type="button" class="underline" @click="loadAutoRates">{{ t('common.tryAgain') }}</button></p>
+        </template>
+        <p v-else role="status" class="text-sm text-gray-600">{{ t('common.loading') }}</p>
+      </section>
       <div class="card space-y-4 p-4 sm:p-6">
         <div class="flex flex-wrap items-end gap-4">
           <div class="w-full sm:w-64">
@@ -133,7 +184,7 @@ import Icon from '@/components/icons/Icon.vue'
 import UserAllowedGroupsModal from '@/components/admin/user/UserAllowedGroupsModal.vue'
 import { getAllIncludingInactive } from '@/api/admin/groups'
 import { getById as getUserById } from '@/api/admin/users'
-import { getDownstreamAssessment, type DownstreamAssessmentParams, type DownstreamAssessmentResult, type DownstreamAssessmentSortBy } from '@/api/admin/downstreamAssessment'
+import { getDownstreamAssessment, getDownstreamAutoRateConfig, saveDownstreamAutoRateConfig, type DownstreamAutoRateConfig, type DownstreamAssessmentParams, type DownstreamAssessmentResult, type DownstreamAssessmentSortBy } from '@/api/admin/downstreamAssessment'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { parseDailyTokenThresholdB, formatTokensInBillions, TOKENS_PER_BILLION } from '@/utils/downstreamAssessment'
 import { formatDateTime } from '@/utils/format'
@@ -143,6 +194,11 @@ import type { AdminGroup, AdminUser } from '@/types'
 const { t, locale } = useI18n()
 const appStore = useAppStore()
 const groups = ref<AdminGroup[]>([])
+const autoConfig = ref<DownstreamAutoRateConfig>({ enabled: false, mode: 'weekly', group_ids: [], tiers: [] })
+const autoLoading = ref(true)
+const autoSaving = ref(false)
+const autoError = ref('')
+const autoValid = computed(() => ['daily', 'weekly'].includes(autoConfig.value.mode) && autoConfig.value.tiers.length > 0 && (!autoConfig.value.enabled || autoConfig.value.group_ids.length > 0) && autoConfig.value.tiers.every(tier => Number.isFinite(tier.min_tokens) && tier.min_tokens >= 0.000000001 && Number.isInteger(Math.round(tier.min_tokens * TOKENS_PER_BILLION)) && Number.isFinite(tier.rate_multiplier) && tier.rate_multiplier > 0 && tier.rate_multiplier <= 100 && Math.abs(Math.round(tier.rate_multiplier * 10000) - tier.rate_multiplier * 10000) < 1e-8) && new Set(autoConfig.value.tiers.map(tier => Math.round(tier.min_tokens * TOKENS_PER_BILLION))).size === autoConfig.value.tiers.length)
 const groupsLoading = ref(false)
 const groupsError = ref(false)
 const groupId = ref<number | null>(null)
@@ -194,6 +250,34 @@ async function loadGroups() {
     groupsError.value = true
   } finally {
     groupsLoading.value = false
+  }
+}
+
+async function loadAutoRates() {
+  autoLoading.value = true
+  try {
+    const config = await getDownstreamAutoRateConfig()
+    autoConfig.value = { ...config, tiers: config.tiers.map(tier => ({ ...tier, min_tokens: tier.min_tokens / TOKENS_PER_BILLION })) }
+    autoError.value = ''
+  } catch {
+    autoError.value = t('admin.downstreamAssessment.autoLoadError')
+  } finally {
+    autoLoading.value = false
+  }
+}
+
+async function saveAutoRates() {
+  if (!autoValid.value || autoSaving.value) return
+  autoSaving.value = true
+  autoError.value = ''
+  try {
+    await saveDownstreamAutoRateConfig({ ...autoConfig.value, tiers: autoConfig.value.tiers.map(tier => ({ min_tokens: Math.round(tier.min_tokens * TOKENS_PER_BILLION), rate_multiplier: tier.rate_multiplier })) })
+    await loadAutoRates()
+    appStore.showSuccess(t('admin.downstreamAssessment.autoSaved'))
+  } catch {
+    autoError.value = t('admin.downstreamAssessment.autoSaveError')
+  } finally {
+    autoSaving.value = false
   }
 }
 
@@ -289,6 +373,6 @@ function refreshAssessment() {
   if (appliedFilters.value) void fetchAssessment({ ...appliedFilters.value })
 }
 
-onMounted(loadGroups)
+onMounted(() => { void loadGroups(); void loadAutoRates() })
 onUnmounted(() => { requestVersion++; groupRequestVersion++; controller?.abort() })
 </script>

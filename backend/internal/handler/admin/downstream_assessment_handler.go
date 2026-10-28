@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"encoding/json"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +13,36 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
+
+func (h *UsageHandler) GetDownstreamAutoRateConfig(c *gin.Context) {
+	cfg, err := h.usageService.GetDownstreamAutoRateConfig(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, cfg)
+}
+
+func (h *UsageHandler) SaveDownstreamAutoRateConfig(c *gin.Context) {
+	var cfg service.DownstreamAutoRateConfig
+	decoder := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cfg); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	for _, id := range cfg.GroupIDs {
+		if _, err := h.adminService.GetGroup(c.Request.Context(), id); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
+	if err := h.usageService.SaveDownstreamAutoRateConfig(c.Request.Context(), cfg); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, gin.H{"saved": true})
+}
 
 // GetDownstreamAssessment evaluates current group members over an inclusive date range.
 // GET /api/v1/admin/usage/downstream-assessment

@@ -135,7 +135,10 @@ func (r *userGroupRateRepository) GetByGroupID(ctx context.Context, groupID int6
 
 // GetByUserAndGroup 获取用户在特定分组的专属 rate_multiplier（NULL 返回 nil）
 func (r *userGroupRateRepository) GetByUserAndGroup(ctx context.Context, userID, groupID int64) (*float64, error) {
-	query := `SELECT rate_multiplier FROM user_group_rate_multipliers WHERE user_id = $1 AND group_id = $2`
+	query := `SELECT COALESCE(manual.rate_multiplier, auto.rate_multiplier)
+		FROM (SELECT $1::bigint AS user_id, $2::bigint AS group_id) target
+		LEFT JOIN user_group_rate_multipliers manual USING (user_id, group_id)
+		LEFT JOIN downstream_auto_user_group_rates auto USING (user_id, group_id)`
 	var rate sql.NullFloat64
 	err := scanSingleRow(ctx, r.sql, query, []any{userID, groupID}, &rate)
 	if err == sql.ErrNoRows {
@@ -149,6 +152,30 @@ func (r *userGroupRateRepository) GetByUserAndGroup(ctx context.Context, userID,
 	}
 	v := rate.Float64
 	return &v, nil
+}
+
+// GetEffectiveByUserID includes automatic rates while retaining manual overrides.
+func (r *userGroupRateRepository) GetEffectiveByUserID(ctx context.Context, userID int64) (map[int64]float64, error) {
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT COALESCE(manual.group_id, auto.group_id), COALESCE(manual.rate_multiplier, auto.rate_multiplier)
+		FROM user_group_rate_multipliers manual
+		FULL JOIN downstream_auto_user_group_rates auto USING (user_id, group_id)
+		WHERE COALESCE(manual.user_id, auto.user_id) = $1
+		  AND COALESCE(manual.rate_multiplier, auto.rate_multiplier) IS NOT NULL`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	rates := make(map[int64]float64)
+	for rows.Next() {
+		var groupID int64
+		var rate float64
+		if err := rows.Scan(&groupID, &rate); err != nil {
+			return nil, err
+		}
+		rates[groupID] = rate
+	}
+	return rates, rows.Err()
 }
 
 // GetRPMOverrideByUserAndGroup 获取用户在特定分组的 rpm_override（NULL 返回 nil）

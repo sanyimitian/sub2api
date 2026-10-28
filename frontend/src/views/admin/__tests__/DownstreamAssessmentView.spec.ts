@@ -7,12 +7,12 @@ import type { DownstreamAssessmentResult } from '@/api/admin/downstreamAssessmen
 import type { AdminUser } from '@/types'
 import { formatDateTime } from '@/utils/format'
 
-const { getGroups, getAssessment, getUser, listGroups, updateUser, showError, showSuccess } = vi.hoisted(() => ({
+const { getGroups, getAssessment, getAutoRates, saveAutoRates, getUser, listGroups, updateUser, showError, showSuccess } = vi.hoisted(() => ({
   getGroups: vi.fn(), getAssessment: vi.fn(), getUser: vi.fn(), listGroups: vi.fn(),
-  updateUser: vi.fn(), showError: vi.fn(), showSuccess: vi.fn()
+  getAutoRates: vi.fn(), saveAutoRates: vi.fn(), updateUser: vi.fn(), showError: vi.fn(), showSuccess: vi.fn()
 }))
 vi.mock('@/api/admin/groups', () => ({ getAllIncludingInactive: getGroups }))
-vi.mock('@/api/admin/downstreamAssessment', () => ({ getDownstreamAssessment: getAssessment }))
+vi.mock('@/api/admin/downstreamAssessment', () => ({ getDownstreamAssessment: getAssessment, getDownstreamAutoRateConfig: getAutoRates, saveDownstreamAutoRateConfig: saveAutoRates }))
 vi.mock('@/api/admin/users', () => ({ getById: getUser }))
 vi.mock('@/api/admin', () => ({ adminAPI: { groups: { list: listGroups }, users: { update: updateUser } } }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, showSuccess }) }))
@@ -57,6 +57,8 @@ beforeEach(() => {
   localStorage.clear()
   getGroups.mockResolvedValue([{ id: 7, name: 'Daily 1B' }, { id: 8, name: 'Inactive group', status: 'inactive' }])
   getAssessment.mockResolvedValue(response())
+  getAutoRates.mockResolvedValue({ enabled: false, mode: 'weekly', group_ids: [], tiers: [{ min_tokens: 500000000, rate_multiplier: 0.17 }] })
+  saveAutoRates.mockResolvedValue(undefined)
   getUser.mockResolvedValue(groupUser)
   listGroups.mockResolvedValue({ items: [
     { id: 7, name: 'Daily 1B', platform: 'openai', is_exclusive: true, subscription_type: 'standard', status: 'active', rate_multiplier: 1 },
@@ -80,6 +82,24 @@ async function fillFilters() {
 }
 
 describe('DownstreamAssessmentView', () => {
+  it('saves selected groups and B thresholds as token counts', async () => {
+    await flushPromises()
+    const section = wrapper.get('section[aria-labelledby="auto-rate-title"]')
+    await section.get('input[value="daily"]').setValue(true)
+    await section.get('input[type="checkbox"]').setValue(true)
+    await section.findAll('input[type="checkbox"]')[1]?.setValue(true)
+    await section.findAll('input[type="number"]')[0]?.setValue('0.75')
+    await section.findAll('input[type="number"]')[1]?.setValue('0.16')
+    await section.find('.btn-primary').trigger('click')
+    await flushPromises()
+    expect(saveAutoRates).toHaveBeenCalledWith(expect.objectContaining({
+      enabled: true,
+      mode: 'daily',
+      group_ids: [7],
+      tiers: [{ min_tokens: 750000000, rate_multiplier: 0.16 }]
+    }))
+  })
+
   it('requires a group and a valid threshold and never automatically runs on mount', async () => {
     await flushPromises()
     expect(getAssessment).not.toHaveBeenCalled()
@@ -113,9 +133,9 @@ describe('DownstreamAssessmentView', () => {
     expect(wrapper.find('[data-user-id="1"] [data-testid=total-tokens-b]').text()).toBe('0.00')
     expect(wrapper.find('[data-user-id="1"] [data-testid=last-used-at]').text()).toBe('-')
     expect(wrapper.find('[data-user-id="2"] [data-testid=last-used-at]').text()).toBe(formatDateTime('2026-10-15T04:34:56Z', undefined, 'en'))
-    expect(wrapper.findAll('thead th')).toHaveLength(7)
+    expect(wrapper.findAll('.card.overflow-hidden thead th')).toHaveLength(7)
     expect(wrapper.findComponent(Pager).props('total')).toBe(31)
-    expect(wrapper.findAll('thead th').at(-1)?.text()).toBe('common.actions')
+    expect(wrapper.findAll('.card.overflow-hidden thead th').at(-1)?.text()).toBe('common.actions')
     expect(wrapper.findAll('[data-testid=configure-groups]')).toHaveLength(2)
   })
 
@@ -146,7 +166,7 @@ describe('DownstreamAssessmentView', () => {
     expect(getAssessment).toHaveBeenLastCalledWith(expect.objectContaining({ group_id: 7, start_date: '2026-10-01', end_date: '2026-10-07', daily_threshold: 1000000000, page: 2 }), expect.anything())
     expect(modal.props('show')).toBe(false)
     expect(wrapper.find('[data-user-id]').exists()).toBe(false)
-    expect(wrapper.get('tbody td').attributes('colspan')).toBe('7')
+    expect(wrapper.get('.card.overflow-hidden tbody td').attributes('colspan')).toBe('7')
   })
 
   it('closes group settings without saving or rerunning the assessment on cancel', async () => {

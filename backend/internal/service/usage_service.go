@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/robfig/cron/v3"
 )
 
 var (
@@ -56,6 +58,8 @@ type UsageStats struct {
 
 // UsageService 使用统计服务
 type UsageService struct {
+	autoRateMu           sync.Mutex
+	autoRateCron         *cron.Cron
 	usageRepo            UsageLogRepository
 	userRepo             UserRepository
 	entClient            *dbent.Client
@@ -64,12 +68,14 @@ type UsageService struct {
 
 // NewUsageService 创建使用统计服务实例
 func NewUsageService(usageRepo UsageLogRepository, userRepo UserRepository, entClient *dbent.Client, authCacheInvalidator APIKeyAuthCacheInvalidator) *UsageService {
-	return &UsageService{
+	svc := &UsageService{
 		usageRepo:            usageRepo,
 		userRepo:             userRepo,
 		entClient:            entClient,
 		authCacheInvalidator: authCacheInvalidator,
 	}
+	svc.StartDownstreamAutoRates()
+	return svc
 }
 
 // Create 创建使用日志
