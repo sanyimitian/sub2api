@@ -733,6 +733,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if initialRequestModel == "" {
 		initialRequestModel = openAIWSPassthroughRequestModelForFrame(firstClientMessage)
 	}
+	if effort := CanonicalRequestedReasoningEffort(originalFirstClientMessage, initialRequestModel); effort != nil && NormalizeMaxReasoningEffort(*effort) == "max" && !account.SupportsMaxReasoningEffort(initialRequestModel) {
+		return NewOpenAIWSClientCloseError(
+			coderws.StatusPolicyViolation,
+			"max reasoning effort is not supported for this model by the selected account",
+			nil,
+		)
+	}
 	if hooks != nil && hooks.MapRequestModel != nil {
 		mappedModel, mapErr := hooks.MapRequestModel(1, initialRequestModel)
 		if mapErr != nil {
@@ -1056,6 +1063,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				requestModelForThisFrame = usageMeta.requestModelForFrame(payload)
 				if requestModelForThisFrame == "" {
 					requestModelForThisFrame = capturedSessionModel
+				}
+				if effort := CanonicalRequestedReasoningEffort(originalResponseCreate, requestModelForThisFrame); effort != nil && NormalizeMaxReasoningEffort(*effort) == "max" && !account.SupportsMaxReasoningEffort(requestModelForThisFrame) {
+					return payload, nil, NewOpenAIWSClientCloseError(
+						coderws.StatusPolicyViolation,
+						"max reasoning effort is not supported for this model by the selected account",
+						nil,
+					)
 				}
 				if hooks != nil && hooks.BeforeRequest != nil {
 					if err := hooks.BeforeRequest(turnNo, payload, requestModelForThisFrame); err != nil {

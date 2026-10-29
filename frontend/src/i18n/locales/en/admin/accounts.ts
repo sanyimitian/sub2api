@@ -919,6 +919,8 @@ export default {
       modelRestriction: 'Model Restriction (Optional)',
       modelWhitelist: 'Model Whitelist',
       modelMapping: 'Model Mapping',
+      maxEffortSupport: 'Supports Max',
+      maxEffortSupportHint: 'When disabled, Max requests will not be routed to accounts for this model.',
       fromModel: 'Request model',
       toModel: 'Target model',
       selectAllowedModels: 'Select allowed models. Leave empty to support all models.',

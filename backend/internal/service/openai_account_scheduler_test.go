@@ -1886,6 +1886,36 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UnconfiguredTh
 	require.Equal(t, int64(35301), account.ID)
 }
 
+func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_FiltersMaxUnsupportedAccounts(t *testing.T) {
+	unsupported := Account{
+		ID: 35401, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
+		Credentials: map[string]any{openAIMaxEffortSupportCredentialKey: map[string]any{"gpt-5.6-sol": false}},
+	}
+	supported := Account{
+		ID: 35402, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1,
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{unsupported, supported}},
+		cfg:         &config.Config{},
+	}
+
+	account, err := svc.SelectAccountForModelWithExclusions(
+		WithRequestedReasoningEffort(context.Background(), "max"), nil, "", "gpt-5.6-sol", nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, supported.ID, account.ID)
+
+	account, err = svc.SelectAccountForModelWithExclusions(
+		WithRequestedReasoningEffort(context.Background(), "high"), nil, "", "gpt-5.6-sol", nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, unsupported.ID, account.ID)
+}
+
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UsesGlobalDefaultThreshold(t *testing.T) {
 	ctx := withOpenAIQuotaAutoPauseSettings(context.Background(), OpsOpenAIAccountQuotaAutoPauseSettings{DefaultThreshold5h: 0.95})
 	primary := Account{

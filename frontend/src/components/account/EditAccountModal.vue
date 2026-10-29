@@ -320,7 +320,15 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :model-mappings="modelMappings" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                :model-mappings="modelMappings"
+                :platform="account?.platform || 'anthropic'"
+                :account-id="account?.id"
+                :show-max-effort-control="canConfigureOpenAIMaxEffort"
+                :model-max-effort-support="modelMaxEffortSupport"
+                @update:model-max-effort-support="modelMaxEffortSupport = $event"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -349,6 +357,29 @@
                   {{ t('admin.accounts.mapRequestModels') }}
                 </p>
               </div>
+
+            <div
+              v-if="canConfigureOpenAIMaxEffort && allowedModels.length > 0"
+              class="mb-3 space-y-1.5 rounded border border-gray-200 p-2 dark:border-dark-600"
+            >
+              <label
+                v-for="model in allowedModels"
+                :key="'max-' + model"
+                class="flex items-center justify-between gap-3 text-xs text-gray-700 dark:text-gray-300"
+              >
+                <span class="min-w-0 truncate">{{ model }}</span>
+                <span class="inline-flex shrink-0 items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+                    :checked="isOpenAIModelMaxEffortSupported(model)"
+                    :aria-label="`${t('admin.accounts.maxEffortSupport')}: ${model}`"
+                    @change="setOpenAIModelMaxEffortSupport(model, ($event.target as HTMLInputElement).checked)"
+                  />
+                  <span>Max</span>
+                </span>
+              </label>
+            </div>
 
             <!-- Model Mapping List -->
             <div v-if="modelMappings.length > 0" class="mb-3 space-y-2">
@@ -382,6 +413,20 @@
                   class="input flex-1"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
+                <label
+                  v-if="canConfigureOpenAIMaxEffort"
+                  class="inline-flex shrink-0 cursor-pointer items-center gap-1 text-xs text-gray-600 dark:text-gray-300"
+                  :title="t('admin.accounts.maxEffortSupportHint')"
+                >
+                  <input
+                    type="checkbox"
+                    class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+                    :checked="isOpenAIModelMaxEffortSupported(mapping.from)"
+                    :aria-label="`${t('admin.accounts.maxEffortSupport')}: ${mapping.from}`"
+                    @change="setOpenAIModelMaxEffortSupport(mapping.from, ($event.target as HTMLInputElement).checked)"
+                  />
+                  <span>Max</span>
+                </label>
                 <button
                   type="button"
                   @click="removeModelMapping(index)"
@@ -842,7 +887,15 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :model-mappings="modelMappings" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              :model-mappings="modelMappings"
+              :platform="account?.platform || 'anthropic'"
+              :account-id="account?.id"
+              :show-max-effort-control="canConfigureOpenAIMaxEffort"
+              :model-max-effort-support="modelMaxEffortSupport"
+              @update:model-max-effort-support="modelMaxEffortSupport = $event"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -857,6 +910,29 @@
               <p class="text-xs text-purple-700 dark:text-purple-400">
                 {{ t('admin.accounts.mapRequestModels') }}
               </p>
+            </div>
+
+            <div
+              v-if="canConfigureOpenAIMaxEffort && allowedModels.length > 0"
+              class="mb-3 space-y-1.5 rounded border border-gray-200 p-2 dark:border-dark-600"
+            >
+              <label
+                v-for="model in allowedModels"
+                :key="'oauth-max-' + model"
+                class="flex items-center justify-between gap-3 text-xs text-gray-700 dark:text-gray-300"
+              >
+                <span class="min-w-0 truncate">{{ model }}</span>
+                <span class="inline-flex shrink-0 items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+                    :checked="isOpenAIModelMaxEffortSupported(model)"
+                    :aria-label="`${t('admin.accounts.maxEffortSupport')}: ${model}`"
+                    @change="setOpenAIModelMaxEffortSupport(model, ($event.target as HTMLInputElement).checked)"
+                  />
+                  <span>Max</span>
+                </span>
+              </label>
             </div>
 
             <div v-if="modelMappings.length > 0" class="mb-3 space-y-2">
@@ -890,6 +966,20 @@
                   class="input flex-1"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
+                <label
+                  v-if="canConfigureOpenAIMaxEffort"
+                  class="inline-flex shrink-0 cursor-pointer items-center gap-1 text-xs text-gray-600 dark:text-gray-300"
+                  :title="t('admin.accounts.maxEffortSupportHint')"
+                >
+                  <input
+                    type="checkbox"
+                    class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+                    :checked="isOpenAIModelMaxEffortSupported(mapping.from)"
+                    :aria-label="`${t('admin.accounts.maxEffortSupport')}: ${mapping.from}`"
+                    @change="setOpenAIModelMaxEffortSupport(mapping.from, ($event.target as HTMLInputElement).checked)"
+                  />
+                  <span>Max</span>
+                </label>
                 <button
                   type="button"
                   @click="removeModelMapping(index)"
@@ -1076,7 +1166,15 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :model-mappings="modelMappings" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              :model-mappings="modelMappings"
+              :platform="account?.platform || 'anthropic'"
+              :account-id="account?.id"
+              :show-max-effort-control="canConfigureOpenAIMaxEffort"
+              :model-max-effort-support="modelMaxEffortSupport"
+              @update:model-max-effort-support="modelMaxEffortSupport = $event"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -3264,6 +3362,10 @@ import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import OpenAISessionPoolFields from './OpenAISessionPoolFields.vue'
 import { defaultConversationQualityConfig, readConversationQualityConfig, conversationQualityConfigForSave, openAISessionPoolModelsForSave, readOpenAISessionPoolModels } from '@/utils/openaiSessionPool'
+import {
+  buildModelMaxEffortSupport,
+  normalizeModelMaxEffortSupport
+} from '@/utils/openaiModelMaxEffortSupport'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -3680,6 +3782,8 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const modelMaxEffortSupport = ref<Record<string, boolean>>({})
+const canConfigureOpenAIMaxEffort = computed(() => props.account?.platform === 'openai')
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
@@ -4271,6 +4375,46 @@ const loadModelRestrictionFromMapping = (rawMapping?: Record<string, unknown>) =
       : 'whitelist'
 }
 
+const isOpenAIModelMaxEffortSupported = (model: string) =>
+  modelMaxEffortSupport.value[model.trim()] !== false
+
+const setOpenAIModelMaxEffortSupport = (model: string, supported: boolean) => {
+  const modelId = model.trim()
+  if (!modelId) return
+  const next = { ...modelMaxEffortSupport.value }
+  if (supported) delete next[modelId]
+  else next[modelId] = false
+  modelMaxEffortSupport.value = next
+}
+
+watch(
+  () => [
+    ...allowedModels.value,
+    ...modelMappings.value.map(mapping => mapping.from.trim())
+  ],
+  configuredModels => {
+    const configured = new Set(configuredModels.filter(Boolean))
+    const next = Object.fromEntries(
+      Object.entries(modelMaxEffortSupport.value).filter(([model]) => configured.has(model))
+    )
+    if (Object.keys(next).length !== Object.keys(modelMaxEffortSupport.value).length) {
+      modelMaxEffortSupport.value = next
+    }
+  }
+)
+
+const applyOpenAIModelMaxEffortSupport = (credentials: Record<string, unknown>) => {
+  const support = buildModelMaxEffortSupport(modelMaxEffortSupport.value, [
+    ...allowedModels.value,
+    ...modelMappings.value.map(mapping => mapping.from)
+  ])
+  if (Object.keys(support).length > 0) {
+    credentials.model_max_effort_support = support
+  } else {
+    delete credentials.model_max_effort_support
+  }
+}
+
 const buildModelRestrictionMapping = () =>
   buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
 
@@ -4286,6 +4430,10 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
     }
   } else if (!credentials.model_mapping) {
     delete credentials.model_mapping
+  }
+
+  if (shouldApplyModelMapping) {
+    applyOpenAIModelMaxEffortSupport(credentials)
   }
 
   const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
@@ -4325,6 +4473,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
+  modelMaxEffortSupport.value = newAccount.platform === 'openai'
+    ? normalizeModelMaxEffortSupport(credentials?.model_max_effort_support)
+    : {}
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   editVertexProjectId.value = ''
@@ -5448,6 +5599,9 @@ const handleSubmit = async () => {
           newCredentials.model_mapping = modelMapping
         } else {
           delete newCredentials.model_mapping
+        }
+        if (props.account.platform === 'openai') {
+          applyOpenAIModelMaxEffortSupport(newCredentials)
         }
       } else if (currentCredentials.model_mapping) {
         newCredentials.model_mapping = currentCredentials.model_mapping

@@ -2621,6 +2621,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 	}
 	ctx = c.Request.Context()
+	if effort := service.CanonicalRequestedReasoningEffort(firstMessage, reqModel, wsRouteModel); effort != nil {
+		ctx = service.WithRequestedReasoningEffort(ctx, *effort)
+		c.Request = c.Request.WithContext(ctx)
+	}
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
 		platform, ok := service.ResolvedTargetPlatformFromContext(ctx)
 		if !ok || !isResponsesWebSocketCompositePlatform(platform) {

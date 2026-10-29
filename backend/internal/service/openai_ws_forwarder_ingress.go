@@ -302,6 +302,13 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				)
 			}
 		}
+		if requestedReasoningEffort != nil && NormalizeMaxReasoningEffort(*requestedReasoningEffort) == "max" && !account.SupportsMaxReasoningEffort(originalModel) {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(
+				coderws.StatusPolicyViolation,
+				"max reasoning effort is not supported for this model by the selected account",
+				nil,
+			)
+		}
 		promptCacheKey := strings.TrimSpace(values[2].String())
 		previousResponseID := strings.TrimSpace(values[3].String())
 		previousResponseIDKind := ClassifyOpenAIPreviousResponseIDKind(previousResponseID)

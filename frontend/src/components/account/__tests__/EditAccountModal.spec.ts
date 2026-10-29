@@ -78,12 +78,14 @@ const ModelWhitelistSelectorStub = defineComponent({
   name: 'ModelWhitelistSelector',
   props: {
     modelMappings: { type: Array, default: () => [] },
+    modelMaxEffortSupport: { type: Object, default: () => ({}) },
+    showMaxEffortControl: { type: Boolean, default: false },
     modelValue: {
       type: Array,
       default: () => []
     }
   },
-  emits: ['update:modelValue'],
+  emits: ['update:modelValue', 'update:modelMaxEffortSupport'],
   template: `
     <div>
       <button
@@ -96,6 +98,27 @@ const ModelWhitelistSelectorStub = defineComponent({
       <span data-testid="model-whitelist-value">
         {{ Array.isArray(modelValue) ? modelValue.join(',') : '' }}
       </span>
+      <button
+        type="button"
+        data-testid="disable-model-max-effort"
+        @click="$emit('update:modelMaxEffortSupport', { ...modelMaxEffortSupport, 'gpt-5.2': false })"
+      >
+        disable max
+      </button>
+      <button
+        type="button"
+        data-testid="remove-selected-models"
+        @click="$emit('update:modelValue', [])"
+      >
+        remove selected models
+      </button>
+      <button
+        type="button"
+        data-testid="re-add-selected-model"
+        @click="$emit('update:modelValue', ['gpt-5.2'])"
+      >
+        re-add model
+      </button>
     </div>
   `
 })
@@ -414,6 +437,84 @@ describe('EditAccountModal', () => {
     expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('modelMappings')).toEqual([
       { from: 'gpt-latest', to: 'deepseek-chat' }
     ])
+  })
+
+  it('loads and saves model max-effort support only for configured OpenAI request models', async () => {
+    const account = buildAccount()
+    account.credentials.model_mapping = {
+      'gpt-5.2': 'gpt-5.2',
+      'gpt-latest': 'gpt-6-astra'
+    }
+    account.credentials.model_max_effort_support = {
+      'gpt-5.2': false,
+      'gpt-latest': false,
+      stale: false
+    }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const selector = wrapper.getComponent(ModelWhitelistSelectorStub)
+
+    expect(selector.props('showMaxEffortControl')).toBe(true)
+    expect(selector.props('modelMaxEffortSupport')).toEqual({
+      'gpt-5.2': false,
+      'gpt-latest': false,
+      stale: false
+    })
+    await selector.get('[data-testid="disable-model-max-effort"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_max_effort_support).toEqual({
+      'gpt-5.2': false,
+      'gpt-latest': false
+    })
+  })
+
+  it('defaults a removed and re-added model to max supported in the same edit session', async () => {
+    const account = buildAccount()
+    account.credentials.model_max_effort_support = { 'gpt-5.2': false }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const selector = wrapper.getComponent(ModelWhitelistSelectorStub)
+
+    expect(selector.props('modelMaxEffortSupport')).toEqual({ 'gpt-5.2': false })
+    await selector.get('[data-testid="remove-selected-models"]').trigger('click')
+    expect(selector.props('modelMaxEffortSupport')).toEqual({})
+    await selector.get('[data-testid="re-add-selected-model"]').trigger('click')
+    expect(selector.props('modelMaxEffortSupport')).toEqual({})
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_max_effort_support).toBeUndefined()
+  })
+
+  it('round-trips model max-effort support for OpenAI OAuth restrictions', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.credentials.model_mapping = { 'gpt-6-astra': 'gpt-6-astra' }
+    account.credentials.model_max_effort_support = { 'gpt-6-astra': false }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('modelMaxEffortSupport')).toEqual({
+      'gpt-6-astra': false
+    })
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_max_effort_support).toEqual({
+      'gpt-6-astra': false
+    })
+  })
+
+  it('does not expose max-effort controls for non-OpenAI accounts', async () => {
+    const account = buildAccount()
+    account.platform = 'gemini'
+    account.credentials = { api_key: 'test-key', base_url: 'https://example.test' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('showMaxEffortControl')).toBe(false)
   })
 
   it('sets expiry presets from now instead of extending the saved expiry', async () => {

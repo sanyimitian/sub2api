@@ -1027,6 +1027,8 @@ export default {
       modelRestriction: '模型限制（可选）',
       modelWhitelist: '模型白名单',
       modelMapping: '模型映射',
+      maxEffortSupport: '支持 Max 档位',
+      maxEffortSupportHint: '关闭后，Max 档位请求不会分配到此模型的账号。',
       fromModel: '请求模型',
       toModel: '目标模型',
       selectAllowedModels: '选择允许的模型。留空则支持所有模型。',

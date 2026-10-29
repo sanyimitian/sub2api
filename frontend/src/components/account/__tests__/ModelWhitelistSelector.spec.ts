@@ -209,6 +209,24 @@ describe('ModelWhitelistSelector', () => {
     expect(copyToClipboard).not.toHaveBeenCalled()
   })
 
+  it('defaults selected OpenAI models to max support and emits explicit false when disabled', async () => {
+    const wrapper = mountSelector({
+      modelValue: ['gpt-5.6-sol'],
+      showMaxEffortControl: true
+    })
+    const checkbox = wrapper.get('[data-testid="model-max-effort-support"]')
+
+    expect((checkbox.element as HTMLInputElement).checked).toBe(true)
+    await checkbox.setValue(false)
+
+    expect(wrapper.emitted('update:modelMaxEffortSupport')).toEqual([[{ 'gpt-5.6-sol': false }]])
+  })
+
+  it('hides max support controls unless explicitly enabled by the account editor', () => {
+    const wrapper = mountSelector({ modelValue: ['gpt-5.6-sol'] })
+    expect(wrapper.find('[data-testid="model-max-effort-support"]').exists()).toBe(false)
+  })
+
   it('warns when model IDs sync but capability metadata is incomplete', async () => {
     syncUpstreamModels.mockResolvedValue({
       models: ['x-preview-f-free'],

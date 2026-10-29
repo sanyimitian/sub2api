@@ -7,15 +7,31 @@
         class="cursor-pointer rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
       >
         <div class="grid grid-cols-2 gap-1.5">
-          <span
+          <div
             v-for="model in modelValue"
             :key="model"
-            class="inline-flex items-center justify-between gap-1 rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-dark-600 dark:text-gray-300"
+            class="inline-flex min-w-0 items-center justify-between gap-1 rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-dark-600 dark:text-gray-300"
           >
             <span class="flex items-center gap-1 truncate">
               <ModelIcon :model="model" size="14px" />
               <span class="truncate">{{ model }}</span>
             </span>
+            <label
+              v-if="showMaxEffortControl"
+              class="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-[10px] text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-dark-500"
+              :title="t('admin.accounts.maxEffortSupportHint')"
+              @click.stop
+            >
+              <input
+                type="checkbox"
+                data-testid="model-max-effort-support"
+                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+                :checked="isMaxEffortSupported(model)"
+                :aria-label="`${t('admin.accounts.maxEffortSupport')}: ${model}`"
+                @change="setMaxEffortSupport(model, ($event.target as HTMLInputElement).checked)"
+              />
+              <span>Max</span>
+            </label>
             <button
               type="button"
               @click.stop="removeModel(model)"
@@ -23,7 +39,7 @@
             >
               <Icon name="x" size="xs" class="h-3.5 w-3.5" :stroke-width="2" />
             </button>
-          </span>
+          </div>
         </div>
         <div class="mt-2 flex items-center justify-between border-t border-gray-200 pt-2 dark:border-dark-600">
           <span class="text-xs text-gray-400">{{ t('admin.accounts.modelCount', { count: modelValue.length }) }}</span>
@@ -162,6 +178,8 @@ const { t } = useI18n()
 const props = defineProps<{
   modelValue: string[]
   modelMappings?: { from: string; to: string }[]
+  modelMaxEffortSupport?: Record<string, boolean>
+  showMaxEffortControl?: boolean
   platform?: string
   platforms?: string[]
   accountId?: number
@@ -175,11 +193,21 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
+  'update:modelMaxEffortSupport': [value: Record<string, boolean>]
   'upstream-synced': []
 }>()
 
 const appStore = useAppStore()
 const { copyToClipboard } = useClipboard()
+
+const isMaxEffortSupported = (model: string) => props.modelMaxEffortSupport?.[model] !== false
+
+const setMaxEffortSupport = (model: string, supported: boolean) => {
+  const next = { ...(props.modelMaxEffortSupport ?? {}) }
+  if (supported) delete next[model]
+  else next[model] = false
+  emit('update:modelMaxEffortSupport', next)
+}
 
 const showDropdown = ref(false)
 const searchQuery = ref('')
