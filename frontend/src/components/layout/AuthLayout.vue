@@ -1,8 +1,10 @@
 <template>
   <div v-if="variant === 'synapse'" class="synapse-auth">
     <div class="synapse-auth-media" aria-hidden="true">
-      <video :src="synapseVideo" poster="/auth-scene.jpg" autoplay muted loop playsinline preload="metadata" />
-      <div class="synapse-auth-media-shade" />
+      <div class="synapse-auth-media-visual">
+        <video :src="synapseVideo" poster="/auth-scene.jpg" autoplay muted loop playsinline preload="metadata" />
+        <div class="synapse-auth-media-shade" />
+      </div>
     </div>
     <div class="synapse-auth-panel">
       <router-link to="/" class="synapse-auth-brand" aria-label="CodeBot home">
@@ -103,10 +105,11 @@ onMounted(() => {
 
 <style scoped>
 .synapse-auth { display: grid; grid-template-columns: minmax(0, 1fr) minmax(460px, 1fr); min-height: 100vh; min-height: 100dvh; background: #0c0b0f; color: #f8f7fa; color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
-.synapse-auth-media { position: sticky; top: 0; height: 100vh; height: 100dvh; min-height: 480px; overflow: hidden; background: #08080a url('/auth-scene.jpg') center / cover no-repeat; }
-.synapse-auth-media video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 58% center; }
-.synapse-auth-media-shade { position: absolute; inset: 0; background: linear-gradient(90deg, transparent 64%, rgb(12 11 15 / .08) 76%, rgb(12 11 15 / .18) 85%, rgb(12 11 15 / .4) 93%, rgb(12 11 15 / .74) 98%, #0c0b0f 100%); pointer-events: none; }
-.synapse-auth-panel { display: flex; min-width: 0; min-height: 100dvh; flex-direction: column; align-items: center; padding: 34px clamp(28px, 5vw, 88px) 26px; }
+.synapse-auth-media { --auth-bleed: clamp(180px, 14vw, 240px); position: sticky; top: 0; height: 100vh; height: 100dvh; min-height: 480px; background: #08080a url('/auth-scene.jpg') center / cover no-repeat; }
+.synapse-auth-media-visual { position: absolute; inset: 0 auto 0 0; width: calc(100% + var(--auth-bleed)); overflow: hidden; -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - var(--auth-bleed) + 24px), transparent 100%); mask-image: linear-gradient(to right, #000 0, #000 calc(100% - var(--auth-bleed) + 24px), transparent 100%); }
+.synapse-auth-media video { position: absolute; top: 0; left: calc((100% - var(--auth-bleed)) / 2); display: block; width: auto; min-width: calc(100% - var(--auth-bleed)); max-width: none; height: 100%; transform: translateX(-50%); object-fit: cover; }
+.synapse-auth-media-shade { position: absolute; inset: 0; pointer-events: none; }
+.synapse-auth-panel { position: relative; z-index: 1; display: flex; min-width: 0; min-height: 100dvh; flex-direction: column; align-items: center; padding: 34px clamp(28px, 5vw, 88px) 26px; }
 .synapse-auth-brand { display: inline-flex; width: 100%; max-width: 480px; align-items: center; gap: 10px; color: #fff; font-size: 20px; font-weight: 700; text-decoration: none; }
 .synapse-auth-brand img { width: 28px; height: 28px; border-radius: 6px; object-fit: contain; }
 .synapse-auth-main { display: flex; width: 100%; max-width: 480px; flex: 1; flex-direction: column; justify-content: center; padding: 48px 0 28px; }
@@ -133,20 +136,29 @@ onMounted(() => {
 .synapse-auth-switch :deep(p) { color: rgb(255 255 255 / .56); }
 @media (max-width: 900px) {
   .synapse-auth { grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr); }
-  .synapse-auth-panel { padding-right: 30px; padding-left: 30px; }
+  .synapse-auth-panel { padding-right: 30px; padding-left: clamp(70px, 10vw, 100px); }
 }
-@media (min-width: 701px) and (max-width: 900px) {
-  .synapse-auth-media video { object-position: 66% center; }
+@media (min-width: 801px) and (max-width: 900px) {
+  .synapse-auth-media { background: #08080a; }
+  .synapse-auth-media video { top: 10%; height: 80%; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent); mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent); }
 }
-@media (max-width: 700px) {
+@media (max-width: 800px) {
   .synapse-auth { display: flex; flex-direction: column; }
-  .synapse-auth-media { position: relative; width: 100%; height: clamp(180px, 30vh, 280px); min-height: 0; }
+  .synapse-auth-media { --auth-bleed: 0px; position: relative; width: 100%; height: clamp(180px, 30vh, 280px); min-height: 0; overflow: hidden; }
+  .synapse-auth-media-visual { width: 100%; -webkit-mask-image: none; mask-image: none; }
   .synapse-auth-media-shade { background: linear-gradient(to bottom, transparent 35%, #0c0b0f); }
-  .synapse-auth-panel { min-height: calc(100dvh - 180px); margin-top: -28px; padding: 0 24px 28px; border: 0; position: relative; }
+  .synapse-auth-panel { min-height: calc(100dvh - 180px); margin-top: -28px; padding: 0 24px 28px; border: 0; }
   .synapse-auth-main { flex: 0 0 auto; padding: 40px 0; }
   .synapse-auth-copyright { margin-top: auto; }
 }
-@media (prefers-reduced-motion: reduce) { .synapse-auth-media video { display: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .synapse-auth-media { background: #08080a; }
+  .synapse-auth-media-visual { background: url('/auth-scene.jpg') calc(50% - var(--auth-bleed) / 2) center / auto 100% no-repeat; }
+  .synapse-auth-media video { display: none; }
+}
+@media (prefers-reduced-motion: reduce) and (min-width: 801px) {
+  .synapse-auth-media-visual { -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc((100% - var(--auth-bleed)) / 2 + 40dvh - 100px), transparent calc((100% - var(--auth-bleed)) / 2 + 40dvh)); mask-image: linear-gradient(to right, #000 0, #000 calc((100% - var(--auth-bleed)) / 2 + 40dvh - 100px), transparent calc((100% - var(--auth-bleed)) / 2 + 40dvh)); }
+}
 .text-gradient {
   @apply bg-gradient-to-r from-primary-600 to-primary-500 bg-clip-text text-transparent;
 }
