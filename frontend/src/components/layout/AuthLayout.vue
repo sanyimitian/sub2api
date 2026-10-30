@@ -104,9 +104,9 @@ onMounted(() => {
 <style scoped>
 .synapse-auth { display: grid; grid-template-columns: minmax(0, 1fr) minmax(460px, 1fr); min-height: 100vh; min-height: 100dvh; background: #0c0b0f; color: #f8f7fa; color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
 .synapse-auth-media { position: sticky; top: 0; height: 100vh; height: 100dvh; min-height: 480px; overflow: hidden; background: #08080a url('/auth-scene.jpg') center / cover no-repeat; }
-.synapse-auth-media video { display: block; width: 100%; height: 100%; object-fit: cover; }
-.synapse-auth-media-shade { position: absolute; inset: 0; background: linear-gradient(90deg, transparent 55%, rgb(12 11 15 / .35)); pointer-events: none; }
-.synapse-auth-panel { display: flex; min-width: 0; min-height: 100dvh; flex-direction: column; align-items: center; padding: 34px clamp(28px, 5vw, 88px) 26px; border-left: 1px solid rgb(255 255 255 / .08); }
+.synapse-auth-media video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 58% center; }
+.synapse-auth-media-shade { position: absolute; inset: 0; background: linear-gradient(90deg, transparent 64%, rgb(12 11 15 / .08) 76%, rgb(12 11 15 / .18) 85%, rgb(12 11 15 / .4) 93%, rgb(12 11 15 / .74) 98%, #0c0b0f 100%); pointer-events: none; }
+.synapse-auth-panel { display: flex; min-width: 0; min-height: 100dvh; flex-direction: column; align-items: center; padding: 34px clamp(28px, 5vw, 88px) 26px; }
 .synapse-auth-brand { display: inline-flex; width: 100%; max-width: 480px; align-items: center; gap: 10px; color: #fff; font-size: 20px; font-weight: 700; text-decoration: none; }
 .synapse-auth-brand img { width: 28px; height: 28px; border-radius: 6px; object-fit: contain; }
 .synapse-auth-main { display: flex; width: 100%; max-width: 480px; flex: 1; flex-direction: column; justify-content: center; padding: 48px 0 28px; }
@@ -134,6 +134,9 @@ onMounted(() => {
 @media (max-width: 900px) {
   .synapse-auth { grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr); }
   .synapse-auth-panel { padding-right: 30px; padding-left: 30px; }
+}
+@media (min-width: 701px) and (max-width: 900px) {
+  .synapse-auth-media video { object-position: 66% center; }
 }
 @media (max-width: 700px) {
   .synapse-auth { display: flex; flex-direction: column; }

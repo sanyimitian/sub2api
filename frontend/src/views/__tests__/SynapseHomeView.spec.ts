@@ -73,17 +73,15 @@ describe('Synapse home navigation', () => {
     expect(wrapper.get('#metrics').text()).not.toContain('2.4ms')
   })
 
-  it('keeps the trial action in the hero and moves pricing into navigation', () => {
+  it('keeps the trial action in the hero without a pricing link in navigation', () => {
     const wrapper = mountHome()
     const actions = wrapper.get('.synapse-hero-actions')
-    const pricingLink = wrapper.get('.synapse-menu-links').findAllComponents(RouterLinkStub)
-      .find((link) => link.text() === 'home.hub.pricing')
 
     expect(actions.findAllComponents(RouterLinkStub).map((link) => link.props('to'))).toEqual(['/keys'])
     expect(actions.text()).toContain('home.hub.recharge')
     expect(actions.text()).not.toContain('home.hub.console')
     expect(actions.text()).not.toContain('home.hub.pricing')
-    expect(pricingLink?.props('to')).toBe('/model-plaza')
+    expect(wrapper.get('.synapse-menu-links').text()).not.toContain('home.hub.pricing')
   })
 
   it('routes signed-in admins to their dashboard and respects model plaza visibility', () => {

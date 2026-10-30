@@ -4,7 +4,6 @@
       <div class="synapse-menu synapse-menu-links">
         <router-link :to="consolePath">{{ t('home.dashboard') }}</router-link>
         <router-link v-if="showModelPlazaEntry" to="/model-plaza">{{ t('nav.modelPlaza') }}</router-link>
-        <router-link v-if="showModelPlazaEntry" to="/model-plaza">{{ t('home.hub.pricing') }}</router-link>
         <a v-if="docUrl" :href="docUrl" target="_blank" rel="noopener noreferrer">{{ t('home.hub.guide') }}</a>
         <LocaleSwitcher text-only class="synapse-menu-control" />
         <AnnouncementBell v-if="isAuthenticated" text-only class="synapse-menu-control" />
