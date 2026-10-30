@@ -35,7 +35,7 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'Home',
     alias: '/home',
-    component: () => import('@/views/HubHomeView.vue'),
+    component: () => import('@/views/SynapseHomeView.vue'),
     meta: {
       requiresAuth: false,
       title: 'Home',

@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LoginView from '@/views/auth/LoginView.vue'
+import AuthLayout from '@/components/layout/AuthLayout.vue'
 
 const { getPublicSettingsMock, pushMock } = vi.hoisted(() => ({
   getPublicSettingsMock: vi.fn(),
@@ -73,7 +74,7 @@ function mountLogin() {
   return mount(LoginView, {
     global: {
       stubs: {
-        AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
+        AuthLayout: { props: ['variant'], template: '<div><slot /><slot name="footer" /></div>' },
         DingTalkOAuthSection: true,
         EmailOAuthButtons: true,
         Icon: true,
@@ -95,6 +96,11 @@ describe('LoginView registration entry', () => {
     getPublicSettingsMock.mockReset()
     pushMock.mockReset()
     getPublicSettingsMock.mockResolvedValue(publicSettings)
+  })
+
+  it('uses the Synapse split-screen layout', () => {
+    const wrapper = mountLogin()
+    expect(wrapper.getComponent(AuthLayout).props('variant')).toBe('synapse')
   })
 
   it('shows the registration entry when registration is enabled', async () => {

@@ -19,6 +19,17 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); document.body.style.overflow = '' })
 
 describe('announcement read confirmation', () => {
+  it('opens the same announcement list from a text-only trigger', async () => {
+    const wrapper = mount(AnnouncementBell, {
+      props: { textOnly: true },
+      global: { stubs: { Teleport: true, Transition: true, Icon: true } },
+    })
+    expect(wrapper.get('button').text()).toBe('nav.messages')
+    expect(wrapper.find('icon-stub').exists()).toBe(false)
+    await wrapper.get('button').trigger('click')
+    expect(wrapper.find('.group.relative').exists()).toBe(true)
+  })
+
   it('keeps a failed read confirmation open and only reports success after retry', async () => {
     markRead.mockRejectedValue(new Error('offline'))
     const wrapper = mount(AnnouncementBell, { global: { stubs: { Teleport: true, Transition: true, Icon: true } } })

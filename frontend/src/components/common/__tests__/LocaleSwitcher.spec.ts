@@ -38,6 +38,18 @@ describe('LocaleSwitcher', () => {
     vi.unstubAllGlobals()
   })
 
+  it('shows a text-only language menu without flags or icons', async () => {
+    const wrapper = mount(LocaleSwitcher, {
+      props: { textOnly: true },
+      global: { stubs: { Icon: true, transition: false } },
+    })
+
+    expect(wrapper.get('button').text()).toBe('中文')
+    await wrapper.get('button').trigger('click')
+    expect(wrapper.findAll('button').map((button) => button.text())).toEqual(['中文', 'English', '中文'])
+    expect(wrapper.find('icon-stub').exists()).toBe(false)
+  })
+
   // 分组名称等内容由后端按请求语言返回，已加载的数据要靠整页刷新换成新语言
   it('reloads the page after switching to another language', async () => {
     const wrapper = mountSwitcher()
