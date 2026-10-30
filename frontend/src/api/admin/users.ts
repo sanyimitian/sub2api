@@ -176,14 +176,90 @@ export async function updateBalance(
   id: number,
   balance: number,
   operation: 'set' | 'add' | 'subtract' = 'set',
-  notes?: string
+  notes?: string,
+  receipt?: { platform: ManualRechargePlatform; recipient: ManualRechargeRecipient },
+  idempotencyKey?: string
 ): Promise<AdminUser> {
   const { data } = await apiClient.post<AdminUser>(`/admin/users/${id}/balance`, {
     balance,
     operation,
-    notes: notes || ''
-  })
+    notes: notes || '',
+    ...receipt
+  }, { headers: { 'Idempotency-Key': idempotencyKey || crypto.randomUUID() } })
   return data
+}
+
+export type ManualRechargePlatform = 'wechat' | 'alipay' | 'other'
+export type ManualRechargeRecipient = '鹏' | '杰' | '翔'
+
+export interface ManualRechargeRecord {
+  id: number
+  user_id: number
+  user_email: string
+  amount: number
+  platform: ManualRechargePlatform
+  recipient: ManualRechargeRecipient
+  notes: string
+  created_at: string
+}
+
+export interface ManualRechargeDeduction {
+  id: number
+  recipient: ManualRechargeRecipient
+  amount: number
+  notes: string
+  created_at: string
+  has_screenshot: boolean
+}
+
+export interface ManualRechargeStats {
+  items: ManualRechargeRecord[]
+  total: number
+  amount: number
+  deducted: number
+  accounts: { recipient: ManualRechargeRecipient; balance: number }[]
+  deductions: ManualRechargeDeduction[]
+  deduction_total: number
+  deduction_page: number
+  breakdown: { platform: ManualRechargePlatform; recipient: ManualRechargeRecipient; count: number; amount: number }[]
+  page: number
+  page_size: number
+}
+
+export interface ManualRechargeFilters {
+  from?: string
+  to?: string
+  platform?: string
+  recipient?: string
+  search?: string
+  page?: number
+  page_size?: number
+  deduction_page?: number
+}
+
+export async function getManualRechargeStats(filters: ManualRechargeFilters): Promise<ManualRechargeStats> {
+  const { data } = await apiClient.get<ManualRechargeStats>('/admin/users/manual-recharges', { params: filters })
+  return data
+}
+
+export async function deductManualRecharge(input: {
+  recipient: ManualRechargeRecipient
+  amount: number
+  notes: string
+  screenshot?: File | null
+  idempotencyKey: string
+}): Promise<void> {
+  const form = new FormData()
+  form.append('recipient', input.recipient)
+  form.append('amount', String(input.amount))
+  form.append('notes', input.notes)
+  if (input.screenshot) form.append('screenshot', input.screenshot)
+  await apiClient.post('/admin/users/manual-recharges/deductions', form, { headers: { 'Content-Type': 'multipart/form-data', 'Idempotency-Key': input.idempotencyKey } })
+}
+
+export async function getManualRechargeScreenshot(id: number): Promise<Blob> {
+  const response = await apiClient.get(`/admin/users/manual-recharges/deductions/${id}/screenshot`, { responseType: 'blob' })
+  return response.data as Blob
 }
 
 /**
@@ -411,6 +487,9 @@ export const usersAPI = {
   update,
   delete: deleteUser,
   updateBalance,
+  getManualRechargeStats,
+  deductManualRecharge,
+  getManualRechargeScreenshot,
   updateConcurrency,
   batchUpdateLimits,
   toggleStatus,

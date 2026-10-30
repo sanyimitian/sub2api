@@ -305,6 +305,9 @@ func registerUserManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	users := admin.Group("/users")
 	{
 		users.GET("", h.Admin.User.List)
+		users.GET("/manual-recharges", h.Admin.User.GetManualRechargeStats)
+		users.POST("/manual-recharges/deductions", h.Admin.User.DeductManualRecharge)
+		users.GET("/manual-recharges/deductions/:id/screenshot", h.Admin.User.GetManualRechargeScreenshot)
 		users.GET("/:id", h.Admin.User.GetByID)
 		users.POST("/:id/auth-identities", h.Admin.User.BindAuthIdentity)
 		users.POST("", h.Admin.User.Create)

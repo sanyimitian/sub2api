@@ -12,7 +12,25 @@
           <button v-if="operation === 'subtract'" type="button" @click="fillAllBalance" class="btn btn-secondary whitespace-nowrap">{{ t('admin.users.withdrawAll') }}</button>
         </div>
       </div>
-      <div><label class="input-label">{{ t('admin.users.notes') }}</label><textarea v-model="form.notes" rows="3" class="input"></textarea></div>
+      <div v-if="operation === 'add'" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label for="recharge-platform" class="input-label">{{ t('admin.users.receiptPlatform') }}</label>
+          <select id="recharge-platform" v-model="form.platform" required class="input">
+            <option value="" disabled>{{ t('admin.users.choosePlatform') }}</option>
+            <option value="wechat">{{ t('admin.users.wechat') }}</option>
+            <option value="alipay">{{ t('admin.users.alipay') }}</option>
+            <option value="other">{{ t('admin.users.otherPlatform') }}</option>
+          </select>
+        </div>
+        <div>
+          <label for="recharge-recipient" class="input-label">{{ t('admin.users.receiptRecipient') }}</label>
+          <select id="recharge-recipient" v-model="form.recipient" required class="input">
+            <option value="" disabled>{{ t('admin.users.chooseRecipient') }}</option>
+            <option value="鹏">鹏</option><option value="杰">杰</option><option value="翔">翔</option>
+          </select>
+        </div>
+      </div>
+      <div><label for="balance-notes" class="input-label">{{ t('admin.users.notes') }}{{ operation === 'add' && form.platform === 'other' ? ' *' : '' }}</label><textarea id="balance-notes" v-model="form.notes" rows="3" class="input" :required="operation === 'add' && form.platform === 'other'"></textarea></div>
       <div v-if="form.amount > 0" class="rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950"><div class="flex items-center justify-between text-sm"><span class="text-gray-700 dark:text-gray-300">{{ t('admin.users.newBalance') }}:</span><span class="font-bold text-gray-900 dark:text-gray-100">${{ formatBalance(calculateNewBalance()) }}</span></div></div>
     </form>
     <template #footer>
@@ -31,13 +49,16 @@ import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import type { AdminUser } from '@/types'
+import type { ManualRechargePlatform, ManualRechargeRecipient } from '@/api/admin/users'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 
 const props = defineProps<{ show: boolean, user: AdminUser | null, operation: 'add' | 'subtract' }>()
 const emit = defineEmits(['close', 'success']); const { t } = useI18n(); const appStore = useAppStore()
 
-const submitting = ref(false); const form = reactive({ amount: 0, notes: '' })
-watch(() => props.show, (v) => { if(v) { form.amount = 0; form.notes = '' } })
+const submitting = ref(false); const form = reactive({ amount: 0, notes: '', platform: '' as ManualRechargePlatform | '', recipient: '' as ManualRechargeRecipient | '' })
+let lastAttempt = ''
+let operationKey = ''
+watch(() => props.show, (v) => { if(v) { form.amount = 0; form.notes = ''; form.platform = ''; form.recipient = ''; lastAttempt = ''; operationKey = '' } })
 
 // 格式化余额：显示完整精度，去除尾部多余的0
 const formatBalance = (value: number) => {
@@ -70,6 +91,14 @@ const handleBalanceSubmit = async () => {
     appStore.showError(t('admin.users.amountRequired'))
     return
   }
+  if (props.operation === 'add' && (!form.platform || !form.recipient)) {
+    appStore.showError(t('admin.users.receiptRequired'))
+    return
+  }
+  if (props.operation === 'add' && form.platform === 'other' && !form.notes.trim()) {
+    appStore.showError(t('admin.users.otherNotesRequired'))
+    return
+  }
   // 退款时验证金额不超过实际余额
   if (props.operation === 'subtract' && form.amount > props.user.balance) {
     appStore.showError(t('admin.users.insufficientBalance'))
@@ -77,7 +106,11 @@ const handleBalanceSubmit = async () => {
   }
   submitting.value = true
   try {
-    await adminAPI.users.updateBalance(props.user.id, form.amount, props.operation, form.notes)
+    const attempt = JSON.stringify([props.user.id, props.operation, form.amount, form.notes.trim(), form.platform, form.recipient])
+    if (attempt !== lastAttempt) { operationKey = crypto.randomUUID(); lastAttempt = attempt }
+    await adminAPI.users.updateBalance(props.user.id, form.amount, props.operation, form.notes.trim(),
+      props.operation === 'add' ? { platform: form.platform as ManualRechargePlatform, recipient: form.recipient as ManualRechargeRecipient } : undefined,
+      operationKey)
     appStore.showSuccess(t('common.success')); emit('success'); emit('close')
   } catch (e: any) {
     console.error('Failed to update balance:', e)

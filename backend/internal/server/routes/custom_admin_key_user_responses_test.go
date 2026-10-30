@@ -48,6 +48,9 @@ func (*scopedUserResponses) GetUserIncludeDeleted(context.Context, int64) (*serv
 func (*scopedUserResponses) UpdateUserBalance(context.Context, int64, float64, string, string) (*service.User, error) {
 	return scopedUserFixture(), nil
 }
+func (*scopedUserResponses) RecordManualRecharge(context.Context, int64, float64, string, string, string) (*service.User, error) {
+	return scopedUserFixture(), nil
+}
 
 func TestScopedAdminUserResponsesRequireIndependentPermissions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -85,7 +88,7 @@ func TestScopedAdminUserResponsesRequireIndependentPermissions(t *testing.T) {
 				t.Run(path, func(t *testing.T) {
 					method, body := "GET", ""
 					if balanceWrite {
-						method, body = "POST", `{"balance":1,"operation":"add"}`
+						method, body = "POST", `{"balance":1,"operation":"add","platform":"wechat","recipient":"鹏"}`
 					}
 					req := httptest.NewRequest(method, "/api/v1/admin"+path, strings.NewReader(body))
 					req.Header.Set("x-api-key", key)

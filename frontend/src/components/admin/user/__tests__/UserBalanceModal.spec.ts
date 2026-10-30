@@ -10,6 +10,18 @@ enableAutoUnmount(afterEach)
 beforeEach(() => { vi.clearAllMocks(); vi.spyOn(console, 'error').mockImplementation(() => {}) })
 afterEach(() => vi.restoreAllMocks())
 describe('balance operation error feedback', () => {
+  it('uses the existing amount for a manual recharge', async () => {
+    mocks.updateBalance.mockResolvedValueOnce({})
+    const w = mount(UserBalanceModal, { props: { show: true, operation: 'add', user: { id: 1, email: 'a@example.com', balance: 5 } as AdminUser },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } } })
+    await w.get('input[type="number"]').setValue('1000')
+    await w.get('#recharge-platform').setValue('wechat')
+    await w.get('#recharge-recipient').setValue('鹏')
+    await w.get('form').trigger('submit'); await flushPromises()
+    expect(mocks.updateBalance).toHaveBeenCalledWith(1, 1000, 'add', '', { platform: 'wechat', recipient: '鹏' }, expect.any(String))
+    expect(w.find('#received-amount').exists()).toBe(false)
+  })
+
   it.each([
     [{ message: 'User balance changed; retry' }, 'User balance changed; retry'],
     [{ response: { data: { detail: 'Legacy detail' } } }, 'Legacy detail'],
@@ -19,9 +31,22 @@ describe('balance operation error feedback', () => {
     const w = mount(UserBalanceModal, { props: { show: true, operation: 'add', user: { id: 1, email: 'a@example.com', balance: 5 } as AdminUser },
       global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } } })
     await w.get('input[type="number"]').setValue('1')
+    await w.get('#recharge-platform').setValue('wechat')
+    await w.get('#recharge-recipient').setValue('鹏')
     await w.get('form').trigger('submit'); await flushPromises()
     expect(mocks.showError).toHaveBeenCalledWith(message)
     expect(w.emitted('success')).toBeUndefined(); expect(w.emitted('close')).toBeUndefined()
     expect(w.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('requires notes when the platform is other', async () => {
+    const w = mount(UserBalanceModal, { props: { show: true, operation: 'add', user: { id: 1, email: 'a@example.com', balance: 5 } as AdminUser },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } } })
+    await w.get('input[type="number"]').setValue('1')
+    await w.get('#recharge-platform').setValue('other')
+    await w.get('#recharge-recipient').setValue('鹏')
+    await w.get('form').trigger('submit')
+    expect(mocks.showError).toHaveBeenCalledWith('admin.users.otherNotesRequired')
+    expect(mocks.updateBalance).not.toHaveBeenCalled()
   })
 })

@@ -37,6 +37,10 @@ func (s *scopedUserResponseService) UpdateUserBalance(context.Context, int64, fl
 	s.writes++
 	return s.user(), nil
 }
+func (s *scopedUserResponseService) RecordManualRecharge(context.Context, int64, float64, string, string, string) (*service.User, error) {
+	s.writes++
+	return s.user(), nil
+}
 
 func TestScopedAdminUserResponsePreservesFullAdminResponses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -83,7 +87,7 @@ func TestScopedAdminUserBalanceResponseRedactsCachedFullAdminResult(t *testing.T
 			})
 			r.POST("/users/:id/balance", h.UpdateBalance)
 			for i, scoped := range []bool{scopedFirst, !scopedFirst, true} {
-				req := httptest.NewRequest("POST", "/users/7/balance", strings.NewReader(`{"balance":1,"operation":"add"}`))
+				req := httptest.NewRequest("POST", "/users/7/balance", strings.NewReader(`{"balance":1,"operation":"add","platform":"wechat","recipient":"鹏"}`))
 				req.Header.Set("Content-Type", "application/json")
 				req.Header.Set("Idempotency-Key", "same-operation")
 				if scoped {

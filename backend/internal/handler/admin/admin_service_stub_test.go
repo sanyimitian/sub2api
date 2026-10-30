@@ -200,6 +200,21 @@ func (s *stubAdminService) UpdateUserBalance(ctx context.Context, userID int64, 
 	return &user, nil
 }
 
+func (s *stubAdminService) RecordManualRecharge(ctx context.Context, userID int64, amount float64, platform, recipient, notes string) (*service.User, error) {
+	return s.UpdateUserBalance(ctx, userID, amount, "add", notes)
+}
+
+func (s *stubAdminService) GetManualRechargeStats(context.Context, service.ManualRechargeFilter) (*service.ManualRechargeStats, error) {
+	return &service.ManualRechargeStats{}, nil
+}
+
+func (s *stubAdminService) DeductManualRecharge(context.Context, string, float64, string, []byte, string) error {
+	return nil
+}
+func (s *stubAdminService) GetManualRechargeScreenshot(context.Context, int64) ([]byte, string, error) {
+	return nil, "", nil
+}
+
 func (s *stubAdminService) BatchUpdateConcurrency(ctx context.Context, userIDs []int64, value int, mode string) (int, error) {
 	return len(userIDs), nil
 }

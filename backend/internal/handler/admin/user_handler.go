@@ -2,10 +2,13 @@ package admin
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -96,6 +99,8 @@ type UpdateBalanceRequest struct {
 	Balance   float64 `json:"balance" binding:"required,gt=0"`
 	Operation string  `json:"operation" binding:"required,oneof=set add subtract"`
 	Notes     string  `json:"notes"`
+	Platform  string  `json:"platform"`
+	Recipient string  `json:"recipient"`
 }
 
 type BindUserAuthIdentityRequest struct {
@@ -414,6 +419,17 @@ func (h *UserHandler) UpdateBalance(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	if req.Operation == "add" {
+		if (req.Platform != "wechat" && req.Platform != "alipay" && req.Platform != "other") ||
+			(req.Recipient != "鹏" && req.Recipient != "杰" && req.Recipient != "翔") {
+			response.BadRequest(c, "请选择收款平台和收款人")
+			return
+		}
+		if req.Platform == "other" && strings.TrimSpace(req.Notes) == "" {
+			response.BadRequest(c, "其他平台必须填写备注")
+			return
+		}
+	}
 
 	idempotencyPayload := struct {
 		UserID int64                `json:"user_id"`
@@ -423,7 +439,13 @@ func (h *UserHandler) UpdateBalance(c *gin.Context) {
 		Body:   req,
 	}
 	executeAdminIdempotentJSONWithResponse(c, "admin.users.balance.update", idempotencyPayload, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		user, execErr := h.adminService.UpdateUserBalance(ctx, userID, req.Balance, req.Operation, req.Notes)
+		var user *service.User
+		var execErr error
+		if req.Operation == "add" {
+			user, execErr = h.adminService.RecordManualRecharge(ctx, userID, req.Balance, req.Platform, req.Recipient, req.Notes)
+		} else {
+			user, execErr = h.adminService.UpdateUserBalance(ctx, userID, req.Balance, req.Operation, req.Notes)
+		}
 		if execErr != nil {
 			return nil, execErr
 		}
@@ -435,6 +457,127 @@ func (h *UserHandler) UpdateBalance(c *gin.Context) {
 		}
 		return data
 	})
+}
+
+func (h *UserHandler) GetManualRechargeStats(c *gin.Context) {
+	page, pageSize := response.ParsePagination(c)
+	filter := service.ManualRechargeFilter{
+		Page: page, PageSize: pageSize, Platform: c.Query("platform"),
+		Recipient: c.Query("recipient"), Search: c.Query("search"),
+	}
+	if raw := c.Query("deduction_page"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			response.BadRequest(c, "无效的扣费页码")
+			return
+		}
+		filter.DeductionPage = parsed
+	}
+	if raw := c.Query("from"); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			response.BadRequest(c, "无效的开始时间")
+			return
+		}
+		filter.From = &parsed
+	}
+	if raw := c.Query("to"); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			response.BadRequest(c, "无效的结束时间")
+			return
+		}
+		filter.To = &parsed
+	}
+	if filter.From != nil && filter.To != nil && !filter.From.Before(*filter.To) {
+		response.BadRequest(c, "结束时间必须晚于开始时间")
+		return
+	}
+	if filter.Platform != "" && filter.Platform != "wechat" && filter.Platform != "alipay" && filter.Platform != "other" ||
+		filter.Recipient != "" && filter.Recipient != "鹏" && filter.Recipient != "杰" && filter.Recipient != "翔" {
+		response.BadRequest(c, "无效的统计筛选条件")
+		return
+	}
+	stats, err := h.adminService.GetManualRechargeStats(c.Request.Context(), filter)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, stats)
+}
+
+func (h *UserHandler) DeductManualRecharge(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 6<<20)
+	var req struct {
+		Recipient string  `form:"recipient" binding:"required"`
+		Amount    float64 `form:"amount" binding:"required,gt=0"`
+		Notes     string  `form:"notes" binding:"required"`
+	}
+	if err := c.ShouldBind(&req); err != nil {
+		response.BadRequest(c, "请填写扣费金额、收款人和备注")
+		return
+	}
+	if strings.TrimSpace(req.Notes) == "" {
+		response.BadRequest(c, "扣费备注不能为空")
+		return
+	}
+	var screenshot []byte
+	var screenshotMIME string
+	file, err := c.FormFile("screenshot")
+	if err != nil && !errors.Is(err, http.ErrMissingFile) {
+		response.BadRequest(c, "截图上传失败")
+		return
+	}
+	if err == nil {
+		if file.Size > 5<<20 {
+			response.BadRequest(c, "截图不能超过 5 MB")
+			return
+		}
+		opened, openErr := file.Open()
+		if openErr != nil {
+			response.BadRequest(c, "截图读取失败")
+			return
+		}
+		defer opened.Close()
+		screenshot, err = io.ReadAll(io.LimitReader(opened, 5<<20+1))
+		if err != nil || len(screenshot) > 5<<20 {
+			response.BadRequest(c, "截图读取失败或超出大小限制")
+			return
+		}
+		screenshotMIME = http.DetectContentType(screenshot)
+		if screenshotMIME != "image/png" && screenshotMIME != "image/jpeg" && screenshotMIME != "image/webp" {
+			response.BadRequest(c, "截图仅支持 PNG、JPEG 或 WebP")
+			return
+		}
+	}
+	payload := struct {
+		Recipient      string  `json:"recipient"`
+		Amount         float64 `json:"amount"`
+		Notes          string  `json:"notes"`
+		ScreenshotHash string  `json:"screenshot_hash"`
+	}{req.Recipient, req.Amount, strings.TrimSpace(req.Notes), fmt.Sprintf("%x", sha256.Sum256(screenshot))}
+	executeAdminIdempotentJSONWithResponse(c, "admin.users.manual_recharge.deduct", payload, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		if err := h.adminService.DeductManualRecharge(ctx, req.Recipient, req.Amount, req.Notes, screenshot, screenshotMIME); err != nil {
+			return nil, err
+		}
+		return gin.H{"ok": true}, nil
+	}, nil)
+}
+
+func (h *UserHandler) GetManualRechargeScreenshot(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id < 1 {
+		response.BadRequest(c, "无效的扣费记录")
+		return
+	}
+	data, mime, err := h.adminService.GetManualRechargeScreenshot(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	c.Header("Content-Disposition", "inline; filename=deduction-screenshot")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, mime, data)
 }
 
 // GetUserAPIKeys handles getting user's API keys

@@ -20,6 +20,10 @@ type AdminService interface {
 	UpdateUser(ctx context.Context, id int64, input *UpdateUserInput) (*User, error)
 	DeleteUser(ctx context.Context, id int64) error
 	UpdateUserBalance(ctx context.Context, userID int64, balance float64, operation string, notes string) (*User, error)
+	RecordManualRecharge(ctx context.Context, userID int64, amount float64, platform, recipient, notes string) (*User, error)
+	GetManualRechargeStats(ctx context.Context, filter ManualRechargeFilter) (*ManualRechargeStats, error)
+	DeductManualRecharge(ctx context.Context, recipient string, amount float64, notes string, screenshot []byte, screenshotMIME string) error
+	GetManualRechargeScreenshot(ctx context.Context, id int64) ([]byte, string, error)
 	BatchUpdateConcurrency(ctx context.Context, userIDs []int64, value int, mode string) (int, error)
 	BatchUpdateLimits(ctx context.Context, userIDs []int64, concurrency, rpmLimit *int) (int, error)
 	GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int, sortBy, sortOrder string) ([]APIKey, int64, error)
