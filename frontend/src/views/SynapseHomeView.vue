@@ -17,7 +17,7 @@
 
     <main>
       <section id="top" ref="heroRef" class="synapse-hero">
-        <video ref="heroVideoRef" :src="videoHero" class="synapse-video" muted playsinline preload="auto" aria-hidden="true" tabindex="-1" />
+        <video ref="heroVideoRef" :src="videoHero" poster="/synapse-hero-poster.jpg" class="synapse-video synapse-hero-video" :class="{ 'is-ready': heroFrameReady }" muted playsinline preload="auto" aria-hidden="true" tabindex="-1" />
         <div class="synapse-hero-shade" aria-hidden="true" />
         <div class="synapse-dot-grid" aria-hidden="true" />
         <div class="synapse-watermark" aria-hidden="true">TRANSCENDENCE</div>
@@ -101,15 +101,20 @@ const docUrl = computed(() =>
 
 const heroRef = ref<HTMLElement | null>(null)
 const heroVideoRef = ref<HTMLVideoElement | null>(null)
+const heroFrameReady = ref(false)
 let lastX: number | null = null
 let targetTime = 0
 let seekPending = false
+const heroStartTime = 1.75
+const heroMinTime = 0.25
 
 function onVideoReady() {
   const video = heroVideoRef.value
-  if (!video) return
+  if (!video || heroFrameReady.value || seekPending || !Number.isFinite(video.duration) || video.duration <= 0) return
   video.pause()
-  video.currentTime = 0
+  targetTime = Math.min(video.duration - 0.001, heroStartTime)
+  seekPending = true
+  video.currentTime = targetTime
 }
 
 function flushSeek() {
@@ -122,6 +127,7 @@ function flushSeek() {
 
 function onVideoSeeked() {
   seekPending = false
+  heroFrameReady.value = true
   flushSeek()
 }
 
@@ -139,7 +145,7 @@ function onMouseMove(event: MouseEvent) {
   const deltaX = event.clientX - lastX
   lastX = event.clientX
   if (!Number.isFinite(video.duration) || video.duration <= 0) return
-  targetTime = Math.max(0, Math.min(video.duration - 0.001, targetTime + (deltaX / window.innerWidth) * video.duration * 0.8))
+  targetTime = Math.max(Math.min(video.duration - 0.001, heroMinTime), Math.min(video.duration - 0.001, targetTime + (deltaX / window.innerWidth) * video.duration * 0.8))
   flushSeek()
 }
 
@@ -174,8 +180,10 @@ onBeforeUnmount(() => {
 .synapse-menu-links a:hover, .synapse-menu-links :deep(.synapse-menu-control > button:hover) { color: #fff; }
 .synapse-login { display: inline-flex; height: 48px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 9999px; background: #fff; padding: 0 20px; color: #111; font-size: 14px; font-weight: 700; transition: transform .2s, background .2s; }
 .synapse-login:hover { transform: scale(1.03); background: #e2e2e6; }
-.synapse-hero { position: relative; height: 100vh; height: 100dvh; min-height: 480px; overflow: hidden; background: #000; }
+.synapse-hero { position: relative; height: 100vh; height: 100dvh; min-height: 480px; overflow: hidden; background: #000 url('/synapse-hero-poster.jpg') center / cover no-repeat; }
 .synapse-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.synapse-hero-video { opacity: 0; transition: opacity .3s ease; }
+.synapse-hero-video.is-ready { opacity: 1; }
 .synapse-hero-shade, .synapse-metrics-shade, .synapse-dot-grid { position: absolute; inset: 0; pointer-events: none; }
 .synapse-hero-shade { background: rgb(0 0 0 / .25); }
 .synapse-dot-grid { opacity: .05; background-image: radial-gradient(#fff 1px, transparent 1px); background-size: 24px 24px; }

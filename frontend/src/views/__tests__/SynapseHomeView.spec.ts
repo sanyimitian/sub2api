@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { mount, RouterLinkStub } from '@vue/test-utils'
 import SynapseHomeView from '../SynapseHomeView.vue'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
@@ -103,5 +104,25 @@ describe('Synapse home navigation', () => {
     const wrapper = mountHome()
     expect(wrapper.findAllComponents(RouterLinkStub).some((link) => link.props('to') === '/model-plaza')).toBe(true)
     expect(wrapper.get('.synapse-menu-links a[href="https://github.com/Wei-Shaw/sub2api/tree/main/docs"]').exists()).toBe(true)
+  })
+
+  it('keeps the hero poster visible until a usable video frame is ready', async () => {
+    const wrapper = mountHome()
+    const video = wrapper.get('.synapse-hero-video').element as HTMLVideoElement
+    const pause = vi.spyOn(video, 'pause').mockImplementation(() => {})
+    Object.defineProperty(video, 'duration', { configurable: true, value: 4.04 })
+
+    expect(video.getAttribute('poster')).toBe('/synapse-hero-poster.jpg')
+    expect(video.classList.contains('is-ready')).toBe(false)
+    video.dispatchEvent(new Event('loadedmetadata'))
+    expect(video.currentTime).toBe(1.75)
+    expect(video.classList.contains('is-ready')).toBe(false)
+
+    video.dispatchEvent(new Event('seeked'))
+    await nextTick()
+    expect(video.classList.contains('is-ready')).toBe(true)
+
+    pause.mockRestore()
+    wrapper.unmount()
   })
 })
