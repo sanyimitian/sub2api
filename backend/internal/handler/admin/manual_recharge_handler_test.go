@@ -2,13 +2,60 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type balanceRechargeRouteService struct {
+	*stubAdminService
+	directCalls   int
+	recordedCalls int
+}
+
+func (s *balanceRechargeRouteService) UpdateUserBalance(ctx context.Context, userID int64, amount float64, operation, notes string) (*service.User, error) {
+	s.directCalls++
+	return s.stubAdminService.UpdateUserBalance(ctx, userID, amount, operation, notes)
+}
+
+func (s *balanceRechargeRouteService) RecordManualRecharge(ctx context.Context, userID int64, amount float64, platform, recipient, notes string) (*service.User, error) {
+	s.recordedCalls++
+	return s.stubAdminService.RecordManualRecharge(ctx, userID, amount, platform, recipient, notes)
+}
+
+func TestManualRechargeAmountThreshold(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		body          string
+		status        int
+		directCalls   int
+		recordedCalls int
+	}{
+		{"below threshold", `{"balance":2.99,"operation":"add"}`, http.StatusOK, 1, 0},
+		{"threshold missing receipt", `{"balance":3,"operation":"add"}`, http.StatusBadRequest, 0, 0},
+		{"threshold with receipt", `{"balance":3,"operation":"add","platform":"wechat","recipient":"鹏"}`, http.StatusOK, 0, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			router := gin.New()
+			svc := &balanceRechargeRouteService{stubAdminService: newStubAdminService()}
+			router.POST("/api/v1/admin/users/:id/balance", NewUserHandler(svc, nil, nil, nil, nil, nil, nil).UpdateBalance)
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/1/balance", bytes.NewBufferString(tc.body))
+			request.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, request)
+			require.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+			require.Equal(t, tc.directCalls, svc.directCalls)
+			require.Equal(t, tc.recordedCalls, svc.recordedCalls)
+		})
+	}
+}
 
 func TestManualRechargeRequiresReceiptDetails(t *testing.T) {
 	router, _ := setupAdminRouter()

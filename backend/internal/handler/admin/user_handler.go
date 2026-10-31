@@ -419,7 +419,7 @@ func (h *UserHandler) UpdateBalance(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	if req.Operation == "add" {
+	if req.Operation == "add" && req.Balance >= 3 {
 		if (req.Platform != "wechat" && req.Platform != "alipay" && req.Platform != "other") ||
 			(req.Recipient != "鹏" && req.Recipient != "杰" && req.Recipient != "翔") {
 			response.BadRequest(c, "请选择收款平台和收款人")
@@ -441,7 +441,7 @@ func (h *UserHandler) UpdateBalance(c *gin.Context) {
 	executeAdminIdempotentJSONWithResponse(c, "admin.users.balance.update", idempotencyPayload, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
 		var user *service.User
 		var execErr error
-		if req.Operation == "add" {
+		if req.Operation == "add" && req.Balance >= 3 {
 			user, execErr = h.adminService.RecordManualRecharge(ctx, userID, req.Balance, req.Platform, req.Recipient, req.Notes)
 		} else {
 			user, execErr = h.adminService.UpdateUserBalance(ctx, userID, req.Balance, req.Operation, req.Notes)

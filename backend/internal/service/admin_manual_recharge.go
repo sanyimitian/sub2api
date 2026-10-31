@@ -173,8 +173,14 @@ func (s *adminServiceImpl) DeductManualRecharge(ctx context.Context, recipient s
 	if changed == 0 {
 		return infraerrors.Conflict("MANUAL_RECHARGE_INSUFFICIENT_BALANCE", "收款人账面余额不足")
 	}
+	var screenshotValue any
+	var screenshotMIMEValue any
+	if len(screenshot) > 0 {
+		screenshotValue = screenshot
+		screenshotMIMEValue = screenshotMIME
+	}
 	_, err = tx.Client().ExecContext(txCtx, `INSERT INTO manual_recharge_deductions (recipient, amount, notes, screenshot, screenshot_mime)
-		VALUES ($1, $2, $3, $4, $5)`, recipient, amount, notes, screenshot, screenshotMIME)
+		VALUES ($1, $2, $3, $4, $5)`, recipient, amount, notes, screenshotValue, screenshotMIMEValue)
 	if err != nil {
 		return err
 	}

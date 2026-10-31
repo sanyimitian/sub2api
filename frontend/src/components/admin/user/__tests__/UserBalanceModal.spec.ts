@@ -22,6 +22,18 @@ describe('balance operation error feedback', () => {
     expect(w.find('#received-amount').exists()).toBe(false)
   })
 
+  it('adds amounts below 3 without receipt details or a recharge record', async () => {
+    mocks.updateBalance.mockResolvedValueOnce({})
+    const w = mount(UserBalanceModal, { props: { show: true, operation: 'add', user: { id: 1, email: 'a@example.com', balance: 5 } as AdminUser },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } } })
+    await w.get('input[type="number"]').setValue('2.99')
+    expect(w.find('#recharge-platform').exists()).toBe(false)
+    expect(w.find('#recharge-recipient').exists()).toBe(false)
+    expect(w.find('#balance-notes').exists()).toBe(false)
+    await w.get('form').trigger('submit'); await flushPromises()
+    expect(mocks.updateBalance).toHaveBeenCalledWith(1, 2.99, 'add', '', undefined, expect.any(String))
+  })
+
   it.each([
     [{ message: 'User balance changed; retry' }, 'User balance changed; retry'],
     [{ response: { data: { detail: 'Legacy detail' } } }, 'Legacy detail'],
@@ -30,7 +42,7 @@ describe('balance operation error feedback', () => {
     mocks.updateBalance.mockRejectedValueOnce(error)
     const w = mount(UserBalanceModal, { props: { show: true, operation: 'add', user: { id: 1, email: 'a@example.com', balance: 5 } as AdminUser },
       global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } } })
-    await w.get('input[type="number"]').setValue('1')
+    await w.get('input[type="number"]').setValue('3')
     await w.get('#recharge-platform').setValue('wechat')
     await w.get('#recharge-recipient').setValue('鹏')
     await w.get('form').trigger('submit'); await flushPromises()
@@ -42,7 +54,7 @@ describe('balance operation error feedback', () => {
   it('requires notes when the platform is other', async () => {
     const w = mount(UserBalanceModal, { props: { show: true, operation: 'add', user: { id: 1, email: 'a@example.com', balance: 5 } as AdminUser },
       global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } } })
-    await w.get('input[type="number"]').setValue('1')
+    await w.get('input[type="number"]').setValue('3')
     await w.get('#recharge-platform').setValue('other')
     await w.get('#recharge-recipient').setValue('鹏')
     await w.get('form').trigger('submit')
