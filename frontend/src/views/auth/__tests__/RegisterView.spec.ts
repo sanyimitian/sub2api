@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import RegisterView from '@/views/auth/RegisterView.vue'
+import AuthLayout from '@/components/layout/AuthLayout.vue'
 
 const {
   getPublicSettingsMock,
@@ -77,7 +78,7 @@ function mountRegister() {
   return mount(RegisterView, {
     global: {
       stubs: {
-        AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
+        AuthLayout: { props: ['variant'], template: '<div><slot /><slot name="footer" /></div>' },
         Icon: true,
         TurnstileWidget: {
           template: '<div data-testid="turnstile-widget" />',
@@ -107,6 +108,11 @@ describe('RegisterView', () => {
     verifyActionMock.mockResolvedValue({ token: 'ticket', randstr: 'randstr' })
     getPublicSettingsMock.mockResolvedValue(publicSettings)
     registerMock.mockResolvedValue({})
+  })
+
+  it('uses the Synapse split-screen layout', () => {
+    const wrapper = mountRegister()
+    expect(wrapper.getComponent(AuthLayout).props('variant')).toBe('synapse')
   })
 
   it('does not flash the promo-code field before disabled settings finish loading', async () => {

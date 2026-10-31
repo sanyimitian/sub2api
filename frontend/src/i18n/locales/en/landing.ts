@@ -125,6 +125,7 @@ export default {
       recharge: 'Free trial',
       console: 'Open console',
       pricing: 'View pricing',
+      guide: 'Configuration Guide',
       metric1Value: '01',
       metric1Label: 'Unified token',
       metric2Value: '100%',

@@ -332,6 +332,14 @@ func TestEnhanceCSPPolicy(t *testing.T) {
 		assert.Equal(t, 1, countDirectiveValue(enhanced, "frame-src", "'self'"))
 	})
 
+	t.Run("allows_landing_media_once_with_custom_policy", func(t *testing.T) {
+		enhanced := enhanceCSPPolicy("default-src 'self'; media-src 'self'")
+		enhanced = enhanceCSPPolicy(enhanced)
+
+		assert.Equal(t, 1, countDirectiveValue(enhanced, "media-src", "'self'"))
+		assert.Equal(t, 1, countDirectiveValue(enhanced, "media-src", CodeBotMediaDomain))
+	})
+
 	t.Run("does_not_duplicate_nonce_placeholder", func(t *testing.T) {
 		policy := "default-src 'self'; script-src 'self' __CSP_NONCE__"
 		enhanced := enhanceCSPPolicy(policy)

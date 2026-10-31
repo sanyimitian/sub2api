@@ -125,6 +125,7 @@ export default {
       recharge: '免费试用',
       console: '进入控制台',
       pricing: '查看价格',
+      guide: '配置指南',
       metric1Value: '01',
       metric1Label: '统一令牌',
       metric2Value: '100%',

@@ -165,6 +165,7 @@ export default {
   nav: {
     dashboard: '仪表盘',
     announcements: '公告',
+    messages: '消息',
     apiKeys: 'API 密钥',
     batchImage: '批量生图',
     usage: '使用记录',

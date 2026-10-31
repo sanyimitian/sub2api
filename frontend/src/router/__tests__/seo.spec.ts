@@ -8,6 +8,14 @@ describe('route SEO metadata', () => {
     document.head.innerHTML = ''
   })
 
+  it('keeps the initial browser tab title aligned with the original home title', () => {
+    const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
+    const initialTitle = new DOMParser().parseFromString(html, 'text/html').title
+
+    expect(initialTitle).toBe(getRouteSEO('Home')?.title)
+    expect(initialTitle).toBe('codebot.one（codebot API）- 稳定高速的 AI API 中转站')
+  })
+
   it('sets the approved Chinese home title, description, social metadata, and canonical URL', () => {
     document.head.innerHTML = '<meta name="robots" content="noindex,follow">'
 
