@@ -20,9 +20,6 @@ type publicTransitSnapshotService interface {
 	Snapshot(context.Context, string) (*service.PublicTransitSnapshot, error)
 	SnapshotAuto(context.Context, string, string) (any, error)
 	SnapshotV2Range(context.Context, string, string) (*service.PublicTransitSnapshotV2, error)
-	GetExportSections(context.Context) (service.PublicTransitExportSections, error)
-	SetExportSections(context.Context, service.PublicTransitExportSections) error
-	PublicSnapshot(context.Context, any) (map[string]any, error)
 }
 
 func NewPublicTransitHandler(publicTransitService *service.PublicTransitService) *PublicTransitHandler {
@@ -46,7 +43,7 @@ func (h *PublicTransitHandler) Snapshot(c *gin.Context) {
 	}
 	// Manual monitor visibility can change immediately after this response.
 	c.Header("Cache-Control", "no-store")
-	h.writePublicSnapshot(c, payload)
+	c.JSON(http.StatusOK, payload)
 }
 
 // SnapshotAuto serves the single mode-aware public contract. The selected
@@ -58,8 +55,12 @@ func (h *PublicTransitHandler) SnapshotAuto(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	c.Header("Cache-Control", "no-store")
-	h.writePublicSnapshot(c, payload)
+	if _, manualSnapshot := payload.(*service.PublicTransitSnapshot); manualSnapshot {
+		c.Header("Cache-Control", "no-store")
+	} else {
+		c.Header("Cache-Control", "public, max-age=60")
+	}
+	c.JSON(http.StatusOK, payload)
 }
 
 // SnapshotV2 serves the passive, real-traffic aggregation contract. V1 is
@@ -70,58 +71,8 @@ func (h *PublicTransitHandler) SnapshotV2(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	c.Header("Cache-Control", "no-store")
-	h.writePublicSnapshot(c, payload)
-}
-
-func (h *PublicTransitHandler) writePublicSnapshot(c *gin.Context, payload any) {
-	filtered, err := h.publicTransitService.PublicSnapshot(c.Request.Context(), payload)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, filtered)
-}
-
-func (h *PublicTransitHandler) GetExportSections(c *gin.Context) {
-	sections, err := h.publicTransitService.GetExportSections(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, sections)
-}
-
-func (h *PublicTransitHandler) GetExportMetrics(c *gin.Context) {
-	response.Success(c, service.PublicTransitMetricCatalog())
-}
-
-func (h *PublicTransitHandler) UpdateExportSections(c *gin.Context) {
-	var sections service.PublicTransitExportSections
-	if err := c.ShouldBindJSON(&sections); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-	if err := h.publicTransitService.SetExportSections(c.Request.Context(), sections); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, sections)
-}
-
-func (h *PublicTransitHandler) PreviewExport(c *gin.Context) {
-	full, err := h.publicTransitService.SnapshotAuto(c.Request.Context(), requestBaseURL(c), c.Query("range"))
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	public, err := h.publicTransitService.PublicSnapshot(c.Request.Context(), full)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	c.Header("Cache-Control", "no-store")
-	response.Success(c, gin.H{"full": full, "public": public})
+	c.Header("Cache-Control", "public, max-age=60")
+	c.JSON(http.StatusOK, payload)
 }
 
 func requestBaseURL(c *gin.Context) string {

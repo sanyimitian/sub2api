@@ -431,8 +431,8 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: true,
       title: 'Public Transit Preview',
-      titleKey: 'publicTransit.exportConfig.title',
-      descriptionKey: 'publicTransit.exportConfig.description'
+      titleKey: 'publicTransit.title',
+      descriptionKey: 'publicTransit.subtitle'
     }
   },
   {

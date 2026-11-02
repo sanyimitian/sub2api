@@ -567,7 +567,6 @@ const (
 	SettingKeyModelPlazaDescription    = "model_plaza_description"
 	SettingKeyPublicTransitEnabled     = "public_transit_enabled"
 	SettingKeyPublicTransitPageEnabled = "public_transit_page_enabled"
-	SettingKeyPublicTransitExportSections = "public_transit_export_sections"
 
 	// SettingKeyPluginManagementEnabled controls sidebar visibility only; it does
 	// not stop or otherwise change already loaded plugin runtimes.

@@ -53,15 +53,6 @@ func TestPublicTransitSnapshotAuto_ModesRemainExclusive(t *testing.T) {
 			require.Len(t, discovery.Capabilities, 1)
 		})
 	}
-	sections := DefaultPublicTransitExportSections()
-	sections.Monitoring = false
-	sections.PassiveMonitoring = false
-	raw, err := json.Marshal(sections)
-	require.NoError(t, err)
-	repo.values[SettingKeyPublicTransitExportSections] = string(raw)
-	discovery, err := svc.Discovery(context.Background(), "https://example.test")
-	require.NoError(t, err)
-	require.Empty(t, discovery.Capabilities)
 }
 
 func TestPublicTransitGroups_RespectsAllowlistAndGroupPricing(t *testing.T) {
