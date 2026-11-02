@@ -15,6 +15,7 @@ import (
 
 type transitMonitorPrivacyService struct {
 	passive bool
+	sections *service.PublicTransitExportSections
 }
 
 func (s transitMonitorPrivacyService) Discovery(context.Context, string) (*service.PublicTransitDiscovery, error) {
@@ -32,6 +33,37 @@ func (s transitMonitorPrivacyService) SnapshotAuto(context.Context, string, stri
 func (s transitMonitorPrivacyService) SnapshotV2Range(context.Context, string, string) (*service.PublicTransitSnapshotV2, error) {
 	return &service.PublicTransitSnapshotV2{}, nil
 }
+func (s transitMonitorPrivacyService) GetExportSections(context.Context) (service.PublicTransitExportSections, error) {
+	if s.sections != nil {
+		return *s.sections, nil
+	}
+	return service.DefaultPublicTransitExportSections(), nil
+}
+func (s transitMonitorPrivacyService) SetExportSections(context.Context, service.PublicTransitExportSections) error {
+	return nil
+}
+func (s transitMonitorPrivacyService) PublicSnapshot(_ context.Context, snapshot any) (map[string]any, error) {
+	sections, _ := s.GetExportSections(context.Background())
+	return service.FilterPublicTransitSnapshot(snapshot, sections)
+}
+
+func TestPublicTransitExportSectionsApplyToAllSnapshotRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	sections := service.DefaultPublicTransitExportSections()
+	sections.Billing = false
+	h := &PublicTransitHandler{publicTransitService: transitMonitorPrivacyService{sections: &sections}}
+	router := gin.New()
+	router.GET("/snapshot", h.SnapshotAuto)
+	router.GET("/v1/snapshot", h.Snapshot)
+	router.GET("/v2/snapshot", h.SnapshotV2)
+	for _, path := range []string{"/snapshot", "/v1/snapshot", "/v2/snapshot"} {
+		result := httptest.NewRecorder()
+		router.ServeHTTP(result, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusOK, result.Code)
+		require.NotContains(t, result.Body.String(), `"billing"`)
+		require.Contains(t, result.Body.String(), `"schema_version"`)
+	}
+}
 
 func TestPublicTransitManualMonitorSnapshotsCannotBeCachedAcrossVisibilityChanges(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -45,11 +77,7 @@ func TestPublicTransitManualMonitorSnapshotsCannotBeCachedAcrossVisibilityChange
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 			require.Equal(t, http.StatusOK, response.Code)
-			want := "no-store"
-			if path == "/v2/snapshot" || (path == "/snapshot" && passive) {
-				want = "public, max-age=60"
-			}
-			require.Equal(t, want, response.Header().Get("Cache-Control"), path)
+			require.Equal(t, "no-store", response.Header().Get("Cache-Control"), path)
 		}
 	}
 }

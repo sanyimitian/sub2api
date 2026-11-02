@@ -1,5 +1,19 @@
 export default {
   publicTransit: {
+    exportConfig: {
+      metricsTitle: '逐项指标区间', metricsHint: '勾选后填写最小值和最大值。每次抓取随机返回区间内的值；关闭或留空时沿用当前数据。',
+      searchMetric: '搜索指标字段', realValue: '当前快照值', minimum: '最小值', maximum: '最大值',
+      incompleteRange: '区间未填完整，仍返回当前数据', noSample: '暂无样本', invalidMetricRange: '区间无效，请检查大小、整数要求和单位上限',
+      metricGroups: { monitoring: '主动监控', passive_monitoring: '被动监控与用量', groups: '分组缓存用量', cache: '缓存汇总' },
+      title: '公开抓取数据', description: '查看抓取接口的完整数据，并选择对外返回的数据类别。',
+      sections: '返回数据类别', required: '协议版本、站点信息和接口地址始终返回。',
+      refresh: '刷新数据', copy: '复制 JSON', unsaved: '设置尚未保存；右侧仍显示当前实际返回。',
+      loadFailed: '加载公开数据设置失败', previewFailed: '加载抓取数据失败，请确认公开资料接口已开启。',
+      saveFailed: '保存公开数据设置失败', saved: '公开数据设置已保存',
+      fields: { billing: '充值与计费', groups: '分组与模型价格', monitoring: '主动可用性监控', passive_monitoring: '真实请求聚合监控', cache: '缓存统计与价格', disclosure: '来源说明', limits: '限额说明', completeness: '数据完整度' },
+      tabs: { public: '当前对外返回', full: '完整数据', visual: '页面预览' },
+      hints: { public: '保存后抓取接口实际返回的 JSON。', full: '配置裁剪前的完整快照，仅管理员可查看。', visual: '按当前公开设置显示的页面。' },
+    },
     cacheConfig: {
       title: '公开缓存展示设置', description: '配置公开接口展示的缓存命中率与缓存数量。关闭总开关时返回原始汇总数据。',
       enabled: '启用公开缓存数据调整', enabledHint: '开启后，公开接口按下方区间调整缓存命中率，并将一致的缓存输入、创建和读取量存入持久池。关闭后直接返回原始汇总值。',

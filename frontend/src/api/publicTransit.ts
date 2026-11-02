@@ -31,13 +31,13 @@ export interface PublicTransitSnapshot {
   generated_at: string
   monitoring_mode?: 'v1' | 'v2'
   station: PublicTransitStation
-  billing: PublicTransitBilling
-  groups: PublicTransitGroup[]
-  monitoring: PublicTransitMonitor[]
-  cache: PublicTransitCacheDisclosure
-  disclosure: PublicTransitSourceDisclosure
-  limits: PublicTransitLimits
-  completeness: PublicTransitCompleteness
+  billing?: PublicTransitBilling
+  groups?: PublicTransitGroup[]
+  monitoring?: PublicTransitMonitor[]
+  cache?: PublicTransitCacheDisclosure
+  disclosure?: PublicTransitSourceDisclosure
+  limits?: PublicTransitLimits
+  completeness?: PublicTransitCompleteness
   endpoints: PublicTransitEndpoints
 }
 
@@ -48,7 +48,7 @@ export interface PublicTransitSnapshot {
  */
 export interface PublicTransitSnapshotV2 extends PublicTransitSnapshot {
   schema_version: string
-  passive_monitoring: PublicTransitPassiveDisclosure
+  passive_monitoring?: PublicTransitPassiveDisclosure
 }
 
 export interface PublicTransitPassiveDisclosure {
@@ -154,7 +154,7 @@ export interface PublicTransitGroup {
   subscription_type?: string
   rate_multiplier: number
   is_exclusive: boolean
-  cache_usage: PublicTransitCacheUsage
+  cache_usage?: PublicTransitCacheUsage
   models: PublicTransitModel[]
 }
 

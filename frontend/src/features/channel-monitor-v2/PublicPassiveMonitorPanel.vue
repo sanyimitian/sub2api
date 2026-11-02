@@ -96,7 +96,7 @@
         :aria-label="t('publicTransit.passiveMetric')"
       >
         <button
-          v-for="option in metrics"
+          v-for="option in availableMetrics"
           :key="option"
           type="button"
           class="tab !px-2 !py-1 text-xs"
@@ -137,6 +137,7 @@
           :detail="t('channelMonitorV2.metrics.tpsDetail')"
         />
         <MetricCell
+          v-if="showCache"
           :label="t('channelMonitorV2.metrics.cacheRate')"
           :value="formatMonitorPercent(monitoring.window.metrics.cache_rate)"
           :detail="t('channelMonitorV2.metrics.cacheDetail')"
@@ -167,6 +168,7 @@
           :detail="`${t('publicTransit.passiveRequests')} ${formatInteger(monitoring.window.request_count)}`"
         />
         <MetricCell
+          v-if="showCache"
           :label="t('publicTransit.passiveCacheRate')"
           :value="formatPercent(cacheRate)"
           :detail="t('publicTransit.passiveCacheHint')"
@@ -199,7 +201,7 @@
                 <th>{{ t('channelMonitorV2.metrics.successRate') }}</th>
                 <th>{{ t('channelMonitorV2.metrics.ttftP50') }}</th>
                 <th>{{ t('channelMonitorV2.metrics.tps') }}</th>
-                <th>{{ t('channelMonitorV2.metrics.cacheRate') }}</th>
+                <th v-if="showCache">{{ t('channelMonitorV2.metrics.cacheRate') }}</th>
                 <th>{{ t('channelMonitorV2.metrics.rpm') }}</th>
               </tr>
             </thead>
@@ -223,7 +225,7 @@
                   <small v-if="item.metrics" class="text-xs text-gray-400">{{ formatLatencyKpiSecondary(item.metrics.ttft.avg_ms, item.metrics.ttft.p90_ms, item.metrics.ttft.p95_ms) }}</small>
                 </td>
                 <td>{{ item.metrics ? formatMonitorTokensPerSecond(item.metrics.tpm) : '-' }}</td>
-                <td>{{ item.metrics ? formatMonitorPercent(item.metrics.cache_rate) : '-' }}</td>
+                <td v-if="showCache">{{ item.metrics ? formatMonitorPercent(item.metrics.cache_rate) : '-' }}</td>
                 <td>{{ item.metrics ? formatMonitorThroughput(item.metrics.rpm) : '-' }}</td>
               </tr>
             </tbody>
@@ -269,7 +271,7 @@
                 <th>{{ t('publicTransit.passiveErrorRate') }}</th>
                 <th>{{ t('publicTransit.passiveAvgTTFT') }}</th>
                 <th>{{ t('publicTransit.passiveAvgLatency') }}</th>
-                <th>{{ t('publicTransit.passiveCacheRate') }}</th>
+                <th v-if="showCache">{{ t('publicTransit.passiveCacheRate') }}</th>
                 <th>{{ t('publicTransit.passiveRequests') }}</th>
                 <th class="min-w-[360px]">
                   <span class="flex items-center justify-between gap-4 text-[10px] font-semibold text-gray-500 dark:text-dark-400">
@@ -294,7 +296,7 @@
                 <td class="text-rose-600 dark:text-rose-300">{{ formatRate(1 - item.success_rate) }}</td>
                 <td>{{ formatMilliseconds(item.avg_ttft_ms) }}</td>
                 <td>{{ formatMilliseconds(item.avg_latency_ms) }}</td>
-                <td>{{ formatPercent(cacheRateForGroup(item.name, item.platform)) }}</td>
+                <td v-if="showCache">{{ formatPercent(cacheRateForGroup(item.name, item.platform)) }}</td>
                 <td>{{ formatInteger(item.request_count) }}</td>
                 <td>
                   <div
@@ -326,7 +328,7 @@
                 <th>{{ t('publicTransit.passiveErrorRate') }}</th>
                 <th>{{ t('publicTransit.passiveAvgTTFT') }}</th>
                 <th>{{ t('publicTransit.passiveAvgLatency') }}</th>
-                <th>{{ t('publicTransit.passiveCacheRate') }}</th>
+                <th v-if="showCache">{{ t('publicTransit.passiveCacheRate') }}</th>
                 <th>{{ t('publicTransit.passiveRequests') }}</th>
                 <th>{{ t('publicTransit.lastRequest') }}</th>
               </tr>
@@ -346,7 +348,7 @@
                 <td class="text-rose-600 dark:text-rose-300">{{ formatRate(1 - item.success_rate) }}</td>
                 <td>{{ formatMilliseconds(item.avg_ttft_ms) }}</td>
                 <td>{{ formatMilliseconds(item.avg_latency_ms) }}</td>
-                <td>{{ item.group_name ? formatPercent(cacheRateForGroup(item.group_name, item.platform)) : '-' }}</td>
+                <td v-if="showCache">{{ item.group_name ? formatPercent(cacheRateForGroup(item.group_name, item.platform)) : '-' }}</td>
                 <td>{{ formatInteger(item.request_count) }}</td>
                 <td>{{ item.last_request_at ? formatDate(item.last_request_at) : '-' }}</td>
               </tr>
@@ -415,10 +417,11 @@ const props = withDefaults(
   defineProps<{
     monitoring: PublicTransitPassiveDisclosure | null
     range: PassiveRange
+    showCache?: boolean
     loading?: boolean
     error?: string
   }>(),
-  { loading: false, error: '' },
+  { loading: false, error: '', showCache: true },
 )
 
 const emit = defineEmits<{ 'update:range': [value: PassiveRange] }>()
@@ -426,6 +429,7 @@ const { t } = useI18n()
 
 const ranges: PassiveRange[] = ['90m', '24h', '7d', '30d']
 const metrics: PassiveMetric[] = ['overall', 'error', 'ttft', 'cache']
+const availableMetrics = computed(() => props.showCache ? metrics : metrics.filter(item => item !== 'cache'))
 const tabs: PassiveTab[] = ['groups', 'models']
 const platformFilters = ref<string[]>([])
 const groupFilters = ref<string[]>([])
@@ -435,7 +439,7 @@ const activeTab = ref<PassiveTab>('groups')
 
 const sourceGroups = computed(() => props.monitoring?.groups || [])
 const sourceModels = computed(() => props.monitoring?.models || [])
-const exactMatrix = computed(() => props.monitoring?.matrix || null)
+const exactMatrix = computed(() => props.showCache ? props.monitoring?.matrix || null : null)
 const exactHealthMode = computed<'overall' | 'success' | 'ttft' | 'cache'>(() =>
   metric.value === 'error' ? 'success' : metric.value,
 )
@@ -616,7 +620,7 @@ function bucketTooltip(bucket: PublicTransitPassiveBucket | undefined, start: nu
     `${t('publicTransit.passiveErrorRate')} ${formatRate(1 - bucket.success_rate)}`,
     `${t('publicTransit.passiveAvgTTFT')} ${formatMilliseconds(bucket.avg_ttft_ms)}`,
     `${t('publicTransit.passiveAvgLatency')} ${formatMilliseconds(bucket.avg_latency_ms)}`,
-    `${t('publicTransit.passiveCacheRate')} ${formatRate(bucket.cache_hit_rate)}`,
+    ...(props.showCache ? [`${t('publicTransit.passiveCacheRate')} ${formatRate(bucket.cache_hit_rate)}`] : []),
   ].join(' · ')
 }
 

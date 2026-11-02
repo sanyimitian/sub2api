@@ -1,5 +1,19 @@
 export default {
   publicTransit: {
+    exportConfig: {
+      metricsTitle: 'Metric ranges', metricsHint: 'Enable a metric and enter a minimum and maximum. Each fetch returns a random value in the range; disabled or incomplete ranges use current data.',
+      searchMetric: 'Search metric fields', realValue: 'Current snapshot value', minimum: 'Minimum', maximum: 'Maximum',
+      incompleteRange: 'Incomplete range; current data is returned', noSample: 'No sample', invalidMetricRange: 'Invalid range; check the order, integer requirement, and unit maximum',
+      metricGroups: { monitoring: 'Active monitoring', passive_monitoring: 'Passive monitoring and usage', groups: 'Group cache usage', cache: 'Cache summary' },
+      title: 'Public crawler data', description: 'Inspect the full snapshot and choose which data categories public endpoints return.',
+      sections: 'Returned categories', required: 'Schema version, station identity, and endpoint URLs always remain available.',
+      refresh: 'Refresh data', copy: 'Copy JSON', unsaved: 'Changes are not saved; the JSON still shows the current public response.',
+      loadFailed: 'Failed to load export settings', previewFailed: 'Failed to load the snapshot. Check that the public data API is enabled.',
+      saveFailed: 'Failed to save export settings', saved: 'Export settings saved',
+      fields: { billing: 'Recharge and billing', groups: 'Groups and model prices', monitoring: 'Active availability monitoring', passive_monitoring: 'Real-traffic monitoring', cache: 'Cache metrics and prices', disclosure: 'Source disclosure', limits: 'Limit information', completeness: 'Data completeness' },
+      tabs: { public: 'Current public response', full: 'Full data', visual: 'Page preview' },
+      hints: { public: 'The JSON returned by crawler endpoints after saving.', full: 'The full snapshot before filtering, visible to administrators only.', visual: 'The page using current public settings.' },
+    },
     cacheConfig: {
       title: 'Public Cache Display Settings', description: 'Set the cache hit rate and token counts shown by public endpoints. When disabled, original aggregate data is returned.',
       enabled: 'Enable public cache adjustment', enabledHint: 'When enabled, public endpoints adjust cache hit rates within these ranges and persist consistent input, creation, and read counts. When disabled, original aggregate values are returned.',

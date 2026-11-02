@@ -48,15 +48,15 @@
 
       <template v-else-if="snapshot">
         <section class="grid gap-4 lg:grid-cols-4">
-          <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-800 dark:bg-dark-900">
+          <div v-if="snapshot.billing" class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-800 dark:bg-dark-900">
             <p class="text-xs text-gray-500 dark:text-dark-400">{{ t('publicTransit.rechargeRatio') }}</p>
             <p class="mt-2 text-lg font-semibold">{{ snapshot.billing.recharge_ratio }}</p>
           </div>
-          <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-800 dark:bg-dark-900">
+          <div v-if="snapshot.groups" class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-800 dark:bg-dark-900">
             <p class="text-xs text-gray-500 dark:text-dark-400">{{ t('publicTransit.groups') }}</p>
-            <p class="mt-2 text-lg font-semibold">{{ snapshot.groups.length }}</p>
+            <p class="mt-2 text-lg font-semibold">{{ snapshot.groups?.length || 0 }}</p>
           </div>
-          <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-800 dark:bg-dark-900">
+          <div v-if="snapshot.groups" class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-800 dark:bg-dark-900">
             <p class="text-xs text-gray-500 dark:text-dark-400">{{ t('publicTransit.models') }}</p>
             <p class="mt-2 text-lg font-semibold">{{ modelCount }}</p>
           </div>
@@ -66,7 +66,7 @@
           </div>
         </section>
 
-        <section class="mt-5 rounded-lg border border-gray-200 bg-white dark:border-dark-800 dark:bg-dark-900">
+        <section v-if="snapshot.groups" class="mt-5 rounded-lg border border-gray-200 bg-white dark:border-dark-800 dark:bg-dark-900">
           <div class="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-dark-800 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 class="text-base font-semibold">{{ t('publicTransit.modelPricing') }}</h2>
@@ -93,7 +93,7 @@
                   <th class="px-4 py-3 text-left font-medium">{{ t('publicTransit.multiplier') }}</th>
                   <th class="px-4 py-3 text-left font-medium">{{ t('publicTransit.models') }}</th>
                   <th class="px-4 py-3 text-left font-medium">{{ t('publicTransit.availability') }}</th>
-                  <th class="px-4 py-3 text-left font-medium">{{ t('publicTransit.totalCacheHitRate') }}</th>
+                  <th v-if="snapshot.cache" class="px-4 py-3 text-left font-medium">{{ t('publicTransit.totalCacheHitRate') }}</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100 dark:divide-dark-800">
@@ -151,8 +151,9 @@
                       </div>
                       <span v-else class="text-gray-400">-</span>
                     </td>
-                    <td class="px-4 py-3 text-xs">
+                    <td v-if="snapshot.cache" class="px-4 py-3 text-xs">
                       <div
+                        v-if="row.group.cache_usage"
                         class="inline-flex min-w-[190px] items-center justify-between gap-3 rounded-lg px-3 py-2 ring-1"
                         :class="cacheUsageBadgeClass(row.group)"
                       >
@@ -167,10 +168,11 @@
                           {{ totalCacheUsageRow(row.group).rate }}
                         </span>
                       </div>
+                      <span v-else class="text-gray-400">-</span>
                     </td>
                   </tr>
                   <tr v-if="expandedGroups.has(row.key)" class="bg-gray-50/70 dark:bg-dark-950/40">
-                    <td colspan="5" class="px-4 py-4">
+                    <td :colspan="snapshot.cache ? 5 : 4" class="px-4 py-4">
                       <div v-if="row.models.length > 0" class="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-dark-800 dark:bg-dark-900">
                         <table class="min-w-[1120px] text-xs">
                           <thead class="bg-gray-50 text-gray-500 dark:bg-dark-950 dark:text-dark-400">
@@ -180,8 +182,8 @@
                               <th class="whitespace-nowrap px-3 py-2 text-left font-medium">{{ t('publicTransit.priceSource') }}</th>
                               <th class="whitespace-nowrap px-3 py-2 text-left font-medium">{{ t('publicTransit.inputPrice') }}</th>
                               <th class="whitespace-nowrap px-3 py-2 text-left font-medium">{{ t('publicTransit.outputPrice') }}</th>
-                              <th class="whitespace-nowrap px-3 py-2 text-left font-medium">{{ t('publicTransit.cacheInputPrice') }}</th>
-                              <th class="whitespace-nowrap px-3 py-2 text-left font-medium">{{ t('publicTransit.cacheCreatePrice') }}</th>
+                              <th v-if="snapshot.cache" class="whitespace-nowrap px-3 py-2 text-left font-medium">{{ t('publicTransit.cacheInputPrice') }}</th>
+                              <th v-if="snapshot.cache" class="whitespace-nowrap px-3 py-2 text-left font-medium">{{ t('publicTransit.cacheCreatePrice') }}</th>
                               <th class="min-w-[180px] whitespace-nowrap px-3 py-2 text-left font-medium">{{ t('publicTransit.perRequestPrice') }}</th>
                             </tr>
                           </thead>
@@ -194,8 +196,8 @@
                               <td class="whitespace-nowrap px-3 py-2">{{ formatPriceSource(model.price_source) }}</td>
                               <td class="whitespace-nowrap px-3 py-2 font-mono tabular-nums">{{ formatModelTokenPrice(model, model.price?.input_usd_per_token) }}</td>
                               <td class="whitespace-nowrap px-3 py-2 font-mono tabular-nums">{{ formatModelTokenPrice(model, model.price?.output_usd_per_token) }}</td>
-                              <td class="whitespace-nowrap px-3 py-2 font-mono tabular-nums">{{ formatModelTokenPrice(model, model.price?.cache_read_usd_per_token) }}</td>
-                              <td class="whitespace-nowrap px-3 py-2 font-mono tabular-nums">{{ formatModelTokenPrice(model, model.price?.cache_write_usd_per_token) }}</td>
+                              <td v-if="snapshot.cache" class="whitespace-nowrap px-3 py-2 font-mono tabular-nums">{{ formatModelTokenPrice(model, model.price?.cache_read_usd_per_token) }}</td>
+                              <td v-if="snapshot.cache" class="whitespace-nowrap px-3 py-2 font-mono tabular-nums">{{ formatModelTokenPrice(model, model.price?.cache_write_usd_per_token) }}</td>
                               <td class="px-3 py-2">
                                 <div v-if="requestPriceParts(model).length > 0" class="flex flex-wrap gap-1 font-mono tabular-nums">
                                   <div
@@ -220,7 +222,7 @@
                   </tr>
                 </template>
                 <tr v-if="filteredGroups.length === 0">
-                  <td colspan="5" class="px-4 py-10 text-center text-sm text-gray-500 dark:text-dark-400">
+                  <td :colspan="snapshot.cache ? 5 : 4" class="px-4 py-10 text-center text-sm text-gray-500 dark:text-dark-400">
                     {{ t('publicTransit.emptyModels') }}
                   </td>
                 </tr>
@@ -229,7 +231,7 @@
           </div>
         </section>
 
-        <section v-if="monitoringMode === 'v1'" class="mt-5 rounded-lg border border-gray-200 bg-white dark:border-dark-800 dark:bg-dark-900">
+        <section v-if="monitoringMode === 'v1' && snapshot.monitoring" class="mt-5 rounded-lg border border-gray-200 bg-white dark:border-dark-800 dark:bg-dark-900">
           <div class="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-dark-800 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 class="text-base font-semibold">{{ t('publicTransit.monitoring') }}</h2>
@@ -267,8 +269,9 @@
         </section>
 
         <PublicPassiveMonitorPanel
-          v-else-if="monitoringMode === 'v2'"
+          v-else-if="monitoringMode === 'v2' && passiveMonitoring"
           :monitoring="passiveMonitoring"
+          :show-cache="!!snapshot.cache"
           :range="passiveRange"
           :loading="loading || passiveLoading"
           :error="passiveError"
@@ -277,8 +280,8 @@
 
         <p class="mt-4 text-xs leading-relaxed text-gray-500 dark:text-dark-400">
           {{ t('publicTransit.publicNote', {
-            upstream: snapshot.disclosure.upstream_type,
-            accountPool: snapshot.disclosure.account_pool_type,
+            upstream: snapshot.disclosure?.upstream_type || 'unknown',
+            accountPool: snapshot.disclosure?.account_pool_type || 'unknown',
           }) }}
         </p>
       </template>
@@ -462,7 +465,7 @@ async function reloadPassive() {
       range: passiveRange.value,
       cacheBust: adminPreview.value ? Date.now() : undefined,
     })
-    if ('passive_monitoring' in result) {
+    if (result.schema_version === 'ai-transit.v2') {
       snapshot.value = result
       passiveSnapshot.value = result
     }
@@ -767,7 +770,7 @@ onMounted(async () => {
       cacheBust: previewCacheBust,
     })
     snapshot.value = result
-    if ('passive_monitoring' in result) {
+    if (result.schema_version === 'ai-transit.v2') {
       passiveSnapshot.value = result
     }
   } catch (reason) {

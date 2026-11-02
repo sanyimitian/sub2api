@@ -321,11 +321,15 @@ func (s *PublicTransitService) Discovery(ctx context.Context, baseURL string) (*
 	now := time.Now().UTC().Format(time.RFC3339)
 	runtime := s.settingService.GetPublicTransitRuntime(ctx)
 	monitorRuntime := s.settingService.GetChannelMonitorRuntime(ctx)
+	exportSections, err := s.GetExportSections(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load public export sections: %w", err)
+	}
 	capabilities := []string{}
-	if monitorRuntime.ActiveProbesAllowed() {
+	if exportSections.Monitoring && monitorRuntime.ActiveProbesAllowed() {
 		capabilities = append(capabilities, "active_monitoring")
 	}
-	if monitorRuntime.PassiveAggregationAllowed() {
+	if exportSections.PassiveMonitoring && monitorRuntime.PassiveAggregationAllowed() {
 		capabilities = append(capabilities, "passive_monitoring")
 	}
 	payload := &PublicTransitDiscovery{
