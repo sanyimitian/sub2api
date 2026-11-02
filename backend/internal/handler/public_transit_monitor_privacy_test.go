@@ -14,7 +14,7 @@ import (
 )
 
 type transitMonitorPrivacyService struct {
-	passive bool
+	passive  bool
 	sections *service.PublicTransitExportSections
 }
 

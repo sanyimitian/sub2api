@@ -59,19 +59,19 @@ func TestPublicTransitMetricRanges_KeepPricingAndFallbackToRealValues(t *testing
 	minCache, maxCache := 50.0, 80.0
 	sections := DefaultPublicTransitExportSections()
 	sections.Metrics = map[string]PublicTransitMetricRange{
-		"monitoring.*.availability_7d":        {Enabled: true, Min: &minRate, Max: &maxRate},
-		"passive_monitoring.window.request_count": {Enabled: true, Min: &minCount, Max: &maxCount},
+		"monitoring.*.availability_7d":              {Enabled: true, Min: &minRate, Max: &maxRate},
+		"passive_monitoring.window.request_count":   {Enabled: true, Min: &minCount, Max: &maxCount},
 		"groups.*.cache_usage.total.cache_hit_rate": {Enabled: true, Min: &minCache, Max: &maxCache},
-		"monitoring.*.latest_latency_ms":       {Enabled: false, Min: &minCount, Max: &maxCount},
-		"passive_monitoring.window.error_count": {Enabled: true},
+		"monitoring.*.latest_latency_ms":            {Enabled: false, Min: &minCount, Max: &maxCount},
+		"passive_monitoring.window.error_count":     {Enabled: true},
 	}
 	snapshot := map[string]any{
 		"billing": map[string]any{"recharge_multiplier": 1.5},
 		"groups": []any{map[string]any{
 			"cache_usage": map[string]any{"total": map[string]any{"cache_hit_rate": 40.0}},
-			"models": []any{map[string]any{"price": map[string]any{"input_usd_per_token": 0.2}}},
+			"models":      []any{map[string]any{"price": map[string]any{"input_usd_per_token": 0.2}}},
 		}},
-		"monitoring": []any{map[string]any{"availability_7d": 70.0, "latest_latency_ms": 250}},
+		"monitoring":         []any{map[string]any{"availability_7d": 70.0, "latest_latency_ms": 250}},
 		"passive_monitoring": map[string]any{"window": map[string]any{"request_count": 3, "error_count": 2}},
 	}
 	svc := &PublicTransitService{}

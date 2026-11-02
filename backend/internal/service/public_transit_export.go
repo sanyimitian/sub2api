@@ -13,14 +13,14 @@ import (
 // PublicTransitExportSections controls optional top-level snapshot sections.
 // Identity and endpoint fields always remain available for discovery.
 type PublicTransitExportSections struct {
-	Billing           bool                               `json:"billing"`
-	Groups            bool                               `json:"groups"`
-	Monitoring        bool                               `json:"monitoring"`
-	PassiveMonitoring bool                               `json:"passive_monitoring"`
-	Cache             bool                               `json:"cache"`
-	Disclosure        bool                               `json:"disclosure"`
-	Limits            bool                               `json:"limits"`
-	Completeness      bool                               `json:"completeness"`
+	Billing           bool                                `json:"billing"`
+	Groups            bool                                `json:"groups"`
+	Monitoring        bool                                `json:"monitoring"`
+	PassiveMonitoring bool                                `json:"passive_monitoring"`
+	Cache             bool                                `json:"cache"`
+	Disclosure        bool                                `json:"disclosure"`
+	Limits            bool                                `json:"limits"`
+	Completeness      bool                                `json:"completeness"`
 	Metrics           map[string]PublicTransitMetricRange `json:"metrics,omitempty"`
 }
 
@@ -93,14 +93,14 @@ func FilterPublicTransitSnapshot(snapshot any, sections PublicTransitExportSecti
 		return nil, err
 	}
 	for key, enabled := range map[string]bool{
-		"billing": sections.Billing,
-		"groups": sections.Groups,
-		"monitoring": sections.Monitoring,
+		"billing":            sections.Billing,
+		"groups":             sections.Groups,
+		"monitoring":         sections.Monitoring,
 		"passive_monitoring": sections.PassiveMonitoring,
-		"cache": sections.Cache,
-		"disclosure": sections.Disclosure,
-		"limits": sections.Limits,
-		"completeness": sections.Completeness,
+		"cache":              sections.Cache,
+		"disclosure":         sections.Disclosure,
+		"limits":             sections.Limits,
+		"completeness":       sections.Completeness,
 	} {
 		if !enabled {
 			delete(result, key)

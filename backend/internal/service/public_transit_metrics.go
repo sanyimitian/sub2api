@@ -28,7 +28,7 @@ var publicTransitMetricNames = map[string]bool{
 	"avg_latency_7d_ms": true, "latest_latency_ms": true, "latest_ping_latency_ms": true,
 	"latency_ms": true, "ping_latency_ms": true, "request_count": true,
 	"success_count": true, "error_count": true, "success_rate": true,
-	"avg_latency_ms": true, "avg_ttft_ms": true, "cache_hit_rate": true,
+	"avg_latency_ms": true, "avg_ttft_ms": true, "cache_hit_rate": true, "hit_rate": true,
 	"input_tokens": true, "output_tokens": true, "cache_creation_tokens": true,
 	"cache_read_tokens": true, "success_requests": true, "error_requests": true,
 	"token_count": true, "rpm": true, "tpm": true, "error_rate": true,
