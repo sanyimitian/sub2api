@@ -183,6 +183,9 @@
             </h2>
             <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
               <span>{{ group.platform }}</span
+              ><span data-testid="group-reasoning-effort">{{ t('modelIdentification.effort') }}: {{
+                formatIdentificationEffort(group.plan.reasoning_effort, t)
+              }}</span
               ><span>{{ t('modelIdentification.count', { count: group.result_count }) }}</span
               ><span>{{
                 group.plan.enabled
@@ -293,6 +296,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTime } from '@/utils/format'
+import { formatIdentificationEffort } from '@/utils/modelIdentification'
 import type { DegradationTestResult } from '@/types'
 
 const { t } = useI18n()

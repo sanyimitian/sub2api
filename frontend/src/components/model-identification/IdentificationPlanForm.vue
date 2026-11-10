@@ -117,6 +117,7 @@ import { modelIdentificationAPI, type IdentificationGroup } from '@/api/modelIde
 import { getAllIncludingInactive } from '@/api/admin/groups'
 import type { AdminGroup } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { identificationEffortOptions as efforts } from '@/utils/modelIdentification'
 
 const props = defineProps<{ plan: IdentificationGroup | null }>()
 const emit = defineEmits<{ saved: []; close: [] }>()
@@ -147,15 +148,6 @@ const form = reactive({
 })
 const endpointChanged = computed(() => !!props.plan && form.endpoint.replace(/\/+$/, '') !== originalEndpoint.value)
 const supportsEffort = computed(() => ['chat_completions', 'responses'].includes(form.protocol))
-const efforts = [
-  { value: '', label: 'modelIdentification.defaultEffort' },
-  { value: 'none', label: 'modelIdentification.effortNone' },
-  { value: 'minimal', label: 'modelIdentification.effortMinimal' },
-  { value: 'low', label: 'modelIdentification.effortLow' },
-  { value: 'medium', label: 'modelIdentification.effortMedium' },
-  { value: 'high', label: 'modelIdentification.effortHigh' },
-  { value: 'xhigh', label: 'modelIdentification.effortXhigh' }
-]
 function toggleKey() {
   if (!showKey.value && !form.api_key && !endpointChanged.value) form.api_key = storedKey.value
   showKey.value = !showKey.value

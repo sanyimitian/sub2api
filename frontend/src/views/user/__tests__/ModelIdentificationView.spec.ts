@@ -52,6 +52,25 @@ beforeEach(() => {
   vi.mocked(modelIdentificationAPI.results).mockResolvedValue([])
 })
 describe('shared model identification page', () => {
+  it('shows the configured effort to ordinary users and updates it when configuration refreshes', async () => {
+    const configured = group(1)
+    configured.plan.reasoning_effort = 'high'
+    vi.mocked(modelIdentificationAPI.groups).mockResolvedValue([configured, group(2)])
+    const wrapper = mount(ModelIdentificationView, { global: { stubs } })
+    await flushPromises()
+    const efforts = () => wrapper.findAll('[data-testid="group-reasoning-effort"]').map((item) => item.text())
+    expect(efforts()).toEqual([
+      'modelIdentification.effort: modelIdentification.effortHigh',
+      'modelIdentification.effort: modelIdentification.defaultEffort'
+    ])
+    vi.mocked(modelIdentificationAPI.groups).mockResolvedValue([
+      { ...configured, plan: { ...configured.plan, reasoning_effort: 'medium' } },
+      group(2)
+    ])
+    await wrapper.get('button[aria-label="modelIdentification.refresh"]').trigger('click')
+    await flushPromises()
+    expect(efforts()[0]).toBe('modelIdentification.effort: modelIdentification.effortMedium')
+  })
   it('shows shared results to ordinary users without mutation controls and persists an empty selection', async () => {
     const wrapper = mount(ModelIdentificationView, { global: { stubs } })
     await flushPromises()

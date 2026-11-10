@@ -64,6 +64,9 @@
               })
             }}</span>
           </span>
+          <span class="block text-xs text-gray-600 dark:text-gray-300" data-testid="artwork-reasoning-effort">
+            {{ t('modelIdentification.effort') }}: {{ formatIdentificationEffort(item.result.reasoning_effort, t) }}
+          </span>
           <time
             :datetime="item.result.started_at"
             class="block text-xs text-gray-600 dark:text-gray-300"
@@ -106,6 +109,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DegradationTestResult } from '@/types'
 import { formatDateTime } from '@/utils/format'
+import { formatIdentificationEffort } from '@/utils/modelIdentification'
 import {
   buildDegradationTestPreview,
   extractDegradationTestHtml

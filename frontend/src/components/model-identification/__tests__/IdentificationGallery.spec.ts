@@ -30,6 +30,29 @@ const stubs = {
   }
 }
 describe('shared pelican history', () => {
+  it('shows the effort saved with each result, including model default and disabled reasoning', async () => {
+    const wrapper = mount(IdentificationGallery, {
+      props: {
+        results: [
+          { ...result(4), reasoning_effort: 'xhigh' },
+          { ...result(3), reasoning_effort: 'low' },
+          { ...result(2), reasoning_effort: 'none', status: 'failed' },
+          result(1)
+        ],
+        groupName: 'Group'
+      },
+      global: { stubs }
+    })
+    const efforts = () => wrapper.findAll('[data-testid="artwork-reasoning-effort"]').map((item) => item.text())
+    expect(efforts()).toEqual([
+      'modelIdentification.effort: modelIdentification.effortXhigh',
+      'modelIdentification.effort: modelIdentification.effortLow',
+      'modelIdentification.effort: modelIdentification.effortNone',
+      'modelIdentification.effort: modelIdentification.defaultEffort'
+    ])
+    await wrapper.setProps({ groupName: 'Renamed group' })
+    expect(efforts()[1]).toBe('modelIdentification.effort: modelIdentification.effortLow')
+  })
   it('keeps the newest 24 results and scrolls to the oldest with the slider', async () => {
     const wrapper = mount(IdentificationGallery, {
       props: { results: Array.from({ length: 27 }, (_, i) => result(i + 1)), groupName: 'Group' },
