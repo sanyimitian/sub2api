@@ -26,6 +26,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/user/ModelIdentificationView.vue'),
     meta: { requiresAuth: false, titleKey: 'modelIdentification.title' }
   },
+  {
+    path: '/model-identification/dilution',
+    name: 'ModelDilution',
+    component: () => import('@/views/user/ModelDilutionView.vue'),
+    meta: { requiresAuth: false, titleKey: 'modelIdentification.dilution' }
+  },
   // ==================== Setup Routes ====================
   {
     path: '/setup',
@@ -839,7 +845,7 @@ const BACKEND_MODE_CALLBACK_PATHS = [
 const BACKEND_MODE_PENDING_AUTH_PATHS = ['/register', '/email-verify']
 
 function isBackendModePublicRouteAllowed(path: string, hasPendingAuthSession: boolean): boolean {
-  if (path === '/model-identification/degradation' || path === '/model-identification') return true
+  if (['/model-identification', '/model-identification/degradation', '/model-identification/dilution'].includes(path)) return true
   if (BACKEND_MODE_ALLOWED_PATHS.some((allowedPath) => path === allowedPath || path.startsWith(allowedPath))) {
     return true
   }

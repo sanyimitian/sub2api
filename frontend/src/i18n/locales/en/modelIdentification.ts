@@ -11,6 +11,9 @@ export default {
   degradation: 'Degradation test',
   dilution: 'Dilution test',
   developing: 'In development',
+  dilutionBackground: 'Some low-cost “GPT” services may use DeepSeek or other models instead. They can pass common “pelican” and “candy” tests perfectly, making it difficult for users to tell them apart.',
+  dilutionMethod: 'Our dilution test uses coding benchmarks to compare a model’s programming performance with official GPT models under the same conditions, helping you make an informed assessment.',
+  dilutionCaveat: 'Scores are for reference only and cannot establish a model’s identity on their own.',
   description: 'Compare model output across groups and time using the same cycling pelican prompt.',
   caveat:
     'Outputs support manual comparison; they do not automatically establish model identity or degradation.',

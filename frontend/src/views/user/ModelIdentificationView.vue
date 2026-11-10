@@ -25,18 +25,7 @@
       <div
         class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-dark-700"
       >
-        <div class="flex flex-wrap items-center gap-2">
-          <span
-            class="rounded-lg bg-primary-50 px-3 py-2 text-sm font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
-            >{{ t('modelIdentification.degradation') }}</span
-          ><button
-            disabled
-            class="cursor-not-allowed px-3 py-2 text-sm text-gray-500 dark:text-gray-400"
-          >
-            {{ t('modelIdentification.dilution') }}
-            <span class="ml-1 text-xs">{{ t('modelIdentification.developing') }}</span>
-          </button>
-        </div>
+        <IdentificationTabs active="degradation" />
         <span class="text-xs text-gray-600 dark:text-gray-300">{{
           t('modelIdentification.shared')
         }}</span>
@@ -294,6 +283,7 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
+import IdentificationTabs from '@/components/model-identification/IdentificationTabs.vue'
 import IdentificationGallery from '@/components/model-identification/IdentificationGallery.vue'
 import IdentificationSourceForm from '@/components/model-identification/IdentificationSourceForm.vue'
 import IdentificationPlanForm from '@/components/model-identification/IdentificationPlanForm.vue'

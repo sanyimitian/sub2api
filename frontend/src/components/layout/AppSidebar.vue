@@ -40,7 +40,7 @@
               v-if="item.path === '/keys'"
               :collapsed="sidebarCollapsed"
               @expand="appStore.toggleSidebar()"
-              @navigate="handleMenuItemClick('/model-identification/degradation')"
+              @navigate="handleMenuItemClick"
             />
             <!-- Collapsible group (has children) -->
             <template v-if="item.children?.length">
@@ -120,7 +120,7 @@
               v-if="item.path === '/keys'"
               :collapsed="sidebarCollapsed"
               @expand="appStore.toggleSidebar()"
-              @navigate="handleMenuItemClick('/model-identification/degradation')"
+              @navigate="handleMenuItemClick"
             />
             <router-link
               :to="item.path"
@@ -146,7 +146,7 @@
               v-if="item.path === '/keys'"
               :collapsed="sidebarCollapsed"
               @expand="appStore.toggleSidebar()"
-              @navigate="handleMenuItemClick('/model-identification/degradation')"
+              @navigate="handleMenuItemClick"
             />
             <router-link
               :to="item.path"

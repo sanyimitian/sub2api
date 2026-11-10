@@ -25,18 +25,19 @@
       <RouterLink
         to="/model-identification/degradation"
         class="sidebar-link mb-1 text-sm"
-        :class="{ 'sidebar-link-active': active }"
-        @click="emit('navigate')"
+        :class="{ 'sidebar-link-active': route.path === '/model-identification/degradation' }"
+        @click="emit('navigate', '/model-identification/degradation')"
         >{{ t('modelIdentification.degradation') }}</RouterLink
       >
-      <button
-        type="button"
-        disabled
-        class="sidebar-link w-full cursor-not-allowed text-left text-sm opacity-60"
+      <RouterLink
+        to="/model-identification/dilution"
+        class="sidebar-link mb-1 text-sm"
+        :class="{ 'sidebar-link-active': route.path === '/model-identification/dilution' }"
+        @click="emit('navigate', '/model-identification/dilution')"
       >
         {{ t('modelIdentification.dilution') }}
         <span class="ml-auto text-xs">{{ t('modelIdentification.developing') }}</span>
-      </button>
+      </RouterLink>
     </div>
   </div>
 </template>
@@ -46,7 +47,7 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 const props = defineProps<{ collapsed: boolean }>()
-const emit = defineEmits<{ expand: []; navigate: [] }>()
+const emit = defineEmits<{ expand: []; navigate: [path: string] }>()
 const route = useRoute()
 const { t } = useI18n()
 const active = computed(() => route.path.startsWith('/model-identification'))
