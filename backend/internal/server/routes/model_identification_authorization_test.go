@@ -116,7 +116,7 @@ func TestModelIdentificationRealAuthenticationBoundaries(t *testing.T) {
 	revokedToken := mint(1, service.RoleAdmin, true)
 	disabledToken := mint(3, service.RoleAdmin, false)
 	svc := service.NewModelIdentificationService(service.NewDegradationTestService(&identificationAuthPlans{}, &identificationAuthResults{}), &identificationAuthTargets{}, identificationAuthEncryptor{})
-	h := &handler.Handlers{Admin: &handler.AdminHandlers{}, ModelIdentification: handler.NewModelIdentificationHandler(svc, nil)}
+	h := &handler.Handlers{Admin: &handler.AdminHandlers{}, ModelIdentification: handler.NewModelIdentificationHandler(svc, nil, nil)}
 	router := gin.New()
 	audit := middleware.AuditLogMiddleware(func(c *gin.Context) { c.Next() })
 	stepUp := middleware.StepUpAuthMiddleware(func(c *gin.Context) { c.Next() })
@@ -137,6 +137,8 @@ func TestModelIdentificationRealAuthenticationBoundaries(t *testing.T) {
 	}
 	routes := []struct{ method, path string }{
 		{"GET", "/api/v1/admin/model-identification/plans/1"},
+		{"GET", "/api/v1/admin/model-identification/plans/1/results"},
+		{"PUT", "/api/v1/admin/model-identification/source"},
 		{"POST", "/api/v1/admin/model-identification/plans"},
 		{"PUT", "/api/v1/admin/model-identification/plans/1"},
 		{"DELETE", "/api/v1/admin/model-identification/plans/1"},
@@ -158,9 +160,9 @@ func TestModelIdentificationRealAuthenticationBoundaries(t *testing.T) {
 		}
 	}
 	for _, path := range []string{"/api/v1/model-identification/groups", "/api/v1/model-identification/plans/1/results"} {
-		require.Equal(t, 401, request("GET", path, "").Code)
-		require.Equal(t, 401, request("GET", path, revokedToken).Code)
-		require.Equal(t, 401, request("GET", path, disabledToken).Code)
+		require.Equal(t, 200, request("GET", path, "").Code)
+		require.Equal(t, 200, request("GET", path, revokedToken).Code)
+		require.Equal(t, 200, request("GET", path, disabledToken).Code)
 		w := request("GET", path+"?admin=true&role=admin", userToken)
 		require.Equal(t, 200, w.Code, w.Body.String())
 		for _, secret := range []string{"admin-secret", "private.example.com", "cipher-secret", "private-partial", "private-error", "api_key", "endpoint"} {
@@ -176,6 +178,9 @@ func TestModelIdentificationRealAuthenticationBoundaries(t *testing.T) {
 	require.Contains(t, w.Body.String(), "admin-secret")
 	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
 	w = request("GET", "/api/v1/model-identification/plans/1/results", adminToken)
+	require.Equal(t, 200, w.Code)
+	require.NotContains(t, w.Body.String(), "private-error")
+	w = request("GET", "/api/v1/admin/model-identification/plans/1/results", adminToken)
 	require.Equal(t, 200, w.Code)
 	require.Contains(t, w.Body.String(), "private-error")
 	w = request("GET", "/api/v1/model-identification/plans/1/results?admin=true", spoofedRoleToken)

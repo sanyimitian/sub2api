@@ -13,10 +13,10 @@ import (
 func TestModelIdentificationRoutesSeparateSharedReadsFromAdminWrites(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := &handler.Handlers{ModelIdentification: handler.NewModelIdentificationHandler(nil, nil)}
-	user := router.Group("/api/v1", func(c *gin.Context) { c.AbortWithStatus(http.StatusUnauthorized) })
+	h := &handler.Handlers{ModelIdentification: handler.NewModelIdentificationHandler(nil, nil, nil)}
+	public := router.Group("/api/v1", func(c *gin.Context) { c.AbortWithStatus(http.StatusNoContent) })
 	admin := router.Group("/api/v1/admin", func(c *gin.Context) { c.AbortWithStatus(http.StatusForbidden) })
-	registerModelIdentificationReadRoutes(user, h)
+	registerModelIdentificationReadRoutes(public, h)
 	registerModelIdentificationRoutes(admin, h)
 	for _, tc := range []struct {
 		method, path string
@@ -24,8 +24,8 @@ func TestModelIdentificationRoutesSeparateSharedReadsFromAdminWrites(t *testing.
 	}{
 		{"GET", "/api/v1/admin/model-identification/plans/1", 403},
 		{"GET", "/api/v1/model-identification/plans/1", 404},
-		{"GET", "/api/v1/model-identification/groups", 401},
-		{"GET", "/api/v1/model-identification/plans/1/results", 401},
+		{"GET", "/api/v1/model-identification/groups", 204},
+		{"GET", "/api/v1/model-identification/plans/1/results", 204},
 		{"POST", "/api/v1/model-identification/plans", 404},
 		{"POST", "/api/v1/model-identification/plans/1/run", 404},
 		{"PUT", "/api/v1/model-identification/plans/1", 404},

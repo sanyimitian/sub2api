@@ -1,6 +1,6 @@
 # 模型鉴定
 
-所有登录用户均可在侧栏展开“模型鉴定”并进入“降智测试”。“掺水测试”标记为开发中，当前不运行检测。
+所有访客（包括未登录用户）均可直接打开 /model-identification/degradation 查看鉴定结果。登录后也可从侧栏“模型鉴定”进入“降智测试”。“掺水测试”标记为开发中，当前不运行检测。
 
 ## 使用方式
 
@@ -33,9 +33,36 @@
 
 ## 接口与部署
 
-- 用户只读：`GET /api/v1/model-identification/groups`，`GET /api/v1/model-identification/plans/:id/results`。
+- 公开只读（无需登录，支持跨站浏览器读取）：`GET /api/v1/model-identification/groups`，`GET /api/v1/model-identification/plans/:id/results`。
+- 公开来源信息：GET /api/v1/model-identification/source。
+- 管理员配置来源：GET/PUT /api/v1/admin/model-identification/source，写入字段为 source_url。
+- 管理员查看本站详细错误：GET /api/v1/admin/model-identification/plans/:id/results。
 - 管理员详情（包含地址和密钥）：`GET /api/v1/admin/model-identification/plans/:id`。
 - 管理员配置：`POST /api/v1/admin/model-identification/plans`，`PUT/DELETE /api/v1/admin/model-identification/plans/:id`。
 - 管理员运行：`POST /api/v1/admin/model-identification/plans/:id/run`，接受后台任务后返回 202。
 - 随常规部署依次应用 `252_model_identification_groups.sql`、`253_model_identification_credentials.sql` 与 `254_model_identification_display_group.sql`，再启动新版后端与前端。第二个迁移将鉴定目标转为独立配置，保留已有鉴定计划名称和历史作品，并暂停尚无地址/密钥的旧计划，等待管理员补齐。第三个迁移增加可选的展示关联，不按名称或编号猜测旧配置的关联；旧配置保留原名称，编辑时由管理员选择站内分组。已有私有账号测试不会公开。
 - 初始没有自动启用的分组计划。管理员需要填写真实地址、密钥与模型后保存配置；缺少这些信息时不会猜测或代填。
+
+## 多站点共用一次检测
+
+1. 所有站点更新到包含此功能的版本。选一个主站，保持“模型鉴定 → 结果来源”的来源输入为空，在该站配置并执行检测。
+2. 在主站的“结果来源”中复制公开分组接口地址；在其他站点用管理员打开相同入口，将地址粘贴到“主站地址或公开分组接口地址”并保存。也支持输入主站 HTTPS 地址或带路径前缀的地址。
+3. 其他站点的后端通过主站公开接口读取分组和最近 24 次记录，展示名称、思考程度、作品、时间和用户展示偏好保持可用。分组编号使用来源站点编号，不映射到复用站点的同编号分组；展示偏好按用户和来源分别保存。
+4. 复用期间本站共享鉴定计划不再启动，手动执行和修改计划也被禁止；切换前已经领取的任务允许完成。本站原计划和记录不删除，私有账号测试不受影响。清空来源后恢复本站原有计划。
+5. 来源配置保存前会测试公开接口。来源不可达或格式错误时显示失败，不会静默回退到本站检测。复用站点不能作为另一个复用站点的来源，应直接使用实际执行检测的主站；页面提供的复制地址也始终指向该主站。
+
+这些接口不要求登录、不接受管理员身份提权，且只公开结果；检测地址、密钥以及失败的部分回复与私有错误不会返回。管理员详情接口继续要求管理员权限。公开接口允许跨域只读请求，不允许跨域携带身份凭据访问管理接口。
+
+无需新数据库迁移，来源地址保存在既有 settings 表中。复用站点服务器只发出公开 GET 请求，不转发用户令牌、Cookie 或检测密钥。读取有 30 秒超时，合并同一地址的并发请求，小响应短暂缓存 15 秒；无需在每个站点重新生成作品。
+
+第三方页面也可直接获取数据（将示例域名替换为主站真实域名）：
+
+```js
+const base = 'https://primary.example/api/v1/model-identification'
+const { data: groups } = await fetch(base + '/groups', { credentials: 'omit' }).then(r => r.json())
+const planId = groups[0]?.plan.id
+if (planId) {
+  const { data: results } = await fetch(base + '/plans/' + planId + '/results', { credentials: 'omit' }).then(r => r.json())
+  // 用 results 展示作品；HTML/SVG 应采用与本站相同的隔离预览方式。
+}
+```

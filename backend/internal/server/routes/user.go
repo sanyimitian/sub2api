@@ -17,6 +17,8 @@ func RegisterUserRoutes(
 	settingService *service.SettingService,
 	panelRateLimiter *middleware.PanelRateLimiter,
 ) {
+	// 鉴定结果对所有访客开放，管理接口仍受管理员认证保护。
+	registerModelIdentificationReadRoutes(v1, h)
 	authenticated := v1.Group("")
 	authenticated.Use(gin.HandlerFunc(jwtAuth))
 	authenticated.Use(middleware.BackendModeUserGuard(settingService))
@@ -25,8 +27,6 @@ func RegisterUserRoutes(
 	// 用户管理面变更类操作入审计（含 TOTP 启用/禁用、step-up 验证、密码修改等安全事件）
 	authenticated.Use(gin.HandlerFunc(auditLog))
 	{
-		// 所有登录用户共享只读结果；配置和执行仅在管理员路由注册。
-		registerModelIdentificationReadRoutes(authenticated, h)
 		// 用户接口
 		user := authenticated.Group("/user")
 		{

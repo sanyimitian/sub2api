@@ -985,6 +985,7 @@ var ProviderSet = wire.NewSet(
 	ProvideScheduledTestRunnerService,
 	ProvideDegradationTestService,
 	NewModelIdentificationService,
+	NewModelIdentificationSourceService,
 	NewGroupGenerationService,
 	ProvideDegradationTestRunnerService,
 	NewGroupCapacityService,

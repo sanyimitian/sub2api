@@ -1,5 +1,5 @@
 <template>
-  <AppLayout>
+  <component :is="auth.user ? AppLayout : 'main'" :class="!auth.user ? 'min-h-screen bg-gray-50 p-4 md:p-8 dark:bg-dark-950' : ''">
     <div class="min-w-0 space-y-6 text-gray-900 dark:text-gray-100">
       <header class="flex flex-wrap items-start justify-between gap-4">
         <div class="space-y-2">
@@ -15,9 +15,11 @@
             @click="preferencesOpen = !preferencesOpen"
           >
             <Icon name="filter" class="h-4 w-4" />{{ t('modelIdentification.showGroups') }}</button
-          ><button v-if="auth.isAdmin" class="btn btn-primary" @click="openForm(null)">
+          ><button v-if="canManage" class="btn btn-primary" @click="openForm(null)">
             {{ t('modelIdentification.configure') }}
           </button>
+          <button v-if="auth.isAdmin" class="btn btn-secondary" @click="sourceOpen = !sourceOpen">{{ t('modelIdentification.sourceSettings') }}</button>
+          <RouterLink v-if="!auth.user" to="/login" class="btn btn-secondary">{{ t('modelIdentification.login') }}</RouterLink>
         </div>
       </header>
       <div
@@ -39,8 +41,10 @@
           t('modelIdentification.shared')
         }}</span>
       </div>
+      <IdentificationSourceForm v-if="sourceOpen && auth.isAdmin" @close="sourceOpen = false" @saved="sourceSaved" />
+      <p v-if="source.read_only" class="text-sm text-gray-600 dark:text-gray-300">{{ t('modelIdentification.remoteHint') }}</p>
       <IdentificationPlanForm
-        v-if="formOpen && auth.isAdmin"
+        v-if="formOpen && canManage"
         :key="editing?.plan.id ?? 'new'"
         ref="planForm"
         :plan="editing"
@@ -155,9 +159,9 @@
       >
         <h2 class="text-lg font-semibold">{{ t('modelIdentification.emptyTitle') }}</h2>
         <p class="mx-auto max-w-prose text-sm text-gray-600 dark:text-gray-300">
-          {{ t(auth.isAdmin ? 'modelIdentification.emptyAdmin' : 'modelIdentification.emptyUser') }}
+          {{ t(canManage ? 'modelIdentification.emptyAdmin' : 'modelIdentification.emptyUser') }}
         </p>
-        <button v-if="auth.isAdmin" class="btn btn-primary" @click="openForm(null)">
+        <button v-if="canManage" class="btn btn-primary" @click="openForm(null)">
           {{ t('modelIdentification.add') }}
         </button>
       </section>
@@ -204,7 +208,7 @@
               }}</time>
             </div>
           </div>
-          <div v-if="auth.isAdmin" class="flex flex-wrap gap-2">
+          <div v-if="canManage" class="flex flex-wrap gap-2">
             <button
               class="btn btn-secondary !px-3 !py-1.5 text-xs"
               :disabled="busy.has(group.plan.id) || running(group)"
@@ -223,7 +227,7 @@
           </div>
         </header>
         <p
-          v-if="group.plan.enabled && group.plan.next_run_at && auth.isAdmin"
+          v-if="group.plan.enabled && group.plan.next_run_at && canManage"
           class="text-xs text-gray-600 dark:text-gray-300"
         >
           {{ t('modelIdentification.next', { time: formatDateTime(group.plan.next_run_at) }) }}
@@ -280,18 +284,20 @@
         </button></template
       ></BaseDialog
     >
-  </AppLayout>
+  </component>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import IdentificationGallery from '@/components/model-identification/IdentificationGallery.vue'
+import IdentificationSourceForm from '@/components/model-identification/IdentificationSourceForm.vue'
 import IdentificationPlanForm from '@/components/model-identification/IdentificationPlanForm.vue'
-import { modelIdentificationAPI, type IdentificationGroup } from '@/api/modelIdentification'
+import { modelIdentificationAPI, type IdentificationGroup, type IdentificationSource } from '@/api/modelIdentification'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -302,6 +308,10 @@ import type { DegradationTestResult } from '@/types'
 const { t } = useI18n()
 const auth = useAuthStore()
 const app = useAppStore()
+const source = ref<IdentificationSource>({ source_url: '', read_only: false })
+const sourceLoaded = ref(false)
+const sourceOpen = ref(false)
+const canManage = computed(() => auth.isAdmin && sourceLoaded.value && !source.value.read_only)
 const groups = ref<IdentificationGroup[]>([])
 const results = ref<Record<number, DegradationTestResult[]>>({})
 const resultErrors = ref<Record<number, string>>({})
@@ -322,8 +332,10 @@ const planForm = ref<InstanceType<typeof IdentificationPlanForm> | null>(null)
 const now = ref(Date.now())
 const controller = new AbortController()
 let disposed = false
+let resultGeneration = 0
+let refreshAfterCurrent = false
 let timer: ReturnType<typeof setInterval> | undefined
-const storageKey = computed(() => 'model-identification:targets:v2:' + auth.user?.id)
+const storageKey = computed(() => 'model-identification:targets:v2:' + (auth.user?.id ?? 'guest') + (source.value.source_url ? ':' + source.value.source_url : ''))
 watch(
   storageKey,
   () => {
@@ -377,6 +389,7 @@ function running(group: IdentificationGroup) {
   return !!group.plan.running_until && Date.parse(group.plan.running_until) > now.value
 }
 async function loadResults(targets: IdentificationGroup[], force = false) {
+  const generation = resultGeneration
   const queue = targets.filter(
     (group) =>
       !fetching.value.has(group.plan.id) &&
@@ -385,23 +398,23 @@ async function loadResults(targets: IdentificationGroup[], force = false) {
   for (const group of queue) fetching.value.add(group.plan.id)
   await Promise.all(
     Array.from({ length: Math.min(3, queue.length) }, async () => {
-      while (queue.length && !disposed) {
+      while (queue.length && !disposed && resultGeneration === generation) {
         const group = queue.shift()!
         const id = group.plan.id
         try {
-          const value = await modelIdentificationAPI.results(id, controller.signal)
-          if (disposed) return
+          const value = await modelIdentificationAPI.results(id, controller.signal, canManage.value)
+          if (disposed || resultGeneration !== generation) return
           results.value[id] = value
           revisions.set(id, group.latest_result_id + ':' + group.result_count)
           delete resultErrors.value[id]
         } catch (err) {
-          if (!disposed)
+          if (!disposed && resultGeneration === generation)
             resultErrors.value[id] = extractApiErrorMessage(
               err,
               t('modelIdentification.loadFailed')
             )
         } finally {
-          fetching.value.delete(id)
+          if (generation === resultGeneration) fetching.value.delete(id)
         }
       }
     })
@@ -411,6 +424,21 @@ async function refresh(force = false) {
   if (loading.value || disposed) return
   loading.value = true
   try {
+    const config = await modelIdentificationAPI.source(controller.signal)
+    if (disposed) return
+    if (config.source_url !== source.value.source_url) {
+      resultGeneration++
+      groups.value = []
+      results.value = {}
+      resultErrors.value = {}
+      revisions.clear()
+      fetching.value.clear()
+      activeGroup.value = null
+      formOpen.value = false
+      deleting.value = null
+    }
+    source.value = config
+    sourceLoaded.value = true
     const value = await modelIdentificationAPI.groups(controller.signal)
     if (disposed) return
     groups.value = value
@@ -428,13 +456,23 @@ async function refresh(force = false) {
   } finally {
     loading.value = false
     initialLoading.value = false
+    if (refreshAfterCurrent && !disposed) { refreshAfterCurrent = false; void refresh(true) }
   }
 }
 async function openForm(group: IdentificationGroup | null) {
+  if (!canManage.value) return
   editing.value = group
   formOpen.value = true
   await nextTick()
   planForm.value?.$el.scrollIntoView?.({ block: 'nearest' })
+}
+async function sourceSaved() {
+  sourceOpen.value = false
+  formOpen.value = false
+  app.showSuccess(t('modelIdentification.saved'))
+  sourceLoaded.value = false
+  if (loading.value) { refreshAfterCurrent = true; return }
+  await refresh(true)
 }
 async function saved() {
   formOpen.value = false
@@ -442,7 +480,7 @@ async function saved() {
   await refresh()
 }
 async function run(group: IdentificationGroup) {
-  if (busy.value.has(group.plan.id)) return
+  if (!canManage.value || busy.value.has(group.plan.id)) return
   busy.value.add(group.plan.id)
   try {
     const plan = await modelIdentificationAPI.run(group.plan.id)
@@ -457,7 +495,7 @@ async function run(group: IdentificationGroup) {
 }
 async function remove() {
   const group = deleting.value
-  if (!group || busy.value.has(group.plan.id)) return
+  if (!canManage.value || !group || busy.value.has(group.plan.id)) return
   busy.value.add(group.plan.id)
   try {
     await modelIdentificationAPI.delete(group.plan.id)

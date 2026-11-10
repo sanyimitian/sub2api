@@ -3,7 +3,7 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import ModelIdentificationView from '../ModelIdentificationView.vue'
 import { modelIdentificationAPI, type IdentificationGroup } from '@/api/modelIdentification'
 
-const auth = vi.hoisted(() => ({ isAdmin: false, user: { id: 7 } }))
+const auth = vi.hoisted(() => ({ isAdmin: false, user: { id: 7 } as { id: number } | null }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({ showError: vi.fn(), showSuccess: vi.fn() })
@@ -11,14 +11,16 @@ vi.mock('@/stores/app', () => ({
 vi.mock('vue-i18n', async (importOriginal) => ({
   ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/api/modelIdentification', () => ({
-  modelIdentificationAPI: { groups: vi.fn(), results: vi.fn(), run: vi.fn(), delete: vi.fn() }
+  modelIdentificationAPI: { source: vi.fn(), groups: vi.fn(), results: vi.fn(), run: vi.fn(), delete: vi.fn() }
 }))
 const stubs = {
   AppLayout: { template: '<main><slot /></main>' },
   BaseDialog: true,
   Icon: true,
   IdentificationGallery: true,
-  IdentificationPlanForm: true
+  IdentificationPlanForm: true,
+  IdentificationSourceForm: true,
+  RouterLink: true
 }
 enableAutoUnmount(afterEach)
 function group(id: number): IdentificationGroup {
@@ -47,11 +49,64 @@ function group(id: number): IdentificationGroup {
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  auth.user = { id: 7 }
   auth.isAdmin = false
+  vi.mocked(modelIdentificationAPI.source).mockResolvedValue({ source_url: '', read_only: false })
   vi.mocked(modelIdentificationAPI.groups).mockResolvedValue([group(1), group(2)])
   vi.mocked(modelIdentificationAPI.results).mockResolvedValue([])
 })
 describe('shared model identification page', () => {
+  it('访客可以读取结果并保存独立的分组偏好', async () => {
+    auth.user = null
+    const wrapper = mount(ModelIdentificationView, { global: { stubs } })
+    await flushPromises()
+    expect(modelIdentificationAPI.results).toHaveBeenCalledWith(1, expect.any(AbortSignal), false)
+    expect(wrapper.text()).toContain('Group 1')
+    expect(wrapper.text()).not.toContain('modelIdentification.configure')
+    expect(wrapper.text()).not.toContain('modelIdentification.sourceSettings')
+    await wrapper.findAll('button').find(button => button.text() === 'modelIdentification.showGroups')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === 'modelIdentification.selectNone')!.trigger('click')
+    expect(localStorage.getItem('model-identification:targets:v2:guest')).toBe('[]')
+  })
+  it('远程模式下管理员只可切换来源，不能操作同编号的本站计划', async () => {
+    auth.isAdmin = true
+    vi.mocked(modelIdentificationAPI.source).mockResolvedValue({ source_url: 'https://primary.example/api/v1/model-identification', read_only: true })
+    const wrapper = mount(ModelIdentificationView, { global: { stubs } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('modelIdentification.remoteHint')
+    expect(wrapper.text()).toContain('modelIdentification.sourceSettings')
+    for (const key of ['configure', 'run', 'edit', 'delete']) expect(wrapper.text()).not.toContain('modelIdentification.' + key)
+    expect(modelIdentificationAPI.results).toHaveBeenCalledWith(1, expect.any(AbortSignal), false)
+    expect(modelIdentificationAPI.run).not.toHaveBeenCalled()
+  })
+  it('保存来源时等待正在读取的结果完成后刷新新来源', async () => {
+    auth.isAdmin = true
+    let resolveOld!: (value: never[]) => void
+    const oldRequest = new Promise<never[]>(resolve => { resolveOld = resolve })
+    vi.mocked(modelIdentificationAPI.groups).mockResolvedValue([group(1)])
+    vi.mocked(modelIdentificationAPI.results).mockImplementationOnce(() => oldRequest)
+    const wrapper = mount(ModelIdentificationView, { global: { stubs } })
+    await flushPromises()
+    vi.mocked(modelIdentificationAPI.source).mockResolvedValue({ source_url: 'https://new.example/api/v1/model-identification', read_only: true })
+    vi.mocked(modelIdentificationAPI.results).mockResolvedValue([])
+    await wrapper.findAll('button').find(button => button.text() === 'modelIdentification.sourceSettings')!.trigger('click')
+    wrapper.findComponent({ name: 'IdentificationSourceForm' }).vm.$emit('saved')
+    await flushPromises()
+    resolveOld([])
+    await flushPromises()
+    expect(wrapper.text()).toContain('modelIdentification.remoteHint')
+    expect(modelIdentificationAPI.results).toHaveBeenCalledTimes(2)
+  })
+  it('来源配置加载失败时不读取或执行本站检测' , async () => {
+    auth.isAdmin = true
+    vi.mocked(modelIdentificationAPI.source).mockRejectedValue(new Error('offline'))
+    const wrapper = mount(ModelIdentificationView, { global: { stubs } })
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('offline')
+    expect(modelIdentificationAPI.groups).not.toHaveBeenCalled()
+    expect(modelIdentificationAPI.run).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('modelIdentification.configure')
+  })
   it('shows the configured effort to ordinary users and updates it when configuration refreshes', async () => {
     const configured = group(1)
     configured.plan.reasoning_effort = 'high'

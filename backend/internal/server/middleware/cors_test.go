@@ -309,3 +309,31 @@ func TestNormalizeOrigins(t *testing.T) {
 		})
 	}
 }
+
+func TestCORSModelIdentificationAnonymousReadOnly(t *testing.T) {
+	for _, tc := range []struct {
+		method, path string
+		public       bool
+	}{
+		{"GET", "/api/v1/model-identification/groups", true},
+		{"OPTIONS", "/api/v1/model-identification/plans/1/results", true},
+		{"GET", "/api/v1/model-identification/source", true},
+		{"GET", "/api/v1/admin/model-identification/plans/1", false},
+		{"GET", "/api/v1/admin/model-identification/plans/1/results", false},
+		{"PUT", "/api/v1/admin/model-identification/source", false},
+		{"POST", "/api/v1/model-identification/plans/1/run", false},
+		{"OPTIONS", "/api/v1/admin/model-identification/source", false},
+	} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(tc.method, tc.path, nil)
+		c.Request.Header.Set("Origin", "https://another-site.example")
+		CORS(config.CORSConfig{AllowedOrigins: []string{"https://own.example"}, AllowCredentials: true})(c)
+		if tc.public {
+			assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
+		} else {
+			assert.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))
+		}
+		assert.Empty(t, w.Header().Get("Access-Control-Allow-Credentials"))
+	}
+}

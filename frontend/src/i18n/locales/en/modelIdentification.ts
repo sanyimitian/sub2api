@@ -1,4 +1,12 @@
 export default {
+  sourceSettings: 'Result source',
+  sourceURL: 'Primary site or public groups API URL (leave empty for this site)',
+  sourceHint: 'Run tests on one primary site. Other sites can reuse its public results without an account or API key.',
+  sourceEffect: 'A remote source stops new shared tests on this site; running tests can finish. Clearing the source restores local schedules. Source failures show an error and never start local tests.',
+  shareURL: 'Public groups API to copy to other sites (focus to select)',
+  remoteHint: 'Results come from the primary site, where administrators manage these tests.',
+  login: 'Log in',
+
   title: 'Model identification',
   degradation: 'Degradation test',
   dilution: 'Dilution test',
@@ -11,7 +19,7 @@ export default {
   allGroups: 'All groups',
   selectAll: 'Show all',
   selectNone: 'Hide all',
-  preferences: 'Display preferences are saved in this browser separately for each signed-in user.',
+  preferences: 'Preferences are saved in this browser separately for each user and result source, with a separate guest selection.',
   preferenceError:
     'Your browser could not save preferences. Your current selection is still active.',
   configure: 'Configure tests',

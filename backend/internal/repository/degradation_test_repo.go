@@ -133,6 +133,7 @@ func (r *degradationTestPlanRepository) ListDue(ctx context.Context, now time.Ti
 		FROM degradation_test_plans
 		WHERE enabled = true AND next_run_at <= $1
 		AND (running_until IS NULL OR running_until <= $1)
+ AND (group_id IS NULL OR NOT EXISTS(SELECT 1 FROM settings WHERE key='model_identification_source_url' AND value<>''))
 		ORDER BY next_run_at ASC
 	`, now)
 	if err != nil {
@@ -181,6 +182,7 @@ func (r *degradationTestPlanRepository) ClaimRun(ctx context.Context, id int64, 
 		UPDATE degradation_test_plans SET running_until = $3::timestamptz + make_interval(secs => timeout_seconds + 60)
 		WHERE id = $1 AND (running_until IS NULL OR running_until <= $3::timestamptz)
 		AND (NOT $2 OR (enabled = true AND next_run_at <= $3::timestamptz))
+ AND (group_id IS NULL OR NOT EXISTS(SELECT 1 FROM settings WHERE key='model_identification_source_url' AND value<>''))
 		RETURNING id, COALESCE(account_id, 0), model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds, group_id
 	`, id, scheduled, now))
 	if errors.Is(err, sql.ErrNoRows) {

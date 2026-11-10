@@ -6,7 +6,10 @@ import (
 )
 
 func registerModelIdentificationRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	admin.GET("/model-identification/source", h.ModelIdentification.Source)
+	admin.PUT("/model-identification/source", h.ModelIdentification.SaveSource)
 	plans := admin.Group("/model-identification/plans")
+	plans.GET("/:id/results", h.ModelIdentification.AdminResults)
 	plans.GET("/:id", h.ModelIdentification.Config)
 	plans.POST("", h.ModelIdentification.Create)
 	plans.PUT("/:id", h.ModelIdentification.Update)
@@ -14,8 +17,9 @@ func registerModelIdentificationRoutes(admin *gin.RouterGroup, h *handler.Handle
 	plans.POST("/:id/run", h.ModelIdentification.Run)
 }
 
-func registerModelIdentificationReadRoutes(authenticated *gin.RouterGroup, h *handler.Handlers) {
-	shared := authenticated.Group("/model-identification")
+func registerModelIdentificationReadRoutes(public *gin.RouterGroup, h *handler.Handlers) {
+	shared := public.Group("/model-identification")
+	shared.GET("/source", h.ModelIdentification.Source)
 	shared.GET("/groups", h.ModelIdentification.List)
 	shared.GET("/plans/:id/results", h.ModelIdentification.Results)
 }

@@ -312,3 +312,47 @@ func TestModelIdentificationDisplayGroupLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, service.ErrGroupNotFound)
 	check("展示分组乙", nil)
 }
+
+func TestModelIdentificationRemoteSourceStopsSharedClaims(t *testing.T) {
+	ctx := context.Background()
+	shared := NewModelIdentificationRepository(integrationDB)
+	plans := NewDegradationTestPlanRepository(integrationDB)
+	target := &service.ModelIdentificationTarget{Name: "source-mode", Endpoint: "https://example.com", EncryptedAPIKey: "cipher", Protocol: "responses"}
+	now := time.Now()
+	due := now.Add(-time.Minute)
+	plan, err := shared.Save(ctx, target, &service.DegradationTestPlan{ModelID: "model", Prompt: "prompt", Enabled: true, CronExpression: "@every 30m", NextRunAt: &due})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = shared.Delete(ctx, plan.ID)
+		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM settings WHERE key=$1", service.SettingKeyModelIdentificationSource)
+	})
+	_, err = integrationDB.ExecContext(ctx, "INSERT INTO settings(key,value) VALUES($1,'https://example.com/api/v1/model-identification') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value", service.SettingKeyModelIdentificationSource)
+	require.NoError(t, err)
+	for _, scheduled := range []bool{true, false} {
+		claim, err := plans.ClaimRun(ctx, plan.ID, scheduled, now)
+		require.NoError(t, err)
+		require.Nil(t, claim)
+	}
+	duePlans, err := plans.ListDue(ctx, now)
+	require.NoError(t, err)
+	for _, p := range duePlans {
+		require.NotEqual(t, plan.ID, p.ID)
+	}
+	unchanged, err := plans.GetByID(ctx, plan.ID)
+	require.NoError(t, err)
+	require.True(t, unchanged.Enabled)
+	// 私有账号测试在复用模式下仍可运行。
+	var accountID int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "INSERT INTO accounts(name,platform,type,credentials) VALUES('private-source-test','openai','apikey','{}') RETURNING id").Scan(&accountID))
+	t.Cleanup(func() { _, _ = integrationDB.ExecContext(ctx, "DELETE FROM accounts WHERE id=$1", accountID) })
+	private, err := plans.Create(ctx, &service.DegradationTestPlan{AccountID: accountID, ModelID: "model", Prompt: "prompt", CronExpression: "@every 30m", Enabled: true, NextRunAt: &due})
+	require.NoError(t, err)
+	claim, err := plans.ClaimRun(ctx, private.ID, true, now)
+	require.NoError(t, err)
+	require.NotNil(t, claim)
+	_, err = integrationDB.ExecContext(ctx, "UPDATE settings SET value='' WHERE key=$1", service.SettingKeyModelIdentificationSource)
+	require.NoError(t, err)
+	claim, err = plans.ClaimRun(ctx, plan.ID, true, now)
+	require.NoError(t, err)
+	require.NotNil(t, claim)
+}

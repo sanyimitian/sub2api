@@ -1,4 +1,12 @@
 export default {
+  sourceSettings: '结果来源',
+  sourceURL: '主站地址或公开分组接口地址（留空使用本站）',
+  sourceHint: '主站负责执行检测，其他站点填入主站的公开接口地址即可共享结果，无需登录主站或填写密钥。',
+  sourceEffect: '保存远程来源后，本站不再启动共享鉴定任务；已在执行的任务会完成。清空来源后恢复本站原有计划。来源故障会显示错误，不会自动改为本站检测。',
+  shareURL: '可复制到其他站点的公开分组接口（点击全选）',
+  remoteHint: '当前展示来自主站的共享结果，检测配置由主站管理员管理。',
+  login: '登录',
+
   title: '模型鉴定',
   degradation: '降智测试',
   dilution: '掺水测试',
@@ -10,7 +18,7 @@ export default {
   allGroups: '全部分组',
   selectAll: '全部展示',
   selectNone: '全部隐藏',
-  preferences: '展示偏好保存在当前浏览器，按登录用户区分。',
+  preferences: '展示偏好保存在当前浏览器，按用户和结果来源区分；访客单独保存。',
   preferenceError: '浏览器无法保存偏好，本次选择仍然有效。',
   configure: '配置检测',
   add: '添加分组测试',

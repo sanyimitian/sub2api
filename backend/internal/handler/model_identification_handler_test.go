@@ -41,7 +41,7 @@ func (s *identificationRunnerStub) RunNow(context.Context, int64) (*service.Degr
 	return &service.DegradationTestPlan{ID: 1}, s.err
 }
 
-func TestModelIdentificationHandlerUsesAuthenticatedRole(t *testing.T) {
+func TestModelIdentificationPublicResultsAlwaysRedact(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, role := range []string{"user", "admin"} {
 		stub := &identificationHandlerStub{}
@@ -52,7 +52,7 @@ func TestModelIdentificationHandlerUsesAuthenticatedRole(t *testing.T) {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest("GET", "/plans/1/results?admin=true", nil))
 		require.Equal(t, http.StatusOK, w.Code)
-		require.Equal(t, role == "admin", stub.admin)
+		require.False(t, stub.admin)
 		stub.err = sql.ErrNoRows
 		w = httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest("GET", "/plans/1/results", nil))
@@ -117,4 +117,41 @@ func TestModelIdentificationAdminConfigHasNoStoreAndPublicListHasNoSecrets(t *te
 	for _, secret := range []string{"admin-secret", "private.example.com", "endpoint", "api_key"} {
 		require.NotContains(t, w.Body.String(), secret)
 	}
+}
+
+type identificationRemoteSettings struct{ service.SettingRepository }
+
+func (*identificationRemoteSettings) GetValue(context.Context, string) (string, error) {
+	return "https://primary.example/api/v1/model-identification", nil
+}
+
+func TestModelIdentificationRemoteModeBlocksLocalOperations(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &ModelIdentificationHandler{source: service.NewModelIdentificationSourceService(&identificationRemoteSettings{})}
+	router := gin.New()
+	router.GET("/config/:id", h.Config)
+	router.GET("/admin-results/:id", h.AdminResults)
+	router.POST("/plans", h.Create)
+	router.PUT("/plans/:id", h.Update)
+	router.DELETE("/plans/:id", h.Delete)
+	router.POST("/plans/:id/run", h.Run)
+	router.GET("/groups", h.List)
+	router.GET("/source", h.Source)
+	for _, tc := range []struct{ method, path string }{
+		{"GET", "/config/1"}, {"GET", "/admin-results/1"}, {"POST", "/plans"}, {"PUT", "/plans/1"}, {"DELETE", "/plans/1"}, {"POST", "/plans/1/run"},
+	} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, strings.NewReader("{}")))
+		require.Equal(t, 409, w.Code, tc.path)
+	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/groups", nil)
+	req.Header.Set(service.ModelIdentificationProxyHeader, "1")
+	router.ServeHTTP(w, req)
+	require.Equal(t, 409, w.Code, "串联来源应在访问网络前拒绝")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("GET", "/source", nil))
+	require.Equal(t, 200, w.Code)
+	require.Contains(t, w.Body.String(), "primary.example")
+	require.Contains(t, w.Body.String(), "read_only")
 }

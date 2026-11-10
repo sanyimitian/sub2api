@@ -3,6 +3,7 @@ package middleware
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -65,6 +66,17 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 	allowHeadersValue := strings.Join(allowHeaders, ", ")
 
 	return func(c *gin.Context) {
+		if modelIdentificationPublicRead(c.Request.Method, c.Request.URL.Path) {
+			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Accept, Content-Type")
+			if c.Request.Method == http.MethodOptions {
+				c.AbortWithStatus(http.StatusNoContent)
+				return
+			}
+			c.Next()
+			return
+		}
 		origin := strings.TrimSpace(c.GetHeader("Origin"))
 		originAllowed := allowAll
 		if origin != "" && !allowAll {
@@ -113,4 +125,24 @@ func normalizeOrigins(values []string) []string {
 		normalized = append(normalized, trimmed)
 	}
 	return normalized
+}
+
+func modelIdentificationPublicRead(method, path string) bool {
+	if method != http.MethodGet && method != http.MethodOptions {
+		return false
+	}
+	const prefix = "/api/v1/model-identification/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	suffix := strings.TrimPrefix(path, prefix)
+	if suffix == "groups" || suffix == "source" {
+		return true
+	}
+	parts := strings.Split(suffix, "/")
+	if len(parts) != 3 || parts[0] != "plans" || parts[2] != "results" {
+		return false
+	}
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	return err == nil && id > 0
 }
