@@ -1,5 +1,5 @@
 <template>
-  <div class="sidebar-section">
+  <div>
     <button
       type="button"
       class="sidebar-link mb-1 w-full"
