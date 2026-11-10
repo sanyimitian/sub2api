@@ -188,3 +188,39 @@ func TestOllamaCloudUsageSessionRouteOmitsAuditBody(t *testing.T) {
 	require.Equal(t, "<credential-bearing body omitted>", logs[0].RequestBody)
 	require.NotContains(t, logs[0].RequestBody, "audit-canary")
 }
+
+func TestModelIdentificationAuditOmitsCredentialBodies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	router.POST("/api/v1/admin/model-identification/plans", func(c *gin.Context) { c.JSON(200, gin.H{"id": 1}) })
+	router.PUT("/api/v1/admin/model-identification/plans/:id", func(c *gin.Context) { c.JSON(200, gin.H{"id": 1}) })
+	router.GET("/api/v1/admin/model-identification/plans/:id", func(c *gin.Context) { c.JSON(200, gin.H{"api_key": "secret-canary"}) })
+	for _, method := range []string{"POST", "PUT", "GET"} {
+		path := "/api/v1/admin/model-identification/plans"
+		if method != "POST" {
+			path += "/1"
+		}
+		req := httptest.NewRequest(method, path, bytes.NewBufferString(`{"endpoint":"https://hidden.example.com","api_key":"secret-canary"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, 200, w.Code)
+	}
+	auditService.Stop()
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	require.Len(t, repository.logs, 3)
+	for _, entry := range repository.logs {
+		require.NotContains(t, entry.RequestBody, "secret-canary")
+		require.NotContains(t, entry.RequestBody, "hidden.example.com")
+		if entry.Method == "GET" {
+			require.Equal(t, "admin.model_identification.credentials.read", entry.Action)
+		} else {
+			require.Equal(t, "<credential-bearing body omitted>", entry.RequestBody)
+		}
+	}
+}

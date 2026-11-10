@@ -145,6 +145,7 @@
           </router-link>
         </div>
       </template>
+      <IdentificationNav v-if="isAdmin || !appStore.backendModeEnabled" :collapsed="sidebarCollapsed" @expand="appStore.toggleSidebar()" @navigate="handleMenuItemClick('/model-identification/degradation')" />
     </nav>
 
     <!-- Bottom Section -->
@@ -215,6 +216,7 @@ import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
 import VersionBadge from '@/components/common/VersionBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
+import IdentificationNav from '@/components/model-identification/IdentificationNav.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'

@@ -673,8 +673,9 @@ func ProvideDegradationTestService(planRepo DegradationTestPlanRepository, resul
 	return NewDegradationTestService(planRepo, resultRepo)
 }
 
-func ProvideDegradationTestRunnerService(planRepo DegradationTestPlanRepository, degradationSvc *DegradationTestService, accountTestSvc *AccountTestService, cfg *config.Config) *DegradationTestRunnerService {
+func ProvideDegradationTestRunnerService(planRepo DegradationTestPlanRepository, degradationSvc *DegradationTestService, accountTestSvc *AccountTestService, cfg *config.Config, groupTestSvc *GroupGenerationService) *DegradationTestRunnerService {
 	svc := NewDegradationTestRunnerService(planRepo, degradationSvc, accountTestSvc, cfg)
+	svc.groupTestSvc = groupTestSvc
 	svc.Start()
 	return svc
 }
@@ -983,6 +984,8 @@ var ProviderSet = wire.NewSet(
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
 	ProvideDegradationTestService,
+	NewModelIdentificationService,
+	NewGroupGenerationService,
 	ProvideDegradationTestRunnerService,
 	NewGroupCapacityService,
 	NewChannelService,

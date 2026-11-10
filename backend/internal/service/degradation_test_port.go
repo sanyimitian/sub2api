@@ -7,8 +7,12 @@ import (
 
 // DegradationTestPlan represents a scheduled test plan domain model.
 type DegradationTestPlan struct {
-	ID              int64      `json:"id"`
-	AccountID       int64      `json:"account_id"`
+	ID        int64 `json:"id"`
+	AccountID int64 `json:"account_id"`
+	// IdentificationTarget 仅在领取任务时捕获，不能通过接口输出。
+	IdentificationTarget *ModelIdentificationTarget `json:"-"`
+	// GroupID 指向独立鉴定配置，并非站内 groups。
+	GroupID         *int64     `json:"group_id,omitempty"`
 	ModelID         string     `json:"model_id"`
 	ReasoningEffort string     `json:"reasoning_effort"`
 	Prompt          string     `json:"prompt"`
@@ -57,6 +61,7 @@ type DegradationTestPlanRepository interface {
 	ListDue(ctx context.Context, now time.Time) ([]*DegradationTestPlan, error)
 	Update(ctx context.Context, plan *DegradationTestPlan) (*DegradationTestPlan, error)
 	Delete(ctx context.Context, id int64) error
+	// ClaimRun also captures identification credentials in the same transaction; the snapshot is never serialized.
 	// ClaimRun atomically leases a plan; scheduled claims additionally require a due, enabled plan.
 	// The lease uses the timeout on the row being claimed, plus a minute for persistence.
 	ClaimRun(ctx context.Context, id int64, scheduled bool, now time.Time) (*DegradationTestPlan, error)

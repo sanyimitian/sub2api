@@ -12,7 +12,7 @@ import (
 
 var degradationPlanColumns = []string{
 	"id", "account_id", "model_id", "cron_expression", "enabled", "max_results",
-	"last_run_at", "next_run_at", "created_at", "updated_at", "prompt", "running_until", "reasoning_effort", "timeout_seconds",
+	"last_run_at", "next_run_at", "created_at", "updated_at", "prompt", "running_until", "reasoning_effort", "timeout_seconds", "group_id",
 }
 
 func TestDegradationTestClaimGuardsLeaseAndDueState(t *testing.T) {
@@ -21,9 +21,11 @@ func TestDegradationTestClaimGuardsLeaseAndDueState(t *testing.T) {
 		require.NoError(t, err)
 		now := time.Now()
 		until := now.Add(11 * time.Minute)
+		mock.ExpectBegin()
 		mock.ExpectQuery(`(?s)UPDATE degradation_test_plans SET running_until = \$3::timestamptz \+ make_interval\(secs => timeout_seconds \+ 60\).*WHERE id = \$1 AND \(running_until IS NULL OR running_until <= \$3::timestamptz\).*AND \(NOT \$2 OR \(enabled = true AND next_run_at <= \$3::timestamptz\)\).*RETURNING`).
 			WithArgs(int64(7), scheduled, now).
-			WillReturnRows(sqlmock.NewRows(degradationPlanColumns).AddRow(7, 9, "model", "@every 30m", false, 50, nil, now, now, now, "prompt", until, "xhigh", 600))
+			WillReturnRows(sqlmock.NewRows(degradationPlanColumns).AddRow(7, 9, "model", "@every 30m", false, 50, nil, now, now, now, "prompt", until, "xhigh", 600, nil))
+		mock.ExpectCommit()
 		plan, err := NewDegradationTestPlanRepository(db).ClaimRun(context.Background(), 7, scheduled, now)
 		require.NoError(t, err)
 		require.Equal(t, "prompt", plan.Prompt)
@@ -56,7 +58,9 @@ func TestDegradationTestBusyClaimReturnsNoPlan(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 	now := time.Now()
+	mock.ExpectBegin()
 	mock.ExpectQuery(`UPDATE degradation_test_plans SET running_until`).WillReturnRows(sqlmock.NewRows(degradationPlanColumns))
+	mock.ExpectRollback()
 	plan, err := NewDegradationTestPlanRepository(db).ClaimRun(context.Background(), 7, false, now)
 	require.NoError(t, err)
 	require.Nil(t, plan)
@@ -109,10 +113,10 @@ func TestDegradationTestPlanPersistsReasoningEffortOnCreateAndUpdate(t *testing.
 	now := time.Now()
 	plan := &service.DegradationTestPlan{ID: 7, AccountID: 9, ModelID: "gpt-5", ReasoningEffort: "xhigh", Prompt: "generate SVG", CronExpression: "@every 30m", Enabled: true, NextRunAt: &now}
 	rows := func(effort string) *sqlmock.Rows {
-		return sqlmock.NewRows(degradationPlanColumns).AddRow(7, 9, "gpt-5", "@every 30m", true, 24, nil, now, now, now, "generate SVG", nil, effort, 600)
+		return sqlmock.NewRows(degradationPlanColumns).AddRow(7, 9, "gpt-5", "@every 30m", true, 24, nil, now, now, now, "generate SVG", nil, effort, 600, nil)
 	}
 	mock.ExpectQuery(`(?s)INSERT INTO degradation_test_plans .*reasoning_effort.*RETURNING`).
-		WithArgs(plan.AccountID, plan.ModelID, plan.CronExpression, plan.Enabled, 24, now, plan.Prompt, "xhigh", 600).WillReturnRows(rows("xhigh"))
+		WithArgs(plan.AccountID, plan.ModelID, plan.CronExpression, plan.Enabled, 24, now, plan.Prompt, "xhigh", 600, nil).WillReturnRows(rows("xhigh"))
 	repo := NewDegradationTestPlanRepository(db)
 	saved, err := repo.Create(context.Background(), plan)
 	require.NoError(t, err)

@@ -19,6 +19,13 @@ import { resolveRouteDocumentTitle } from './title'
  * Route definitions with lazy loading
  */
 const routes: RouteRecordRaw[] = [
+  { path: '/model-identification', redirect: '/model-identification/degradation' },
+  {
+    path: '/model-identification/degradation',
+    name: 'ModelIdentification',
+    component: () => import('@/views/user/ModelIdentificationView.vue'),
+    meta: { requiresAuth: true, titleKey: 'modelIdentification.title' }
+  },
   // ==================== Setup Routes ====================
   {
     path: '/setup',

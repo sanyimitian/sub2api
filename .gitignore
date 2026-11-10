@@ -146,6 +146,9 @@ docs/*
 !docs/account-token-injection-test.md
 !docs/openai-prepared-sessions.md
 !docs/codex-credits.md
+!docs/features/
+docs/features/*
+!docs/features/model-identification.md
 !docs/legal/
 !docs/legal/*.md
 !docs/screenshots/

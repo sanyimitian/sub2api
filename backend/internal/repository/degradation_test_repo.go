@@ -11,6 +11,11 @@ import (
 
 // --- Plan Repository ---
 
+type degradationPlanDB interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
 type degradationTestPlanRepository struct {
 	db *sql.DB
 }
@@ -20,21 +25,25 @@ func NewDegradationTestPlanRepository(db *sql.DB) service.DegradationTestPlanRep
 }
 
 func (r *degradationTestPlanRepository) Create(ctx context.Context, plan *service.DegradationTestPlan) (*service.DegradationTestPlan, error) {
+	return createDegradationPlan(ctx, r.db, plan)
+}
+
+func createDegradationPlan(ctx context.Context, db degradationPlanDB, plan *service.DegradationTestPlan) (*service.DegradationTestPlan, error) {
 	plan.MaxResults = service.DegradationTestMaxResults
 	if plan.TimeoutSeconds == 0 {
 		plan.TimeoutSeconds = service.DegradationTestDefaultTimeoutSeconds
 	}
-	row := r.db.QueryRowContext(ctx, `
-		INSERT INTO degradation_test_plans (account_id, model_id, cron_expression, enabled, max_results, next_run_at, prompt, reasoning_effort, timeout_seconds, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds
-	`, plan.AccountID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.NextRunAt, plan.Prompt, plan.ReasoningEffort, plan.TimeoutSeconds)
+	row := db.QueryRowContext(ctx, `
+		INSERT INTO degradation_test_plans (account_id, model_id, cron_expression, enabled, max_results, next_run_at, prompt, reasoning_effort, timeout_seconds, group_id, created_at, updated_at)
+		VALUES (NULLIF($1::bigint, 0), $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+		RETURNING id, COALESCE(account_id, 0), model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds, group_id
+	`, plan.AccountID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.NextRunAt, plan.Prompt, plan.ReasoningEffort, plan.TimeoutSeconds, plan.GroupID)
 	return scanDegradationPlan(row)
 }
 
 func (r *degradationTestPlanRepository) GetByID(ctx context.Context, id int64) (*service.DegradationTestPlan, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, account_id, model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds
+		SELECT id, COALESCE(account_id, 0), model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds, group_id
 		FROM degradation_test_plans WHERE id = $1
 	`, id)
 	return scanDegradationPlan(row)
@@ -42,7 +51,7 @@ func (r *degradationTestPlanRepository) GetByID(ctx context.Context, id int64) (
 
 func (r *degradationTestPlanRepository) ListByAccountID(ctx context.Context, accountID int64) ([]*service.DegradationTestPlan, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, account_id, model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds
+		SELECT id, COALESCE(account_id, 0), model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds, group_id
 		FROM degradation_test_plans WHERE account_id = $1
 		ORDER BY created_at DESC
 	`, accountID)
@@ -120,7 +129,7 @@ func (r *degradationTestPlanRepository) ListStatus(ctx context.Context) ([]*serv
 
 func (r *degradationTestPlanRepository) ListDue(ctx context.Context, now time.Time) ([]*service.DegradationTestPlan, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, account_id, model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds
+		SELECT id, COALESCE(account_id, 0), model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds, group_id
 		FROM degradation_test_plans
 		WHERE enabled = true AND next_run_at <= $1
 		AND (running_until IS NULL OR running_until <= $1)
@@ -134,19 +143,23 @@ func (r *degradationTestPlanRepository) ListDue(ctx context.Context, now time.Ti
 }
 
 func (r *degradationTestPlanRepository) Update(ctx context.Context, plan *service.DegradationTestPlan) (*service.DegradationTestPlan, error) {
+	return updateDegradationPlan(ctx, r.db, plan)
+}
+
+func updateDegradationPlan(ctx context.Context, db degradationPlanDB, plan *service.DegradationTestPlan) (*service.DegradationTestPlan, error) {
 	plan.MaxResults = service.DegradationTestMaxResults
 	if plan.TimeoutSeconds == 0 {
 		plan.TimeoutSeconds = service.DegradationTestDefaultTimeoutSeconds
 	}
 	// The schedule is used both in a varchar assignment and a text comparison.
 	// Explicit casts keep PostgreSQL from inferring conflicting types for $3.
-	row := r.db.QueryRowContext(ctx, `
+	row := db.QueryRowContext(ctx, `
 		UPDATE degradation_test_plans
 		SET model_id = $2, cron_expression = $3::text, enabled = $4, max_results = $5,
 		    next_run_at = CASE WHEN cron_expression <> $3::text OR (NOT enabled AND $4) THEN $6 ELSE next_run_at END,
 		    prompt = $7, reasoning_effort = $8, timeout_seconds = $9, updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds
+		RETURNING id, COALESCE(account_id, 0), model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds, group_id
 	`, plan.ID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.NextRunAt, plan.Prompt, plan.ReasoningEffort, plan.TimeoutSeconds)
 	return scanDegradationPlan(row)
 }
@@ -157,16 +170,37 @@ func (r *degradationTestPlanRepository) Delete(ctx context.Context, id int64) er
 }
 
 func (r *degradationTestPlanRepository) ClaimRun(ctx context.Context, id int64, scheduled bool, now time.Time) (*service.DegradationTestPlan, error) {
-	plan, err := scanDegradationPlan(r.db.QueryRowContext(ctx, `
+	// 抢占先锁住计划行；配置保存只有连同计划提交后才可见。
+	// 随后的普通快照读取不会等待目标行锁，因此与保存的“目标→计划”顺序不形成死锁。
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	plan, err := scanDegradationPlan(tx.QueryRowContext(ctx, `
 		UPDATE degradation_test_plans SET running_until = $3::timestamptz + make_interval(secs => timeout_seconds + 60)
 		WHERE id = $1 AND (running_until IS NULL OR running_until <= $3::timestamptz)
 		AND (NOT $2 OR (enabled = true AND next_run_at <= $3::timestamptz))
-		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds
+		RETURNING id, COALESCE(account_id, 0), model_id, cron_expression, enabled, max_results, last_run_at, next_run_at, created_at, updated_at, prompt, running_until, reasoning_effort, timeout_seconds, group_id
 	`, id, scheduled, now))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
-	return plan, err
+	if err != nil {
+		return nil, err
+	}
+	if plan.GroupID != nil {
+		target := &service.ModelIdentificationTarget{}
+		err = tx.QueryRowContext(ctx, `SELECT id,name,endpoint,encrypted_api_key,protocol FROM model_identification_targets WHERE id=$1`, *plan.GroupID).Scan(&target.ID, &target.Name, &target.Endpoint, &target.EncryptedAPIKey, &target.Protocol)
+		if err != nil {
+			return nil, err
+		}
+		plan.IdentificationTarget = target
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return plan, nil
 }
 
 func (r *degradationTestPlanRepository) CompleteRun(ctx context.Context, plan *service.DegradationTestPlan, finishedAt time.Time, nextRunAt *time.Time) error {
@@ -267,7 +301,7 @@ func scanDegradationPlan(row degradationScannable) (*service.DegradationTestPlan
 	if err := row.Scan(
 		&p.ID, &p.AccountID, &p.ModelID, &p.CronExpression, &p.Enabled, &p.MaxResults,
 		&p.LastRunAt, &p.NextRunAt, &p.CreatedAt, &p.UpdatedAt,
-		&p.Prompt, &p.RunningUntil, &p.ReasoningEffort, &p.TimeoutSeconds,
+		&p.Prompt, &p.RunningUntil, &p.ReasoningEffort, &p.TimeoutSeconds, &p.GroupID,
 	); err != nil {
 		return nil, err
 	}

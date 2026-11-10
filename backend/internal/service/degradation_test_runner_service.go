@@ -34,6 +34,7 @@ type DegradationTestRunnerService struct {
 	planRepo       DegradationTestPlanRepository
 	degradationSvc *DegradationTestService
 	accountTestSvc degradationAccountTester
+	groupTestSvc   degradationGroupTester
 	cfg            *config.Config
 
 	cron             *cron.Cron
@@ -213,6 +214,10 @@ func (s *DegradationTestRunnerService) releaseWorker() {
 
 func cloneDegradationTestPlan(plan *DegradationTestPlan) *DegradationTestPlan {
 	copy := *plan
+	if plan.IdentificationTarget != nil {
+		target := *plan.IdentificationTarget
+		copy.IdentificationTarget = &target
+	}
 	for _, pair := range [][2]**time.Time{{&copy.LastRunAt, &plan.LastRunAt}, {&copy.NextRunAt, &plan.NextRunAt}, {&copy.RunningUntil, &plan.RunningUntil}} {
 		if *pair[1] != nil {
 			value := **pair[1]
@@ -313,5 +318,11 @@ func (s *DegradationTestRunnerService) invokeTest(ctx context.Context, plan *Deg
 			err = fmt.Errorf("account test panicked: %v", panicValue)
 		}
 	}()
+	if plan.GroupID != nil {
+		if s.groupTestSvc == nil {
+			return nil, errors.New("group generation tester is unavailable")
+		}
+		return s.groupTestSvc.RunGroupGeneration(ctx, plan.IdentificationTarget, plan.ModelID, plan.Prompt, plan.ReasoningEffort)
+	}
 	return s.accountTestSvc.RunGenerationBackground(ctx, plan.AccountID, plan.ModelID, plan.Prompt, plan.ReasoningEffort)
 }

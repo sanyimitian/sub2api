@@ -144,8 +144,17 @@ func computeDegradationNextRun(cronExpr string, from time.Time) (time.Time, erro
 }
 
 func validateDegradationTestPlan(plan *DegradationTestPlan) error {
-	if plan == nil || plan.AccountID <= 0 {
-		return fmt.Errorf("account_id must be positive")
+	if plan == nil || plan.AccountID < 0 || (plan.GroupID == nil && plan.AccountID == 0) ||
+		(plan.GroupID != nil && (*plan.GroupID <= 0 || plan.AccountID != 0)) {
+		return fmt.Errorf("exactly one positive account_id or identification target group_id is required")
+	}
+	return validateDegradationTestFields(plan)
+}
+
+// 公共字段校验与目标身份校验分开；新鉴定配置在事务创建后才有真实目标 ID。
+func validateDegradationTestFields(plan *DegradationTestPlan) error {
+	if plan == nil {
+		return fmt.Errorf("plan is required")
 	}
 	if plan.TimeoutSeconds != 0 && (plan.TimeoutSeconds < DegradationTestMinTimeoutSeconds || plan.TimeoutSeconds > DegradationTestMaxTimeoutSeconds) {
 		return fmt.Errorf("timeout_seconds must be between %d and %d", DegradationTestMinTimeoutSeconds, DegradationTestMaxTimeoutSeconds)

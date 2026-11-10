@@ -9,6 +9,7 @@ import (
 )
 
 const accountTestBackgroundKey = "account_test_background"
+const accountTestErrorRedactorKey = "account_test_error_redactor"
 
 // Bind attribution before lookup so missing accounts are identifiable too. The
 // request logger retains HTTP request IDs or the caller's background correlation.
@@ -39,6 +40,11 @@ func bindAccountTestPlatform(c *gin.Context, account *Account) {
 }
 
 func logAccountTestError(c *gin.Context, message string) {
+	if value, ok := c.Get(accountTestErrorRedactorKey); ok {
+		if redact, ok := value.(func(string) string); ok {
+			message = redact(message)
+		}
+	}
 	// Redact known credential fields before bounding text; truncating first can
 	// cut a quoted credential in half and prevent the redactor from matching it.
 	message = logredact.RedactText(message, "api_key", "authorization")
