@@ -66,7 +66,7 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 	allowHeadersValue := strings.Join(allowHeaders, ", ")
 
 	return func(c *gin.Context) {
-		if modelIdentificationPublicRead(c.Request.Method, c.Request.URL.Path) {
+		if modelIdentificationPublicRead(c.Request.Method, c.Request.URL.Path) || modelBenchmarkPublicRead(c.Request.Method, c.Request.URL.Path) {
 			c.Header("Access-Control-Allow-Origin", "*")
 			c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
 			c.Header("Access-Control-Allow-Headers", "Accept, Content-Type")
@@ -145,4 +145,8 @@ func modelIdentificationPublicRead(method, path string) bool {
 	}
 	id, err := strconv.ParseInt(parts[1], 10, 64)
 	return err == nil && id > 0
+}
+
+func modelBenchmarkPublicRead(method, path string) bool {
+	return (method == http.MethodGet || method == http.MethodOptions) && path == "/api/v1/model-benchmarks/public-results"
 }

@@ -115,6 +115,7 @@ func RegisterAdminRoutes(
 		registerScheduledTestRoutes(admin, h)
 		registerDegradationTestRoutes(admin, h)
 		registerModelIdentificationRoutes(admin, h)
+		registerModelBenchmarkRoutes(admin, h)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
@@ -135,6 +136,33 @@ func RegisterAdminRoutes(
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
 	}
+}
+
+func registerModelBenchmarkRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	benchmarks := admin.Group("/model-benchmarks")
+	benchmarks.GET("/state", h.Admin.ModelBenchmark.State)
+	benchmarks.POST("/bank/update", h.Admin.ModelBenchmark.UpdateBank)
+	benchmarks.POST("/bank/activate", h.Admin.ModelBenchmark.ActivateBank)
+	benchmarks.POST("/environment/retry", h.Admin.ModelBenchmark.PrepareEnvironment)
+	benchmarks.GET("/execution", h.Admin.ModelBenchmark.Execution)
+	benchmarks.PUT("/execution", h.Admin.ModelBenchmark.Execution)
+	benchmarks.GET("/displays", h.Admin.ModelBenchmark.Displays)
+	benchmarks.POST("/displays", h.Admin.ModelBenchmark.Displays)
+	benchmarks.PUT("/displays/:id", h.Admin.ModelBenchmark.Display)
+	benchmarks.DELETE("/displays/:id", h.Admin.ModelBenchmark.Display)
+	benchmarks.POST("/displays/:id/refresh", h.Admin.ModelBenchmark.Display)
+	benchmarks.PUT("/config", h.Admin.ModelBenchmark.Config)
+	benchmarks.POST("/suites/refresh", h.Admin.ModelBenchmark.Refresh)
+	benchmarks.GET("/runs", h.Admin.ModelBenchmark.List)
+	benchmarks.POST("/runs", h.Admin.ModelBenchmark.Create)
+	benchmarks.GET("/runs/:id", h.Admin.ModelBenchmark.Detail)
+	benchmarks.POST("/runs/:id/rerun", h.Admin.ModelBenchmark.Rerun)
+	benchmarks.POST("/runs/:id/cancel", h.Admin.ModelBenchmark.Cancel)
+	benchmarks.GET("/schedules", h.Admin.ModelBenchmark.Schedules)
+	benchmarks.POST("/schedules", h.Admin.ModelBenchmark.Schedules)
+	benchmarks.PUT("/schedules/:id", h.Admin.ModelBenchmark.Schedule)
+	benchmarks.DELETE("/schedules/:id", h.Admin.ModelBenchmark.Schedule)
+	benchmarks.POST("/schedules/:id/run", h.Admin.ModelBenchmark.Schedule)
 }
 
 func registerPromptAuditRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

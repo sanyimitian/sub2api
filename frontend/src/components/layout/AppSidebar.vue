@@ -36,12 +36,6 @@
         <!-- Admin Section -->
         <div class="sidebar-section">
           <template v-for="item in adminNavItems" :key="item.path">
-            <IdentificationNav
-              v-if="item.path === '/keys'"
-              :collapsed="sidebarCollapsed"
-              @expand="appStore.toggleSidebar()"
-              @navigate="handleMenuItemClick"
-            />
             <!-- Collapsible group (has children) -->
             <template v-if="item.children?.length">
               <button
@@ -836,7 +830,16 @@ const adminNavItems = computed((): NavItem[] => {
     // 「仅充值」站点连管理端的「订阅管理」入口也一并收起（路由本身不拦截）。
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true, featureFlag: flagSubscription },
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
-    { path: '/admin/intelligence-status', label: t('nav.intelligenceStatus'), icon: SignalIcon },
+    {
+      path: '/admin/model-identification',
+      label: t('modelIdentification.management'),
+      icon: ShieldIcon,
+      expandOnly: true,
+      children: [
+        { path: '/admin/intelligence-status', label: t('modelIdentification.intelligence'), icon: SignalIcon },
+        { path: '/admin/model-benchmarks', label: t('modelIdentification.dilution'), icon: ChartIcon },
+      ],
+    },
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },

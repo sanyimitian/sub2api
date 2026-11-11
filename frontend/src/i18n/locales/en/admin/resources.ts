@@ -1,6 +1,6 @@
 export default {
     intelligenceStatus: {
-      title: 'Intelligence Status',
+      title: 'Intelligence Test',
       description: 'See the latest execution of every model quality test plan, including disabled and untested plans. Failed executions show their errors. Status refreshes automatically every 15 seconds.',
       autoRefresh: 'Auto Refresh',
       refresh: 'Refresh Status',

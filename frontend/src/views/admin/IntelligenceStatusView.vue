@@ -1,6 +1,8 @@
 <template>
   <AppLayout>
     <div class="min-w-0 space-y-5 pb-8">
+      <p class="text-sm font-medium text-gray-500">{{ t('modelIdentification.management') }}</p>
+      <IdentificationTabs active="degradation" admin />
       <header class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-gray-900/5 dark:bg-dark-800 dark:ring-dark-700 sm:p-6">
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div class="min-w-0">
@@ -39,6 +41,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import IdentificationTabs from '@/components/model-identification/IdentificationTabs.vue'
 import IntelligenceStatusCard from '@/components/admin/IntelligenceStatusCard.vue'
 import DegradationTestsPanel from '@/components/admin/account/DegradationTestsPanel.vue'
 import CreateDegradationTestPlanDialog from '@/components/admin/account/CreateDegradationTestPlanDialog.vue'

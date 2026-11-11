@@ -1,0 +1,210 @@
+import { apiClient } from '../client'
+
+export type Category = 'coding' | 'math' | 'reasoning'
+export type Counts = Record<Category, number>
+export type CodingDifficulty = 'medium' | 'hard'
+export type CodingCounts = Record<CodingDifficulty, number>
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh'
+export type RunStatus = 'queued' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'failed' | 'interrupted'
+export interface Suite {
+  coding_counts?: CodingCounts
+  id: string
+  day: string
+  revision: number
+  fingerprint: string
+  bank_version: string
+  counts: Counts
+  total: number
+  questions: { id: string; category: Category; title: string; difficulty: string }[]
+}
+export interface BenchmarkState {
+  bank_version?: string
+  bank_update?: BankUpdate
+  coding_counts?: CodingCounts
+  coding_capacities?: CodingCounts
+  retention_days?: number
+  environment?: { status: 'preparing' | 'failed' | 'ready'; stage: string; progress: number; attempt: number; message: string; next_retry_at: string | null }
+  active_run?: { id: string; status: RunStatus } | null
+  execution?: ExecutionSettings
+  quota?: { limit: number; used: number; remaining: number; next_available_at: string | null } | null
+  ready: boolean
+  message: string
+  counts: Counts
+  capacities: Counts
+  timezone: string
+  suite: Suite | null
+}
+export interface BankUpdate {
+  status: 'idle' | 'checking' | 'ready' | 'current' | 'failed' | 'activated'
+  message: string
+  checked_at: string | null
+  candidate: { version: string; counts: Counts; coding_counts: CodingCounts; added: number; changed: number; removed: number; skipped?: number } | null
+}
+export interface QuestionResult {
+  difficulty?: string
+  index: number
+  id: string
+  category: Category
+  title: string
+  status: 'passed' | 'failed' | 'api_error' | 'grading_error'
+  passed: boolean
+  score: number
+  message: string
+  elapsed_seconds: number
+  answer?: string
+  answer_truncated?: boolean
+  tests_passed?: number
+  test_count?: number
+}
+export interface BenchmarkRun {
+  coding_difficulties?: Record<CodingDifficulty, { total: number; passed: number; completed: number }>
+  queue_position?: number | null
+  finished_at?: string | null
+  id: string
+  suite_id: string
+  suite_day: string
+  suite_revision: number
+  suite_fingerprint: string
+  rerun_of: string | null
+  schedule_id?: string | null
+  scheduled_for?: string | null
+  base_url: string
+  model: string
+  effort: Effort
+  status: RunStatus
+  created_at: string
+  elapsed_seconds: number
+  total: number
+  completed: number
+  passed: number
+  pass_rate: number | null
+  categories: Record<Category, { total: number; passed: number; completed: number }>
+  usage: { input_tokens: number; output_tokens: number; total_tokens: number }
+  error: string
+  api_errors: number
+  grading_errors: number
+  results?: QuestionResult[]
+  suite?: Suite
+}
+export interface CreateBenchmark {
+  suite_id: string
+  base_url: string
+  api_key: string
+  model: string
+  effort: Effort
+}
+export interface BenchmarkSchedule {
+  active_run_id?: string | null
+  public_results: boolean
+  id: string
+  name: string
+  base_url: string
+  model: string
+  effort: Effort
+  cron_expression: string
+  enabled: boolean
+  timezone: string
+  next_run_at: string | null
+  last_attempt_at: string | null
+  last_run_id: string | null
+  last_error: string
+  created_at: string
+  updated_at: string
+}
+export interface ScheduleSettings {
+  public_results: boolean
+  name: string
+  cron_expression: string
+  enabled: boolean
+}
+export type CreateSchedule = Omit<CreateBenchmark, 'suite_id'> & ScheduleSettings
+export interface ExecutionSettings { max_concurrency: number; running: number; queued: number; user_testing_enabled?: boolean }
+export interface DisplayInput {
+  max_results: number
+  name: string
+  source_type: 'local' | 'remote'
+  schedule_id: string | null
+  remote_url: string
+  refresh_minutes: number
+  enabled: boolean
+}
+export interface DisplayConfig extends DisplayInput {
+  id: string
+  fetching: boolean
+  last_attempt_at: string | null
+  last_success_at: string | null
+  next_fetch_at: string | null
+  last_error: string
+}
+const root = '/admin/model-benchmarks'
+export const benchmarks = {
+  async updateBank(signal?: AbortSignal) {
+    return (await apiClient.post<BankUpdate>(root + '/bank/update', {}, { signal })).data
+  },
+  async activateBank(version: string, signal?: AbortSignal) {
+    return (await apiClient.post<Suite>(root + '/bank/activate', { version }, { signal })).data
+  },
+  async retryEnvironment(signal?: AbortSignal) {
+    return (await apiClient.post<NonNullable<BenchmarkState['environment']>>(root + '/environment/retry', {}, { signal })).data
+  },
+  async setExecution(max_concurrency: number, signal?: AbortSignal) {
+    return (await apiClient.put<ExecutionSettings>(`${root}/execution`, { max_concurrency }, { signal })).data
+  },
+  async setUserTesting(user_testing_enabled: boolean, signal?: AbortSignal) {
+    return (await apiClient.put<ExecutionSettings>(`${root}/execution`, { user_testing_enabled }, { signal })).data
+  },
+  async displays(signal?: AbortSignal) {
+    return (await apiClient.get<{ items: DisplayConfig[] }>(`${root}/displays`, { signal })).data
+  },
+  async createDisplay(input: DisplayInput, signal?: AbortSignal) {
+    return (await apiClient.post<DisplayConfig>(`${root}/displays`, input, { signal })).data
+  },
+  async updateDisplay(id: string, input: Partial<DisplayInput>, signal?: AbortSignal) {
+    return (await apiClient.put<DisplayConfig>(`${root}/displays/${id}`, input, { signal })).data
+  },
+  async deleteDisplay(id: string, signal?: AbortSignal) {
+    return (await apiClient.delete<{ deleted: boolean }>(`${root}/displays/${id}`, { signal })).data
+  },
+  async refreshDisplay(id: string, signal?: AbortSignal) {
+    return (await apiClient.post<DisplayConfig>(`${root}/displays/${id}/refresh`, {}, { signal })).data
+  },
+  async state(signal?: AbortSignal) {
+    return (await apiClient.get<BenchmarkState>(`${root}/state`, { signal })).data
+  },
+  async configure(counts: Counts, suite_id: string, signal?: AbortSignal, coding_counts?: CodingCounts) {
+    return (await apiClient.put<Suite>(`${root}/config`, { counts, suite_id, coding_counts }, { signal })).data
+  },
+  async refresh(suite_id: string, signal?: AbortSignal) {
+    return (await apiClient.post<Suite>(`${root}/suites/refresh`, { suite_id }, { signal })).data
+  },
+  async create(input: CreateBenchmark, signal?: AbortSignal) {
+    return (await apiClient.post<BenchmarkRun>(`${root}/runs`, input, { signal })).data
+  },
+  async list(page: number, signal?: AbortSignal) {
+    return (await apiClient.get<{ items: BenchmarkRun[]; total: number; page?: number; page_size: number }>(`${root}/runs`, { params: { page }, signal })).data
+  },
+  async detail(id: string, signal?: AbortSignal) {
+    return (await apiClient.get<BenchmarkRun>(`${root}/runs/${id}`, { signal })).data
+  },
+  async rerun(id: string, signal?: AbortSignal) {
+    return (await apiClient.post<BenchmarkRun>(`${root}/runs/${id}/rerun`, {}, { signal })).data
+  },
+  async cancel(id: string, signal?: AbortSignal) {
+    return (await apiClient.post<BenchmarkRun>(`${root}/runs/${id}/cancel`, {}, { signal })).data
+  },
+  async schedules(signal?: AbortSignal) {
+    return (await apiClient.get<{ items: BenchmarkSchedule[] }>(`${root}/schedules`, { signal })).data
+  },
+  async createSchedule(input: CreateSchedule, signal?: AbortSignal) {
+    return (await apiClient.post<BenchmarkSchedule>(`${root}/schedules`, input, { signal })).data
+  },
+  async updateSchedule(id: string, input: Partial<ScheduleSettings>, signal?: AbortSignal) {
+    return (await apiClient.put<BenchmarkSchedule>(`${root}/schedules/${id}`, input, { signal })).data
+  },
+  async runSchedule(id: string, signal?: AbortSignal) {
+    return (await apiClient.post<BenchmarkRun>(`${root}/schedules/${id}/run`, {}, { signal })).data
+  },
+  async deleteSchedule(id: string, signal?: AbortSignal) {
+    return (await apiClient.delete<{ deleted: boolean }>(`${root}/schedules/${id}`, { signal })).data
+  }
+}

@@ -1,6 +1,6 @@
 export default {
     intelligenceStatus: {
-      title: '智商状态',
+      title: '智商测试',
       description: '每个降智测试计划展示最近一次执行结果，包含停用和未测试的计划。失败结果会直接显示错误；自动刷新间隔为 15 秒。',
       autoRefresh: '自动刷新',
       refresh: '刷新状态',

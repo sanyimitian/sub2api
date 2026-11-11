@@ -30,26 +30,26 @@
         >{{ t('modelIdentification.degradation') }}</RouterLink
       >
       <RouterLink
-        to="/model-identification/dilution"
+        :to="dilutionPath"
         class="sidebar-link mb-1 text-sm"
-        :class="{ 'sidebar-link-active': route.path === '/model-identification/dilution' }"
-        @click="emit('navigate', '/model-identification/dilution')"
+        :class="{ 'sidebar-link-active': route.path === dilutionPath }"
+        @click="emit('navigate', dilutionPath)"
       >
         {{ t('modelIdentification.dilution') }}
-        <span class="ml-auto text-xs">{{ t('modelIdentification.developing') }}</span>
       </RouterLink>
     </div>
   </div>
 </template>
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 const props = defineProps<{ collapsed: boolean }>()
 const emit = defineEmits<{ expand: []; navigate: [path: string] }>()
 const route = useRoute()
 const { t } = useI18n()
+const dilutionPath = '/model-identification/dilution'
 const active = computed(() => route.path.startsWith('/model-identification'))
 const override = ref<boolean | null>(null)
 const expanded = computed(() => override.value ?? active.value)

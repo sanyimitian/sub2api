@@ -1,0 +1,8 @@
+cryptography==46.0.5
+croniter==6.0.0
+numpy==2.2.6
+requests>=2.32.4,<3
+pyarrow>=18,<27
+datasets>=3,<6
+tqdm==4.67.1
+sortedcontainers==2.4.0

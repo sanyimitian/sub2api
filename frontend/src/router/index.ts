@@ -19,7 +19,14 @@ import { resolveRouteDocumentTitle } from './title'
  * Route definitions with lazy loading
  */
 const routes: RouteRecordRaw[] = [
+  { path: '/admin/model-identification', redirect: '/admin/intelligence-status', meta: { requiresAuth: true, requiresAdmin: true } },
   { path: '/model-identification', redirect: '/model-identification/degradation' },
+  {
+    path: '/admin/model-benchmarks',
+    name: 'AdminModelBenchmarks',
+    component: () => import('@/views/admin/ModelBenchmarksView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'modelBenchmark.title' }
+  },
   {
     path: '/model-identification/degradation',
     name: 'ModelIdentification',
@@ -29,8 +36,8 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/model-identification/dilution',
     name: 'ModelDilution',
-    component: () => import('@/views/user/ModelDilutionView.vue'),
-    meta: { requiresAuth: false, titleKey: 'modelIdentification.dilution' }
+    component: () => import('@/views/user/ModelBenchmarksView.vue'),
+    meta: { requiresAuth: true, titleKey: 'modelBenchmark.title' }
   },
   // ==================== Setup Routes ====================
   {
@@ -845,7 +852,7 @@ const BACKEND_MODE_CALLBACK_PATHS = [
 const BACKEND_MODE_PENDING_AUTH_PATHS = ['/register', '/email-verify']
 
 function isBackendModePublicRouteAllowed(path: string, hasPendingAuthSession: boolean): boolean {
-  if (['/model-identification', '/model-identification/degradation', '/model-identification/dilution'].includes(path)) return true
+  if (['/model-identification', '/model-identification/degradation'].includes(path)) return true
   if (BACKEND_MODE_ALLOWED_PATHS.some((allowedPath) => path === allowedPath || path.startsWith(allowedPath))) {
     return true
   }

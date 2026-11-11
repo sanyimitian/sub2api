@@ -86,6 +86,7 @@ func ProvideAdminHandlers(
 		APIKey:                 apiKeyHandler,
 		ScheduledTest:          scheduledTestHandler,
 		DegradationTest:        degradationTestHandler,
+		ModelBenchmark:         admin.NewModelBenchmarkHandler(),
 		Channel:                channelHandler,
 		ChannelMonitor:         channelMonitorHandler,
 		ChannelMonitorTemplate: channelMonitorTemplateHandler,

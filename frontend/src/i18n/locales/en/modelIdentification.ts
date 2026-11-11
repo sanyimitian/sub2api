@@ -8,6 +8,8 @@ export default {
   login: 'Log in',
 
   title: 'Model identification',
+  management: 'Model identification management',
+  intelligence: 'Intelligence test',
   degradation: 'Degradation test',
   dilution: 'Dilution test',
   developing: 'In development',

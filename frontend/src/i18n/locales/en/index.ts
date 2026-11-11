@@ -1,5 +1,6 @@
 import adminAccessKeys from './adminAccessKeys'
 import modelIdentification from './modelIdentification'
+import modelBenchmark from './modelBenchmark'
 import landing from './landing'
 import common from './common'
 import dashboard from './dashboard'
@@ -10,6 +11,7 @@ import misc from './misc'
 import publicTransit from './publicTransit'
 
 export default {
+  modelBenchmark,
   modelIdentification,
   adminAccessKeys,
   ...landing,

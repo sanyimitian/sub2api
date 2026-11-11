@@ -124,6 +124,36 @@ describe('feature route guard', () => {
     appStore.fetchPublicSettings.mockReset()
   })
 
+  it('restricts model benchmark access to administrators', async () => {
+    const route = routerHarness.routes.find(r => r.path === '/admin/model-benchmarks')!
+    expect(route.meta).toMatchObject({ requiresAuth: true, requiresAdmin: true })
+    const ordinary = runGuard(route.meta!, route.path)
+    await ordinary.navigation
+    expect(ordinary.next).toHaveBeenCalledWith('/dashboard')
+    authStore.isAuthenticated = false
+    const guest = runGuard(route.meta!, route.path)
+    await guest.navigation
+    expect(guest.next).toHaveBeenCalledWith({ path: '/login', query: { redirect: route.path } })
+    authStore.isAuthenticated = true
+    authStore.isAdmin = true
+    const admin = runGuard(route.meta!, route.path)
+    await admin.navigation
+    expect(admin.next).toHaveBeenCalledWith()
+  })
+
+  it('allows authenticated users on the benchmark page and requires guests to sign in', async () => {
+    const route = routerHarness.routes.find(r => r.path === '/model-identification/dilution')!
+    expect(route.meta?.requiresAuth).toBe(true)
+    expect(route.meta?.requiresAdmin).not.toBe(true)
+    const user = runGuard(route.meta!, route.path)
+    await user.navigation
+    expect(user.next).toHaveBeenCalledWith()
+    authStore.isAuthenticated = false
+    const guest = runGuard(route.meta!, route.path)
+    await guest.navigation
+    expect(guest.next).toHaveBeenCalledWith({ path: '/login', query: { redirect: route.path } })
+  })
+
   it('waits for the first public-settings request before deciding payment access', async () => {
     const deferred = createDeferred<{ payment_enabled: boolean }>()
     appStore.fetchPublicSettings.mockImplementation(async () => {

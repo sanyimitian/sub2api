@@ -8,6 +8,8 @@ export default {
   login: '登录',
 
   title: '模型鉴定',
+  management: '模型鉴定管理',
+  intelligence: '智商测试',
   degradation: '降智测试',
   dilution: '掺水测试',
   developing: '开发中',
