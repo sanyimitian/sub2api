@@ -85,7 +85,9 @@ func (h *ModelBenchmarkHandler) UserOptions(c *gin.Context) {
 func (h *ModelBenchmarkHandler) UserRuns(c *gin.Context) {
 	query := url.Values{}
 	for key, values := range c.Request.URL.Query() {
-		if (key != "page" && key != "user_id" && key != "model") || len(values) != 1 {
+		// The shared browser client adds timezone to GET requests. It is not a
+		// record filter, so accept it here without forwarding it to the worker.
+		if (key != "page" && key != "user_id" && key != "model" && key != "timezone") || len(values) != 1 {
 			response.BadRequest(c, "Invalid benchmark filters")
 			return
 		}
