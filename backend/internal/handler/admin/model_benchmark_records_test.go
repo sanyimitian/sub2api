@@ -43,7 +43,7 @@ func TestModelBenchmarkUserRecordsFiltersOwnersAndLookupDeduplication(t *testing
 		require.Equal(t, "7", r.URL.Query().Get("user_id"))
 		require.Equal(t, "sol&x=1", r.URL.Query().Get("model"))
 		require.Empty(t, r.URL.Query().Get("x"))
-		require.Empty(t, r.URL.Query().Get("timezone"))
+		require.False(t, r.URL.Query().Has("timezone"), "浏览器时区不能作为评测执行器的筛选条件")
 		_, _ = w.Write([]byte(`{"items":[{"id":"one","owner_user_id":7},{"id":"two","owner_user_id":7},{"id":"gone","owner_user_id":8}],"total":23,"page":2,"page_size":20}`))
 	}))
 	defer worker.Close()
@@ -55,6 +55,7 @@ func TestModelBenchmarkUserRecordsFiltersOwnersAndLookupDeduplication(t *testing
 	router := gin.New()
 	router.GET("/user-runs", h.UserRuns)
 	w := httptest.NewRecorder()
+	// 前端统一为每个 GET 请求附加时区参数。
 	router.ServeHTTP(w, httptest.NewRequest("GET", "/user-runs?page=2&user_id=7&model=sol%26x%3D1&timezone=Asia%2FShanghai", nil))
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.Equal(t, 2, users.gets)
@@ -63,7 +64,7 @@ func TestModelBenchmarkUserRecordsFiltersOwnersAndLookupDeduplication(t *testing
 	require.Contains(t, w.Body.String(), `"missing":true`)
 	require.NotContains(t, w.Body.String(), "never-return")
 	require.NotContains(t, w.Body.String(), "internal-secret")
-	for _, query := range []string{"page=0", "user_id=-1", "user_id=7&user_id=8", "owner_user_id=8", "model=x&callback=bad"} {
+	for _, query := range []string{"page=0", "user_id=-1", "user_id=7&user_id=8", "owner_user_id=8", "model=x&callback=bad", "timezone=UTC&timezone=Asia%2FShanghai"} {
 		w = httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest("GET", "/user-runs?"+query, nil))
 		require.Equal(t, 400, w.Code)
