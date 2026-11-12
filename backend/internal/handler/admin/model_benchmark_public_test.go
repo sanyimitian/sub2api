@@ -94,7 +94,37 @@ func TestModelBenchmarkPublicProjectsOnlyAllowedFields(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
 	require.Equal(t, float64(100), *result.Data.Items[0].PassRate)
-	require.Equal(t, "https://test.one/v1", result.Data.Items[0].BaseURL)
+	require.Equal(t, "https://***t.one", result.Data.Items[0].BaseURL)
+	require.True(t, result.Data.Items[0].URLMasked)
+	require.NotContains(t, w.Body.String(), "test.one")
+}
+
+func TestModelBenchmarkPublicMasksLegacyURLsBeforeSendingHTTP(t *testing.T) {
+	for _, tc := range []struct{ raw, masked string }{
+		{"https://api.test.one:8443/private/v1", "https://*******t.one"},
+		{"http://192.0.2.10:8080/private", "http://****"},
+		{"https://[2001:db8::1]/v1", "https://****"},
+		{"https://***t.one", "https://***t.one"},
+	} {
+		t.Run(tc.raw, func(t *testing.T) {
+			fixture := benchmarkPublicFixture()
+			item := fixture["items"].([]any)[0].(map[string]any)
+			item["base_url"], item["url_masked"] = tc.raw, false
+			router, _ := benchmarkPublicTestRouter(t, func(w http.ResponseWriter, _ *http.Request) { _ = json.NewEncoder(w).Encode(fixture) })
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest("GET", "/public-results", nil))
+			require.Equal(t, 200, w.Code)
+			var envelope struct {
+				Data benchmarkPublicFeed `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &envelope))
+			require.Equal(t, tc.masked, envelope.Data.Items[0].BaseURL)
+			require.True(t, envelope.Data.Items[0].URLMasked)
+			if tc.raw != tc.masked {
+				require.NotContains(t, w.Body.String(), tc.raw)
+			}
+		})
+	}
 }
 
 func TestModelBenchmarkPublicRejectsMalformedAndOversizedWorkerData(t *testing.T) {

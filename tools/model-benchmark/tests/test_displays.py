@@ -18,6 +18,27 @@ from test_worker import Fixture, FakeGrader
 
 
 class DisplayTests(Fixture):
+    def test_group_results_export_import_and_showcase_without_url(self):
+        self.store.refresh({"coding": 0, "math": 1, "reasoning": 0})
+        plan = self.plan(group_id=4, group_name="Premium")
+        run = self.store.run_schedule(plan["id"])
+        self.store.append(run["id"], {"index": 1, "category": "math", "passed": True, "status": "passed"})
+        self.store.finish(run["id"], "completed")
+        feed = self.store.public_results()
+        result = sanitize_feed(feed)[0]["results"][0]
+        self.assertEqual(result["group_name"], "Premium")
+        self.assertEqual(result["group_id"], 4)
+        self.assertNotIn("base_url", result)
+        self.displays.save({"name": "Local", "source_type": "local", "schedule_id": plan["id"]})
+        local = self.displays.showcase()["items"][0]["items"][0]["results"][0]
+        self.assertEqual(local, result)
+        feed["items"][0]["base_url"] = "https://hidden.example/v1"
+        self.assertNotIn("base_url", sanitize_feed(feed)[0]["results"][0])
+        for invalid in (-1, True, "4", 0):
+            feed["items"][0]["group_id"] = invalid
+            with self.assertRaises(ValueError):
+                sanitize_feed(feed)
+
     def setUp(self):
         super().setUp()
         self.displays = Displays(self.store)
@@ -192,7 +213,9 @@ class DisplayTests(Fixture):
         result.update(api_key="result-secret", answer="hidden answer", base_url="https://private.example", pass_rate=12)
         cleaned = sanitize_feed({"code": 0, "message": "success", "data": data})
         self.assertEqual(cleaned[0]["results"][0]["pass_rate"], 100)
-        self.assertEqual(cleaned[0]["results"][0]["base_url"], "https://private.example/")
+        self.assertEqual(cleaned[0]["results"][0]["base_url"], "https://******e.example")
+        self.assertTrue(cleaned[0]["results"][0]["url_masked"])
+        self.assertNotIn("private.example", json.dumps(cleaned))
         for field in ("api_key", "credential", "answer"): self.assertNotIn(field, json.dumps(cleaned))
         for key, value in (("total", -1), ("status", "running"), ("completed", 0), ("elapsed_seconds", float("nan"))):
             bad = copy.deepcopy(data)

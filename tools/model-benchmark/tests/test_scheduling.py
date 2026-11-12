@@ -12,6 +12,57 @@ from test_worker import Fixture, FakeGrader
 
 
 class ScheduleTests(Fixture):
+    def test_group_run_executes_with_private_target_and_group_assertion(self):
+        self.store.refresh({"coding": 0, "math": 1, "reasoning": 0})
+        plan = self.plan(group_id=7, group_name="Premium")
+        run = self.store.run_schedule(plan["id"])
+        requests = []
+        class Client:
+            def generate(_, base_url, key, payload, *, group_id):
+                requests.append((base_url, key, payload["model"], group_id))
+                return {"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "42"}]}]}
+        engine = Engine(self.store, Client(), FakeGrader())
+        engine.execute_claimed(self.store.claim())
+        self.assertEqual(requests, [("https://example.com/v1", "schedule-private-key", "test-model", 7)])
+        saved = self.store.detail(run["id"])
+        self.assertEqual(saved["status"], "completed")
+        self.assertEqual(saved["group_name"], "Premium")
+        self.assertEqual(saved["base_url"], "")
+    def test_group_target_snapshots_survive_edit_retest_and_restart(self):
+        plan = self.plan(group_id=7, group_name="Premium", public_results=True)
+        self.assertEqual(plan["base_url"], "")
+        first = self.store.run_schedule(plan["id"])
+        claimed = self.store.claim()
+        self.assertEqual(claimed["group_id"], 7)
+        self.assertEqual(claimed["base_url"], "https://example.com/v1")
+        self.assertEqual(claimed["api_key"], "schedule-private-key")
+        changed = self.store.update_schedule(plan["id"], {"group_id": 8, "group_name": "Economy", "model": "other-model",
+            "base_url": "https://local.example/v1", "api_key": "new-secret", "effort": "medium"})
+        self.assertEqual(changed["group_id"], 8)
+        self.assertEqual(self.store.detail(first["id"])["group_name"], "Premium")
+        self.store.finish(first["id"], "failed")
+        feed = self.store.public_results()["items"][0]
+        self.assertEqual(feed["group_name"], "Premium")
+        self.assertNotIn("base_url", feed)
+        retry = self.store.rerun(first["id"])
+        self.assertEqual(retry["group_id"], 7)
+        self.assertEqual(retry["base_url"], "")
+        reopened = Store(self.root / "data", self.store.bank, clock=lambda: self.date)
+        self.assertEqual(reopened.detail(first["id"])["group_id"], 7)
+        self.date += timedelta(days=1)
+        self.assertEqual(reopened.enqueue_due_schedules(), 1)
+        with reopened.transaction() as db:
+            latest = db.execute("SELECT group_id,group_name,model FROM runs WHERE schedule_id=? ORDER BY rowid DESC LIMIT 1", (plan["id"],)).fetchone()
+        self.assertEqual(tuple(latest), (8, "Economy", "other-model"))
+
+    def test_group_metadata_cannot_be_forged_by_manual_user_test(self):
+        run = self.create(group_id=7, group_name="Fake official group")
+        self.assertIsNone(run["group_id"])
+        self.assertEqual(run["group_name"], "")
+        for group_id, group_name in ((True, "A"), (-1, "A"), (7, ""), (7, "a\nb"), (7, "a" * 101)):
+            with self.subTest(group_id=group_id, group_name=group_name), self.assertRaises(Problem):
+                self.plan(group_id=group_id, group_name=group_name)
+
     def plan(self, **overrides):
         return self.store.create_schedule({"name": "Daily model test", "base_url": "https://example.com/v1", "model": "test-model",
             "api_key": "schedule-private-key", "effort": "high", "cron_expression": "0 9 * * *", "enabled": True, **overrides})

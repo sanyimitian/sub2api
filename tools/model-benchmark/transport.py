@@ -65,7 +65,7 @@ class ResponsesClient:
         self.allow_private = allow_private
         self.timeout = timeout
 
-    def generate(self, base_url: str, key: str, payload: dict) -> dict:
+    def generate(self, base_url: str, key: str, payload: dict, *, group_id: int | None = None) -> dict:
         u = urlsplit(normalize_url(base_url))
         port = u.port or (443 if u.scheme == "https" else 80)
         addresses = public_addresses(u.hostname, port, self.allow_private)
@@ -102,11 +102,23 @@ class ResponsesClient:
             deadline = threading.Timer(self.timeout, expire)
             deadline.daemon = True
             deadline.start()
-            conn.request("POST", u.path + "/responses", body=json.dumps(payload).encode(), headers={
+            headers = {
                 "Authorization": "Bearer " + key, "Content-Type": "application/json",
-            })
+            }
+            if group_id is not None:
+                headers["X-Sub2API-Benchmark-Group-ID"] = str(group_id)
+            conn.request("POST", u.path + "/responses", body=json.dumps(payload).encode(), headers=headers)
             response = conn.getresponse()
             if response.status != 200:
+                if group_id is not None and response.status == 409:
+                    try:
+                        raw = response.read(16 * 1024 + 1)
+                        body = json.loads(raw) if len(raw) <= 16 * 1024 else {}
+                        error = body.get("error", body) if isinstance(body, dict) else {}
+                        if isinstance(error, dict) and error.get("code") == "BENCHMARK_GROUP_CHANGED":
+                            raise RequestFailure("本站测试密钥已变更分组，请编辑定时任务重新选择分组和模型", 409)
+                    except (OSError, http.client.HTTPException, ValueError, AttributeError):
+                        pass
                 # Inspect only a bounded, structured error code. Raw upstream
                 # text may contain credentials and must never be exposed.
                 if response.status == 404:

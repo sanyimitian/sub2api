@@ -345,7 +345,7 @@ class TransportTests(unittest.TestCase):
             def log_message(self, *_): pass
             def do_POST(self):
                 data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                seen.append((self.path, self.headers["Host"], self.headers["Authorization"], data))
+                seen.append((self.path, self.headers["Host"], self.headers["Authorization"], data, self.headers.get("X-Sub2API-Benchmark-Group-ID")))
                 body = json.dumps({"echo": key, "array": [key], key: "value"}).encode()
                 self.send_response(302 if data.get("redirect") else 200)
                 self.send_header("Location", "http://127.0.0.1/private")
@@ -361,15 +361,17 @@ class TransportTests(unittest.TestCase):
             # while HTTP Host retains the requested (unresolvable) hostname.
             with patch("transport.public_addresses", return_value=["127.0.0.1"]):
                 client = ResponsesClient()
-                data = client.generate(f"http://never-resolve.invalid:{port}/v1", key, {"model": "fixture"})
+                data = client.generate(f"http://never-resolve.invalid:{port}/v1", key, {"model": "fixture"}, group_id=7)
                 self.assertNotIn(key, json.dumps(data))
                 self.assertEqual(data["echo"], "[REDACTED]")
                 self.assertEqual(seen[0][0], "/v1/responses")
                 self.assertEqual(seen[0][1], f"never-resolve.invalid:{port}")
+                self.assertEqual(seen[0][4], "7")
                 with self.assertRaises(RequestFailure) as error:
                     client.generate(f"http://never-resolve.invalid:{port}", key, {"redirect": True})
                 self.assertEqual(error.exception.status, 302)
                 self.assertEqual(len(seen), 2)
+                self.assertIsNone(seen[1][4])
         finally:
             server.shutdown()
             server.server_close()

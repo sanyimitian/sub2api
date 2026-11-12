@@ -38,7 +38,7 @@
         <label class="block space-y-1 text-sm"><span>{{ t('modelBenchmark.displayName') }}</span><input v-model.trim="form.name" name="display_name" required maxlength="100" class="input w-full" /></label>
         <label class="block space-y-1 text-sm"><span>{{ t('modelBenchmark.dataSource') }}</span><select v-model="form.source_type" name="source_type" class="input w-full"><option value="local">{{ t('modelBenchmark.localSource') }}</option><option value="remote">{{ t('modelBenchmark.remoteSource') }}</option></select></label>
         <template v-if="form.source_type === 'local'">
-          <label class="block space-y-1 text-sm"><span>{{ t('modelBenchmark.selectPublicSchedule') }}</span><select v-model="form.schedule_id" name="display_schedule" class="input w-full" required><option :value="null" disabled>{{ t('modelBenchmark.selectPublicSchedule') }}</option><option v-for="schedule in publicSchedules" :key="schedule.id" :value="schedule.id">{{ schedule.name }} · {{ schedule.model }}</option></select></label>
+          <label class="block space-y-1 text-sm"><span>{{ t('modelBenchmark.selectPublicSchedule') }}</span><select v-model="form.schedule_id" name="display_schedule" class="input w-full" required><option :value="null" disabled>{{ t('modelBenchmark.selectPublicSchedule') }}</option><option v-for="schedule in publicSchedules" :key="schedule.id" :value="schedule.id">{{ schedule.name }} · <template v-if="schedule.group_name">{{ schedule.group_name }} · </template>{{ schedule.model }}</option></select></label>
           <p v-if="!publicSchedules.length" class="text-xs text-amber-700">{{ t('modelBenchmark.noPublicSchedules') }}</p>
           <p class="text-xs text-gray-500">{{ t('modelBenchmark.resultPaginationHint') }}</p>
         </template>

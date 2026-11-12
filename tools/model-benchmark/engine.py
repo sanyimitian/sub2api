@@ -238,7 +238,8 @@ class Engine:
                 break
             result["attempts"] += 1
             try:
-                data = self.client.generate(run["base_url"], run["api_key"], payload)
+                target_options = {"group_id": run["group_id"]} if run.get("group_id") is not None else {}
+                data = self.client.generate(run["base_url"], run["api_key"], payload, **target_options)
                 break
             except RequestFailure as exc:
                 if attempt < 2 and (exc.status in RETRYABLE or exc.status == 0) and not self.store.cancelled(run["id"]):

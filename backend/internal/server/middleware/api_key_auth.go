@@ -117,6 +117,9 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// apiKey 已加载（含 User/Group）。即便后续因分组停用/Key 停用/用户停用/
 		// IP 限制等早退中断，也让 Ops 错误日志能回退取到 user/group/platform。
 		SetOpsFallbackAPIKey(c, apiKey)
+		if !validateBenchmarkGroupBinding(c, apiKey) {
+			return
+		}
 
 		// ── 3. 基础鉴权（始终执行） ─────────────────────────────────
 

@@ -59,8 +59,21 @@ watch(
 )
 
 // Watch for authentication state and manage subscription data + announcements
+let lastForegroundRefresh = -Infinity
+function refreshUserOnReturn() {
+  if (document.visibilityState !== 'visible' || !authStore.isAuthenticated) return
+  // Browsers often emit focus and visibilitychange together when returning.
+  const now = Date.now()
+  if (now - lastForegroundRefresh < 1000) return
+  lastForegroundRefresh = now
+  authStore.refreshUser().catch((error) => {
+    console.error('Failed to refresh user on return:', error)
+  })
+}
+
 function onVisibilityChange() {
   if (document.visibilityState === 'visible' && authStore.isAuthenticated) {
+    refreshUserOnReturn()
     announcementStore.fetchAnnouncements()
   }
 }
@@ -116,12 +129,15 @@ watch(
 
       // Register visibility change listener
       document.addEventListener('visibilitychange', onVisibilityChange)
+      window.addEventListener('focus', refreshUserOnReturn)
     } else {
       // User logged out: clear data and stop polling
       subscriptionStore.clear()
       announcementStore.reset()
       adminComplianceStore.reset()
       document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('focus', refreshUserOnReturn)
+      lastForegroundRefresh = -Infinity
     }
   },
   { immediate: true }
@@ -136,6 +152,7 @@ router.afterEach(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('focus', refreshUserOnReturn)
   window.removeEventListener('admin-compliance-required', onAdminComplianceRequired)
 })
 

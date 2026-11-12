@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -179,11 +180,14 @@ func validBenchmarkAPIErrors(details []benchmarkAPIErrorDetail, total int) bool 
 }
 
 type benchmarkPublicResult struct {
+	GroupID             *int64                           `json:"group_id,omitempty"`
+	GroupName           string                           `json:"group_name,omitempty"`
 	ID                  string                           `json:"id"`
 	ScheduleID          string                           `json:"schedule_id"`
 	ScheduleName        string                           `json:"schedule_name"`
 	Model               string                           `json:"model"`
 	BaseURL             string                           `json:"base_url,omitempty"`
+	URLMasked           bool                             `json:"url_masked,omitempty"`
 	Effort              string                           `json:"effort"`
 	Status              string                           `json:"status"`
 	CreatedAt           time.Time                        `json:"created_at"`
@@ -224,11 +228,24 @@ func decodeBenchmarkPublicFeed(data []byte) (*benchmarkPublicFeed, error) {
 	ids := make(map[string]bool)
 	for i := range feed.Items {
 		r := &feed.Items[i]
+		if r.GroupID != nil {
+			if *r.GroupID <= 0 || *r.GroupID > 9007199254740991 || !benchmarkPublicText(r.GroupName, 100) {
+				return nil, invalid
+			}
+			r.BaseURL = ""
+			r.URLMasked = false
+		} else if r.GroupName != "" {
+			return nil, invalid
+		}
 		if r.BaseURL != "" {
 			u, err := url.Parse(r.BaseURL)
 			if err != nil || !benchmarkPublicText(r.BaseURL, 2048) || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 				return nil, invalid
 			}
+			// Reapply at the anonymous boundary, including responses from an older
+			// worker. Never send an unmasked legacy target to public callers.
+			r.BaseURL = maskBenchmarkResultURL(u)
+			r.URLMasked = true
 		}
 		if !benchmarkID.MatchString(r.ID) || !benchmarkID.MatchString(r.ScheduleID) || ids[r.ID] || !benchmarkPublicText(r.ScheduleName, 100) || !benchmarkPublicText(r.Model, 200) {
 			return nil, invalid
@@ -279,4 +296,16 @@ func decodeBenchmarkPublicFeed(data []byte) (*benchmarkPublicFeed, error) {
 	}
 	sort.SliceStable(feed.Items, func(i, j int) bool { return feed.Items[i].FinishedAt.After(feed.Items[j].FinishedAt) })
 	return &feed, nil
+}
+
+func maskBenchmarkResultURL(u *url.URL) string {
+	host := strings.TrimRight(u.Hostname(), ".")
+	masked := "****"
+	if net.ParseIP(host) == nil {
+		if index := strings.LastIndex(host, "."); index > 0 && index < len(host)-1 {
+			name := []rune(host[:index])
+			masked = strings.Repeat("*", max(3, len(name)-1)) + string(name[len(name)-1]) + host[index:]
+		}
+	}
+	return u.Scheme + "://" + masked
 }

@@ -53,11 +53,14 @@ func ProvideAdminHandlers(
 	opencodeGoUsage *service.OpenCodeGoUsageService,
 	claudeResetCredits *service.ClaudeResetCreditService,
 	benchmarkFederation *service.ModelBenchmarkFederationService,
+	benchmarkGroups *service.ModelBenchmarkGroupService,
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	accountHandler.SetOpenCodeGoUsageService(opencodeGoUsage)
 	accountHandler.SetClaudeResetCreditService(claudeResetCredits)
+	benchmarkHandler := admin.NewModelBenchmarkHandlerForAdmin(userHandler, benchmarkFederation)
+	benchmarkHandler.SetGroupService(benchmarkGroups)
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,
@@ -87,7 +90,7 @@ func ProvideAdminHandlers(
 		APIKey:                 apiKeyHandler,
 		ScheduledTest:          scheduledTestHandler,
 		DegradationTest:        degradationTestHandler,
-		ModelBenchmark:         admin.NewModelBenchmarkHandlerForAdmin(userHandler, benchmarkFederation),
+		ModelBenchmark:         benchmarkHandler,
 		Channel:                channelHandler,
 		ChannelMonitor:         channelMonitorHandler,
 		ChannelMonitorTemplate: channelMonitorTemplateHandler,

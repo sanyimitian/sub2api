@@ -167,6 +167,11 @@ class Store:
             schedule_columns = {row["name"] for row in db.execute("PRAGMA table_info(schedules)")}
             if "public_results" not in schedule_columns:
                 db.execute("ALTER TABLE schedules ADD COLUMN public_results INTEGER NOT NULL DEFAULT 0")
+            for table, existing in (("runs", columns), ("schedules", schedule_columns)):
+                if "group_id" not in existing:
+                    db.execute(f"ALTER TABLE {table} ADD COLUMN group_id INTEGER")
+                if "group_name" not in existing:
+                    db.execute(f"ALTER TABLE {table} ADD COLUMN group_name TEXT NOT NULL DEFAULT ''")
             db.execute("DROP INDEX IF EXISTS runs_user_quota")
             db.execute("DROP INDEX IF EXISTS runs_user_active")
             db.execute("CREATE INDEX IF NOT EXISTS runs_site_user_quota ON runs(owner_site_id,owner_user_id,quota_at)")
@@ -417,7 +422,7 @@ class Store:
             run_id = self._insert_run(db, suite["id"], base_url, model, effort, credential, owner_user_id=owner_user_id, owner_site_id=owner_site_id, identity=identity)
         return self.detail(run_id)
 
-    def _insert_run(self, db, suite_id, base_url, model, effort, credential, rerun_of=None, schedule_id=None, scheduled_for=None, owner_user_id=None, owner_site_id="", identity=None):
+    def _insert_run(self, db, suite_id, base_url, model, effort, credential, rerun_of=None, schedule_id=None, scheduled_for=None, owner_user_id=None, owner_site_id="", identity=None, group_id=None, group_name=""):
         identity = self.validate_identity(identity if owner_user_id is not None else None)
         if owner_user_id is not None and not db.execute("SELECT user_testing_enabled FROM config WHERE id=1").fetchone()[0]:
             raise Problem("管理员暂未开放用户自行测试", 403)
@@ -434,6 +439,7 @@ class Store:
         run_id = uuid.uuid4().hex
         db.execute("INSERT INTO runs(id,suite_id,rerun_of,base_url,model,effort,credential,created_at,status,schedule_id,scheduled_for,owner_user_id,quota_at,owner_site_id,owner_email,owner_username,owner_site_name) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    (run_id, suite_id, rerun_of, base_url, model, effort, credential, now(), "queued", schedule_id, scheduled_for, owner_user_id, self.clock().timestamp(), owner_site_id, identity['email'], identity['username'], identity['site_name']))
+        db.execute("UPDATE runs SET group_id=?,group_name=? WHERE id=?", (group_id, group_name, run_id))
         # Older records lack account snapshots. Only fill missing fields within
         # this authenticated site/user pair; never overwrite another identity.
         if owner_site_id and owner_user_id is not None:
@@ -456,11 +462,14 @@ class Store:
             suite = self._suite(db)
             if identity is None and owner_user_id is not None:
                 identity = {'email': row['owner_email'], 'username': row['owner_username'], 'site_name': row['owner_site_name']}
-            new_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"], run_id, owner_user_id=owner_user_id, owner_site_id=owner_site_id, identity=identity)
+            new_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"], run_id, owner_user_id=owner_user_id, owner_site_id=owner_site_id, identity=identity, group_id=row["group_id"], group_name=row["group_name"])
         return self.detail(new_id)
 
     def _public_run(self, row, suite, detail=False):
         record = {k: row[k] for k in ("id", "suite_id", "rerun_of", "schedule_id", "scheduled_for", "base_url", "model", "effort", "created_at", "started_at", "finished_at", "status", "error")}
+        record.update(group_id=row["group_id"], group_name=row["group_name"])
+        if row["group_id"] is not None:
+            record["base_url"] = ""
         results = json.loads(row["results"])
         counts = json.loads(suite["counts"])
         total = sum(counts.values())
@@ -637,6 +646,17 @@ class Store:
             _, upcoming = next_occurrence(row["cron_expression"], self.clock(), self.timezone)
             db.execute("UPDATE schedules SET next_run_at=? WHERE id=?", (upcoming, row["id"]))
 
+    @staticmethod
+    def validate_group(data):
+        group_id, name = data.get("group_id"), data.get("group_name", "")
+        if group_id is None and name == "":
+            return None, ""  # Existing schedules remain compatible.
+        if type(group_id) is not int or not 1 <= group_id <= 9007199254740991:
+            raise Problem("请选择有效的分组")
+        if not isinstance(name, str) or not name.strip() or len(name) > 100 or any(ord(c) < 32 or ord(c) == 127 for c in name):
+            raise Problem("分组名称格式不正确")
+        return group_id, name.strip()
+
     def _schedule_fields(self, data):
         name = data.get("name", "")
         enabled = data.get("enabled", True)
@@ -655,6 +675,9 @@ class Store:
 
     def _public_schedule(self, row):
         result = {key: row[key] for key in ("id", "name", "base_url", "model", "effort", "cron_expression", "created_at", "updated_at", "next_run_at", "last_attempt_at", "last_run_id", "last_error")}
+        result.update(group_id=row["group_id"], group_name=row["group_name"])
+        if row["group_id"] is not None:
+            result["base_url"] = ""
         result.update(enabled=bool(row["enabled"]), public_results=bool(row["public_results"]), timezone=str(self.timezone))
         return result
 
@@ -667,6 +690,7 @@ class Store:
 
     def create_schedule(self, data):
         base_url, model, effort, credential = self.validate_target(data)
+        group_id, group_name = self.validate_group(data)
         name, expression, enabled, upcoming, public_results = self._schedule_fields(data)
         schedule_id, created = uuid.uuid4().hex, now()
         with self.transaction() as db:
@@ -675,15 +699,27 @@ class Store:
             db.execute("""INSERT INTO schedules(id,name,base_url,model,effort,credential,cron_expression,enabled,created_at,updated_at,next_run_at,public_results)
                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                        (schedule_id, name, base_url, model, effort, credential, expression, int(enabled), created, created, upcoming, int(public_results)))
+            db.execute("UPDATE schedules SET group_id=?,group_name=? WHERE id=?", (group_id, group_name, schedule_id))
             return self._public_schedule(db.execute("SELECT * FROM schedules WHERE id=?", (schedule_id,)).fetchone())
 
     def update_schedule(self, schedule_id, data):
-        if not data or set(data) - {"name", "cron_expression", "enabled", "public_results"}:
-            raise Problem("仅可修改任务名称、执行频率、启用和开放展示状态")
+        target_fields = {"group_id", "group_name", "base_url", "api_key", "model", "effort"}
+        if not data or set(data) - ({"name", "cron_expression", "enabled", "public_results"} | target_fields):
+            raise Problem("定时任务配置包含不支持的字段")
+        target = None
+        if set(data) & target_fields:
+            if not target_fields <= set(data):
+                raise Problem("请完整选择分组和模型")
+            group_id, group_name = self.validate_group(data)
+            if group_id is None:
+                raise Problem("请选择有效的分组")
+            target = (*self.validate_target(data), group_id, group_name)
         with self.transaction() as db:
             row = db.execute("SELECT * FROM schedules WHERE id=? AND deleted=0", (schedule_id,)).fetchone()
             if row is None:
                 raise Problem("定时任务不存在", 404)
+            if target is not None:
+                db.execute("UPDATE schedules SET base_url=?,model=?,effort=?,credential=?,group_id=?,group_name=? WHERE id=?", (*target, schedule_id))
             merged = {"name": row["name"], "cron_expression": row["cron_expression"], "enabled": bool(row["enabled"]), "public_results": bool(row["public_results"]), **data}
             name, expression, enabled, upcoming, public_results = self._schedule_fields(merged)
             if expression == row["cron_expression"] and enabled == bool(row["enabled"]):
@@ -711,7 +747,7 @@ class Store:
             if db.execute("SELECT id FROM runs WHERE schedule_id=? AND status IN ('queued','running','cancelling')", (schedule_id,)).fetchone():
                 raise Problem("该定时任务已有未结束的测试，请等待完成后再执行", 409)
             suite = self._suite(db)
-            run_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"], schedule_id=schedule_id)
+            run_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"], schedule_id=schedule_id, group_id=row["group_id"], group_name=row["group_name"])
             upcoming = None if interval_duration(row["cron_expression"]) is not None else row["next_run_at"]
             db.execute("UPDATE schedules SET last_run_id=?,last_attempt_at=?,last_error='',next_run_at=? WHERE id=?",
                        (run_id, self.clock().astimezone(timezone.utc).isoformat(), upcoming, schedule_id))
@@ -741,7 +777,7 @@ class Store:
                 if not error:
                     suite = self._suite(db)
                     run_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"],
-                                              schedule_id=row["id"], scheduled_for=row["next_run_at"])
+                                              schedule_id=row["id"], scheduled_for=row["next_run_at"], group_id=row["group_id"], group_name=row["group_name"])
                     db.execute("UPDATE schedules SET last_run_id=? WHERE id=?", (run_id, row["id"]))
                     added += 1
                 # One catch-up run after downtime, never a burst for every missed interval.
@@ -804,15 +840,17 @@ class Store:
         # Explicit whitelist: never publish targets, credentials, raw errors or answers.
         fields = ("id", "model", "effort", "status", "created_at", "finished_at", "total", "completed", "passed",
                   "pass_rate", "categories", "suite_day", "suite_revision", "suite_fingerprint", "elapsed_seconds",
-                  "usage", "api_errors", "api_error_details", "grading_errors", "incomplete_responses")
+                  "usage", "api_errors", "api_error_details", "grading_errors", "incomplete_responses", "group_id", "group_name")
         suite = db.execute("SELECT * FROM suites WHERE id=?", (row["suite_id"],)).fetchone()
         record = self._public_run(row, suite)
-        return {key: record[key] for key in fields}
+        return {key: record[key] for key in fields if key not in ("group_id", "group_name") or row["group_id"] is not None}
 
     def user_results(self, viewer_user_id=None, cursor="", viewer_site_id=""):
         before = result_cursor(cursor, "users")
         with self.transaction() as db:
-            query = "SELECT *,julianday(finished_at) AS sort_time FROM runs WHERE deleted_at IS NULL AND owner_user_id IS NOT NULL AND finished_at IS NOT NULL"
+            # All one-off runs belong in this feed, including administrator runs
+            # created before this feature. Schedule executions stay in showcase.
+            query = "SELECT *,julianday(finished_at) AS sort_time FROM runs WHERE deleted_at IS NULL AND schedule_id IS NULL AND finished_at IS NOT NULL"
             params = ()
             if before:
                 query += " AND (julianday(finished_at),id) < (?,?)"
@@ -821,7 +859,9 @@ class Store:
             items = []
             for row in rows[:RESULT_PAGE_SIZE]:
                 visible = viewer_user_id is None or (row["owner_user_id"] == viewer_user_id and row["owner_site_id"] == viewer_site_id)
-                result = {**self._shared_result(db, row), "base_url": row["base_url"] if visible else mask_result_url(row["base_url"]), "url_masked": not visible}
+                result = {**self._shared_result(db, row), "test_source": "admin" if row["owner_user_id"] is None else "user"}
+                if row["group_id"] is None:
+                    result.update(base_url=row["base_url"] if visible else mask_result_url(row["base_url"]), url_masked=not visible)
                 items.append({"id": row["id"], "name": "", "model": row["model"], "effort": row["effort"], "results": [result]})
             last = rows[RESULT_PAGE_SIZE - 1] if len(rows) > RESULT_PAGE_SIZE else None
             return {"items": items, "next_cursor": encode_result_cursor((last["sort_time"], last["id"], ""), "users") if last else None}
@@ -832,5 +872,5 @@ class Store:
             rows = db.execute("""SELECT r.*,s.name AS schedule_name FROM runs r JOIN schedules s ON s.id=r.schedule_id
                 WHERE s.public_results=1 AND s.deleted=0 AND r.deleted_at IS NULL AND r.finished_at IS NOT NULL
                 ORDER BY julianday(r.finished_at) DESC,r.rowid DESC LIMIT 20""").fetchall()
-            items = [{**self._shared_result(db, row), "base_url": row["base_url"], "schedule_id": row["schedule_id"], "schedule_name": row["schedule_name"]} for row in rows]
+            items = [{**self._shared_result(db, row), **({"base_url": mask_result_url(row["base_url"]), "url_masked": True} if row["group_id"] is None else {}), "schedule_id": row["schedule_id"], "schedule_name": row["schedule_name"]} for row in rows]
             return {"version": 2, "generated_at": now(), "limit": 20, "items": items}

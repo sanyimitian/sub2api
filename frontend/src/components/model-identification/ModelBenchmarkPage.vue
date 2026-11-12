@@ -63,6 +63,9 @@
             <p v-if="userHasActive" class="text-sm font-medium text-amber-800 dark:text-amber-300" data-testid="active-test-notice">{{ t('modelBenchmark.activeTestHint') }} <button v-if="state?.active_run" type="button" class="underline" :disabled="!!busy" @click="showDetail(state.active_run.id)">{{ t('modelBenchmark.details') }}</button></p>
           </div>
           <form :class="userMode ? 'grid gap-4 md:grid-cols-2' : 'space-y-4'" @submit.prevent="submitTarget">
+            <label v-if="!userMode" class="flex items-center gap-2 text-sm"><input v-model="scheduledMode" name="scheduled_mode" type="checkbox" />{{ t('modelBenchmark.setSchedule') }}</label>
+            <BenchmarkGroupTarget v-if="!userMode && scheduledMode" v-model="scheduleTarget" :disabled="!!busy" @ready="scheduleTargetReady = $event" />
+            <template v-else>
             <div class="space-y-1 text-sm">
               <div class="flex items-center justify-between gap-2"><label for="benchmark-api-url">{{ t('modelBenchmark.url') }}</label><button type="button" class="text-xs font-medium text-primary-600 hover:underline" :disabled="!!busy" @click="showKeyPicker = true">{{ t('modelBenchmark.selectVersion') }}</button></div>
               <input id="benchmark-api-url" v-model.trim="form.base_url" name="base_url" type="url" required maxlength="2048" class="input w-full" placeholder="https://api.example.com/v1" @input="clearSelectedKey" />
@@ -87,7 +90,7 @@
               </label>
             </div>
             <p class="text-xs leading-5 text-gray-500 dark:text-gray-400" :class="{ 'md:col-span-2': userMode }">{{ t('modelBenchmark.protocol') }}</p>
-            <label v-if="!userMode" class="flex items-center gap-2 text-sm"><input v-model="scheduledMode" name="scheduled_mode" type="checkbox" />{{ t('modelBenchmark.setSchedule') }}</label>
+            </template>
             <div v-if="!userMode && scheduledMode" class="rounded-lg bg-gray-50 p-3 dark:bg-dark-800">
               <BenchmarkScheduleFields v-model="scheduleForm" :timezone="state?.timezone || 'Asia/Shanghai'" />
               <p class="mt-3 text-xs leading-5 text-gray-500">{{ t('modelBenchmark.scheduleHint', { concurrency: state?.execution?.max_concurrency ?? 5 }) }}</p>
@@ -162,7 +165,7 @@
             <thead class="border-b border-gray-200 text-gray-500 dark:border-dark-700"><tr><th class="pb-3 pr-4">{{ t('modelBenchmark.scheduleName') }}</th><th class="pb-3 pr-4">{{ t('modelBenchmark.frequency') }}</th><th class="pb-3 pr-4">{{ t('modelBenchmark.nextRun') }}</th><th class="pb-3 pr-4">{{ t('modelBenchmark.lastRun') }}</th><th class="pb-3 pr-4">{{ t('modelBenchmark.publicResults') }}</th><th class="pb-3">{{ t('modelBenchmark.actions') }}</th></tr></thead>
             <tbody class="divide-y divide-gray-100 dark:divide-dark-800">
               <tr v-for="schedule in schedules" :key="schedule.id" :data-schedule-id="schedule.id">
-                <td class="max-w-xs py-4 pr-4"><div class="font-semibold">{{ schedule.name }}</div><div class="mt-1 text-xs text-gray-500">{{ schedule.model }} · {{ t(`modelBenchmark.efforts.${schedule.effort}`) }}</div><div class="break-all text-xs text-gray-500">{{ schedule.base_url }}</div></td>
+                <td class="max-w-xs py-4 pr-4"><div class="font-semibold">{{ schedule.name }}</div><div v-if="schedule.group_name" class="mt-1 text-sm text-primary-600 dark:text-primary-400">{{ schedule.group_name }}</div><div v-else class="mt-1 text-xs text-amber-700">{{ t('modelBenchmark.legacyScheduleTarget') }}</div><div class="mt-1 text-xs text-gray-500">{{ schedule.model }} · {{ t(`modelBenchmark.efforts.${schedule.effort}`) }}</div></td>
                 <td class="py-4 pr-4"><span>{{ scheduleFrequency(schedule.cron_expression) }}</span><div class="mt-1 text-xs" :class="schedule.enabled ? 'text-emerald-600' : 'text-gray-500'">{{ t(schedule.enabled ? 'modelBenchmark.scheduleEnabled' : 'modelBenchmark.schedulePaused') }}</div></td>
                 <td class="whitespace-nowrap py-4 pr-4 text-xs">{{ schedule.next_run_at ? formatScheduledTime(schedule.next_run_at) : schedule.enabled && schedule.active_run_id && schedule.cron_expression.startsWith('@every') ? t('modelBenchmark.waitingInterval') : '—' }}</td>
                 <td class="max-w-xs py-4 pr-4 text-xs"><div>{{ schedule.last_attempt_at ? formatScheduledTime(schedule.last_attempt_at) : '—' }}</div><p v-if="schedule.last_error" class="mt-1 text-amber-700 dark:text-amber-300">{{ schedule.last_error }}</p><button v-if="schedule.last_run_id" class="mt-1 text-primary-600 hover:underline" :disabled="!!busy" @click="showDetail(schedule.last_run_id)">{{ t('modelBenchmark.details') }}</button></td>
@@ -198,7 +201,8 @@
               <tr v-for="run in runs" :key="run.id" :data-run-id="run.id">
                 <td class="max-w-xs py-4 pr-4">
                   <div class="break-words font-semibold">{{ run.model }} <span class="text-xs font-normal text-gray-500">{{ t(`modelBenchmark.efforts.${run.effort}`) }}</span></div>
-                  <div class="mt-1 break-all text-xs text-gray-500">{{ run.base_url }}</div>
+                  <div v-if="run.group_name" class="mt-1 text-sm text-primary-600 dark:text-primary-400">{{ t('modelBenchmark.group') }}: {{ run.group_name }}</div>
+                  <div v-else class="mt-1 break-all text-xs text-gray-500">{{ run.base_url }}</div>
                   <div class="mt-1 text-xs text-gray-500">{{ formatDate(run.created_at) }}</div>
                   <span v-if="run.schedule_id" class="text-xs text-primary-600">{{ t('modelBenchmark.scheduledRun') }}</span>
                 </td>
@@ -235,6 +239,7 @@
       <section v-if="detail" ref="detailPanel" tabindex="-1" class="benchmark-card space-y-4" :aria-label="t('modelBenchmark.questionResults')">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="text-lg font-semibold">{{ t('modelBenchmark.questionResults') }} · {{ detail.model }}</h2>
+          <p v-if="detail.group_name" class="text-sm text-primary-600 dark:text-primary-400">{{ t('modelBenchmark.group') }}: {{ detail.group_name }}</p>
           <button class="btn btn-secondary" @click="closeDetail">{{ t('modelBenchmark.close') }}</button>
         </div>
         <p class="text-sm">{{ t(`modelBenchmark.statuses.${detail.status}`) }} · {{ detail.suite_day }} v{{ detail.suite_revision }} · {{ t('modelBenchmark.tokens', { count: detail.usage.total_tokens }) }}</p>
@@ -261,8 +266,9 @@
       <BenchmarkKeyPicker :show="showKeyPicker" @close="showKeyPicker = false" @select="selectOwnKey" />
       <BaseDialog :show="!!editingSchedule" :title="t('modelBenchmark.editSchedule')" @close="editingSchedule = null">
         <form class="space-y-4" @submit.prevent="saveSchedule">
+          <BenchmarkGroupTarget v-if="editingSchedule" :key="editingSchedule.id" v-model="editTarget" :disabled="!!busy" @ready="editTargetReady = $event" />
           <BenchmarkScheduleFields v-model="editForm" :timezone="state?.timezone || 'Asia/Shanghai'" />
-          <button type="submit" class="btn btn-primary" :disabled="!!busy">{{ t('common.save') }}</button>
+          <button type="submit" class="btn btn-primary" :disabled="!!busy || !editTargetReady">{{ t('common.save') }}</button>
         </form>
       </BaseDialog>
       <ConfirmDialog :show="!!deletingSchedule" :title="t('modelBenchmark.deleteSchedule')" :message="t('modelBenchmark.deleteScheduleHint')" danger @cancel="deletingSchedule = null" @confirm="removeSchedule" />
@@ -278,6 +284,8 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import IdentificationTabs from '@/components/model-identification/IdentificationTabs.vue'
 import BenchmarkKeyPicker from '@/components/model-identification/BenchmarkKeyPicker.vue'
 import BenchmarkScheduleFields from '@/components/model-identification/BenchmarkScheduleFields.vue'
+import BenchmarkGroupTarget from './BenchmarkGroupTarget.vue'
+import type { ScheduleTarget } from '@/api/admin/model-benchmarks'
 import BenchmarkDisplaySettings from '@/components/model-identification/BenchmarkDisplaySettings.vue'
 import BenchmarkBankSettings from '@/components/model-identification/BenchmarkBankSettings.vue'
 import BenchmarkResults from '@/components/model-identification/BenchmarkResults.vue'
@@ -313,6 +321,10 @@ const form = reactive({ base_url: '', api_key: '', model: '', effort: 'medium' a
 const showKeyPicker = ref(false)
 const selectedKeyName = ref('')
 const scheduledMode = ref(false)
+const scheduleTarget = ref<ScheduleTarget>({ group_id: 0, model: '', effort: 'medium' })
+const scheduleTargetReady = ref(false)
+const editTarget = ref<ScheduleTarget>({ group_id: 0, model: '', effort: 'medium' })
+const editTargetReady = ref(false)
 const scheduleForm = ref<ScheduleSettings>({ name: '', cron_expression: '@every 30m', enabled: true, public_results: false })
 const schedules = ref<BenchmarkSchedule[]>([])
 const editingSchedule = ref<BenchmarkSchedule | null>(null)
@@ -342,7 +354,7 @@ const validCounts = computed(() => countTotal.value >= 1 && countTotal.value <= 
 const hasQuota = computed(() => !userMode || (state.value?.quota?.remaining ?? 0) > 0)
 const canUsePersonalTests = computed(() => userMode ? state.value?.execution?.user_testing_enabled === true : !!source.value && !remoteMode.value)
 const userHasActive = computed(() => userMode && (!!state.value?.active_run || runs.value.some(isActive)))
-const canStart = computed(() => canUsePersonalTests.value && !userHasActive.value && hasQuota.value && state.value?.ready && !state.value?.resources?.blocked && !busy.value && !dirtyCounts.value && !!form.base_url && !!form.api_key.trim() && !!form.model)
+const canStart = computed(() => canUsePersonalTests.value && !userHasActive.value && hasQuota.value && state.value?.ready && !state.value?.resources?.blocked && !busy.value && !dirtyCounts.value && (scheduledMode.value && !userMode ? scheduleTargetReady.value : !!form.base_url && !!form.api_key.trim() && !!form.model))
 const isActive = (run: BenchmarkRun) => ['queued', 'running', 'cancelling'].includes(run.status)
 const hasActiveRerun = (id: string) => runs.value.some(run => run.rerun_of === id && isActive(run))
 const statusColor = (status: string) => status === 'completed' ? 'text-emerald-600 dark:text-emerald-400' : ['failed', 'interrupted'].includes(status) ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-300'
@@ -455,7 +467,7 @@ async function submitTarget() {
   if (!canStart.value || !state.value?.suite) return
   await action('create', async () => {
     if (!userMode && scheduledMode.value) {
-      await adminBenchmarks.createSchedule({ ...form, ...scheduleForm.value }, controller.signal)
+      await adminBenchmarks.createSchedule({ ...scheduleTarget.value, ...scheduleForm.value }, controller.signal)
       app.showSuccess(t('modelBenchmark.scheduleCreated'))
     } else {
       const run = await benchmarks.create({ ...form, suite_id: state.value!.suite!.id }, controller.signal)
@@ -486,6 +498,8 @@ async function toggleUserTesting() {
   })
 }
 function editSchedule(schedule: BenchmarkSchedule) {
+  editTargetReady.value = false
+  editTarget.value = { group_id: schedule.group_id ?? 0, model: schedule.model, effort: schedule.effort }
   editingSchedule.value = schedule
   editForm.value = { name: schedule.name, cron_expression: schedule.cron_expression, enabled: schedule.enabled, public_results: schedule.public_results }
 }
@@ -501,9 +515,9 @@ async function runSchedule(schedule: BenchmarkSchedule) {
   })
 }
 async function saveSchedule() {
-  if (!editingSchedule.value) return
+  if (!editingSchedule.value || !editTargetReady.value) return
   const id = editingSchedule.value.id
-  await action('schedule', async () => { await adminBenchmarks.updateSchedule(id, editForm.value, controller.signal); editingSchedule.value = null; app.showSuccess(t('modelBenchmark.scheduleUpdated')) })
+  await action('schedule', async () => { await adminBenchmarks.updateSchedule(id, { ...editForm.value, ...editTarget.value }, controller.signal); editingSchedule.value = null; app.showSuccess(t('modelBenchmark.scheduleUpdated')) })
 }
 async function togglePublicResults(schedule: BenchmarkSchedule) {
   await action('schedule', async () => { await adminBenchmarks.updateSchedule(schedule.id, { public_results: !schedule.public_results }, controller.signal); app.showSuccess(t('modelBenchmark.scheduleUpdated')) })

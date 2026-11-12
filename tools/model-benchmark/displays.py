@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
 
-from store import CATEGORIES, EFFORTS, Problem, RESULT_PAGE_SIZE, result_cursor, encode_result_cursor
+from store import CATEGORIES, EFFORTS, Problem, RESULT_PAGE_SIZE, result_cursor, encode_result_cursor, mask_result_url
 from transport import RequestFailure, public_addresses
 from api_errors import sanitize_api_error_details
 
@@ -140,8 +140,14 @@ def sanitize_feed(data):
             if not isinstance(result, dict):
                 raise ValueError("Invalid result")
             record = {k: text(result[k]) for k in ("id", "model", "effort", "status", "suite_day", "suite_fingerprint")}
-            if result.get("base_url"):
-                record["base_url"] = feed_url(result["base_url"])
+            if result.get("group_id") is not None or result.get("group_name"):
+                record["group_id"] = integer(result.get("group_id"), 9007199254740991)
+                if record["group_id"] == 0:
+                    raise ValueError("Invalid group")
+                record["group_name"] = text(result.get("group_name"), 100)
+            if result.get("base_url") and not record.get("group_id"):
+                record["base_url"] = mask_result_url(feed_url(result["base_url"]))
+                record["url_masked"] = True
             if record["effort"] not in EFFORTS or record["status"] not in ("completed", "failed", "cancelled", "interrupted"):
                 raise ValueError("Invalid finished result")
             record["suite_revision"] = integer(result["suite_revision"], 1000000)
@@ -334,7 +340,7 @@ class Displays:
                 sources[row["id"]] = source
             candidates.sort(key=lambda item: item[0], reverse=True)
             for key, source, schedule, row in candidates[:RESULT_PAGE_SIZE]:
-                result = {**self.store._shared_result(db, row), "base_url": row["base_url"]} if source["source_type"] == "local" else row
+                result = {**self.store._shared_result(db, row), **({"base_url": mask_result_url(row["base_url"]), "url_masked": True} if row["group_id"] is None else {})} if source["source_type"] == "local" else row
                 group = next((item for item in source["items"] if item["id"] == schedule["id"]), None)
                 if group is None:
                     group = {"id": schedule["id"], "name": schedule["name"], "model": result["model"], "effort": result["effort"], "results": []}

@@ -76,6 +76,8 @@ export interface BenchmarkAPIErrorDetail {
   count: number
 }
 export interface BenchmarkRun {
+  group_id?: number | null
+  group_name?: string
   owner_site_name?: string
   owner_site_id?: string
   owner_user_id?: number
@@ -119,6 +121,8 @@ export interface CreateBenchmark {
   effort: Effort
 }
 export interface BenchmarkSchedule {
+  group_id?: number | null
+  group_name?: string
   active_run_id?: string | null
   public_results: boolean
   id: string
@@ -142,7 +146,9 @@ export interface ScheduleSettings {
   cron_expression: string
   enabled: boolean
 }
-export type CreateSchedule = Omit<CreateBenchmark, 'suite_id'> & ScheduleSettings
+export interface BenchmarkGroup { id: number; name: string; platform: string }
+export interface ScheduleTarget { group_id: number; model: string; effort: Effort }
+export type CreateSchedule = ScheduleTarget & ScheduleSettings
 export interface ExecutionSettings { max_concurrency: number; running: number; queued: number; user_testing_enabled?: boolean }
 export interface DisplayInput {
   max_results: number
@@ -167,6 +173,12 @@ export interface BenchmarkSource { source_url: string; site_id: string; has_toke
 export interface BenchmarkSite { id: string; name: string; created_at: string }
 export interface BenchmarkSiteOption { id: string; name: string }
 export const benchmarks = {
+  async groups(signal?: AbortSignal) {
+    return (await apiClient.get<{ items: BenchmarkGroup[] }>(`${root}/groups`, { signal })).data
+  },
+  async groupModels(group_id: number, signal?: AbortSignal) {
+    return (await apiClient.get<{ models: string[] }>(`${root}/groups/${group_id}/models`, { signal })).data
+  },
   async deleteRun(id: string, signal?: AbortSignal) {
     return (await apiClient.delete<{ deleted: boolean }>(`${root}/runs/${id}`, { signal })).data
   },
@@ -247,7 +259,7 @@ export const benchmarks = {
   async createSchedule(input: CreateSchedule, signal?: AbortSignal) {
     return (await apiClient.post<BenchmarkSchedule>(`${root}/schedules`, input, { signal })).data
   },
-  async updateSchedule(id: string, input: Partial<ScheduleSettings>, signal?: AbortSignal) {
+  async updateSchedule(id: string, input: Partial<ScheduleSettings> & Partial<ScheduleTarget>, signal?: AbortSignal) {
     return (await apiClient.put<BenchmarkSchedule>(`${root}/schedules/${id}`, input, { signal })).data
   },
   async runSchedule(id: string, signal?: AbortSignal) {

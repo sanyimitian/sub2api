@@ -14,7 +14,7 @@ vi.mock('vue-i18n', async importOriginal => ({
   useI18n: () => ({ t: (key: string) => key })
 }))
 vi.mock('@/api/admin/model-benchmarks', () => ({
-  benchmarks: { userRuns: vi.fn(), source: vi.fn(), showcase: vi.fn(), results: vi.fn(), setUserTesting: vi.fn(), runSchedule: vi.fn(), updateBank: vi.fn(), activateBank: vi.fn(), retryEnvironment: vi.fn(), state: vi.fn(), setExecution: vi.fn(), displays: vi.fn(), configure: vi.fn(), refresh: vi.fn(), create: vi.fn(), list: vi.fn(), detail: vi.fn(), rerun: vi.fn(), cancel: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), deleteSchedule: vi.fn() }
+  benchmarks: { groups: vi.fn(), groupModels: vi.fn(), userRuns: vi.fn(), source: vi.fn(), showcase: vi.fn(), results: vi.fn(), setUserTesting: vi.fn(), runSchedule: vi.fn(), updateBank: vi.fn(), activateBank: vi.fn(), retryEnvironment: vi.fn(), state: vi.fn(), setExecution: vi.fn(), displays: vi.fn(), configure: vi.fn(), refresh: vi.fn(), create: vi.fn(), list: vi.fn(), detail: vi.fn(), rerun: vi.fn(), cancel: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), deleteSchedule: vi.fn() }
 }))
 const initial: BenchmarkState = {
   execution: { max_concurrency: 5, running: 2, queued: 4 },
@@ -31,8 +31,8 @@ function run(overrides: Partial<BenchmarkRun> = {}): BenchmarkRun {
     usage: { input_tokens: 10, output_tokens: 20, total_tokens: 30 }, error: '', api_errors: 0, grading_errors: 0, results: [], ...overrides
   }
 }
-function render() {
-  return mount(ModelBenchmarksView, { global: { stubs: { AppLayout: { template: '<main><slot /></main>' }, IdentificationTabs: true, BenchmarkSourceSettings: true, BenchmarkKeyPicker: true, BaseDialog: true, ConfirmDialog: true } } })
+function render(dialogs = false) {
+  return mount(ModelBenchmarksView, { global: { stubs: { AppLayout: { template: '<main><slot /></main>' }, IdentificationTabs: true, BenchmarkSourceSettings: true, BenchmarkKeyPicker: true, BaseDialog: dialogs ? { props: ['show'], template: '<div v-if="show"><slot /></div>' } : true, ConfirmDialog: true } } })
 }
 function schedule(): BenchmarkSchedule {
   return { id: 'schedule-one', name: 'Daily check', base_url: 'https://example.com/v1', model: 'fixture-model', effort: 'medium', cron_expression: '0 9 * * *', enabled: true, public_results: false, timezone: 'Asia/Shanghai', next_run_at: '2026-11-12T01:00:00Z', last_attempt_at: null, last_run_id: null, last_error: '', created_at: '', updated_at: '' }
@@ -47,9 +47,29 @@ beforeEach(() => {
   vi.mocked(benchmarks.list).mockResolvedValue({ items: [], total: 0, page_size: 20 })
   vi.mocked(benchmarks.detail).mockResolvedValue(run())
   vi.mocked(benchmarks.schedules).mockResolvedValue({ items: [] })
+  vi.mocked(benchmarks.groups).mockResolvedValue({ items: [{ id: 4, name: 'Premium', platform: 'openai' }] })
+  vi.mocked(benchmarks.groupModels).mockResolvedValue({ models: ['fixture-model'] })
 })
 
 describe('administrator model benchmarks', () => {
+  it('converts an older schedule to a group target when edited', async () => {
+    vi.mocked(benchmarks.schedules).mockResolvedValue({ items: [schedule()] })
+    vi.mocked(benchmarks.updateSchedule).mockResolvedValue({ ...schedule(), group_id: 4, group_name: 'Premium' })
+    const wrapper = render(true)
+    await flushPromises()
+    await wrapper.get('[data-schedule-id="schedule-one"]').findAll('button').find(b => b.text() === 'modelBenchmark.editSchedule')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[name="benchmark_group_id"]').element).toBeDefined()
+    await wrapper.get('[name="benchmark_group_id"]').setValue(4)
+    await flushPromises()
+    await wrapper.get('[name="benchmark_group_model"]').setValue('fixture-model')
+    await wrapper.get('[name="benchmark_group_model"]').element.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(benchmarks.updateSchedule).toHaveBeenCalledWith('schedule-one', expect.objectContaining({ group_id: 4, model: 'fixture-model', effort: 'medium' }), expect.any(AbortSignal))
+    const input = vi.mocked(benchmarks.updateSchedule).mock.calls[0][1]
+    expect(input).not.toHaveProperty('base_url')
+    expect(input).not.toHaveProperty('api_key')
+  })
   it('does not restore a deleted shared result from an older in-flight refresh', async () => {
     const feed = { items: [{ id: 'group', name: '', model: 'fixture-model', effort: 'medium', results: [run()] }] }
     vi.mocked(benchmarks.list).mockResolvedValue({ items: [run()], total: 1, page_size: 20 })
@@ -332,7 +352,7 @@ describe('administrator model benchmarks', () => {
     expect((wrapper.get('[name="api_key"]').element as HTMLInputElement).value).toBe('')
   })
 
-  it('creates a scheduled test with the chosen API and clears its secret', async () => {
+  it('creates a scheduled test with a local group and model without URL or key inputs', async () => {
     vi.mocked(benchmarks.createSchedule).mockResolvedValue(schedule())
     const wrapper = render()
     await flushPromises()
@@ -340,13 +360,20 @@ describe('administrator model benchmarks', () => {
     await wrapper.get('[name="api_key"]').setValue('schedule-secret')
     await wrapper.get('[name="model"]').setValue('fixture-model')
     await wrapper.get('[name="scheduled_mode"]').setValue(true)
+    await flushPromises()
+    await wrapper.get('[name="benchmark_group_id"]').setValue(4)
+    await flushPromises()
+    await wrapper.get('[name="benchmark_group_model"]').setValue('fixture-model')
+    expect(wrapper.find('[name="base_url"]').exists()).toBe(false)
+    expect(wrapper.find('[name="api_key"]').exists()).toBe(false)
     await wrapper.get('[name="schedule_name"]').setValue('Daily check')
     await wrapper.get('[name="schedule_preset"]').setValue('custom')
     await wrapper.get('[name="cron_expression"]').setValue('0 10 * * *')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(benchmarks.createSchedule).toHaveBeenCalledWith({ name: 'Daily check', cron_expression: '0 10 * * *', enabled: true, public_results: false, base_url: 'https://example.com/v1', api_key: 'schedule-secret', model: 'fixture-model', effort: 'medium' }, expect.any(AbortSignal))
+    expect(benchmarks.createSchedule).toHaveBeenCalledWith({ name: 'Daily check', cron_expression: '0 10 * * *', enabled: true, public_results: false, group_id: 4, model: 'fixture-model', effort: 'medium' }, expect.any(AbortSignal))
     expect(benchmarks.create).not.toHaveBeenCalled()
+    await wrapper.get('[name="scheduled_mode"]').setValue(false)
     expect((wrapper.get('[name="api_key"]').element as HTMLInputElement).value).toBe('')
   })
 
@@ -368,6 +395,10 @@ describe('administrator model benchmarks', () => {
     await wrapper.get('[name="api_key"]').setValue('schedule-secret')
     await wrapper.get('[name="model"]').setValue('fixture-model')
     await wrapper.get('[name="scheduled_mode"]').setValue(true)
+    await flushPromises()
+    await wrapper.get('[name="benchmark_group_id"]').setValue(4)
+    await flushPromises()
+    await wrapper.get('[name="benchmark_group_model"]').setValue('fixture-model')
     expect((wrapper.get('[name="schedule_interval"]').element as HTMLInputElement).value).toBe('30')
     await wrapper.get('[name="schedule_name"]').setValue('Interval check')
     await wrapper.get('[name="schedule_interval"]').setValue(2)

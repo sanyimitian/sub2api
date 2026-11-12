@@ -345,6 +345,70 @@ describe('useAuthStore', () => {
   // --- refreshUser ---
 
   describe('refreshUser', () => {
+    it('合并并发刷新并同步最新余额，完成后可以再次刷新', async () => {
+      mockLogin.mockResolvedValue(fakeAuthResponse)
+      const store = useAuthStore()
+      await store.login({ email: 'test@example.com', password: '123456' })
+      let resolve!: (value: { data: typeof fakeUser }) => void
+      mockGetCurrentUser.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+      const first = store.refreshUser()
+      const second = store.refreshUser()
+      expect(mockGetCurrentUser).toHaveBeenCalledTimes(1)
+      resolve({ data: { ...fakeUser, balance: 75 } })
+      await Promise.all([first, second])
+      expect(store.user?.balance).toBe(75)
+      expect(JSON.parse(localStorage.getItem('auth_user')!).balance).toBe(75)
+      mockGetCurrentUser.mockResolvedValueOnce({ data: { ...fakeUser, balance: 60 } })
+      await store.refreshUser()
+      expect(mockGetCurrentUser).toHaveBeenCalledTimes(2)
+      expect(store.user?.balance).toBe(60)
+    })
+
+    it('退出登录后丢弃仍在请求中的旧余额', async () => {
+      mockLogin.mockResolvedValue(fakeAuthResponse)
+      mockLogout.mockResolvedValue(undefined)
+      const store = useAuthStore()
+      await store.login({ email: 'test@example.com', password: '123456' })
+      let resolve!: (value: { data: typeof fakeUser }) => void
+      mockGetCurrentUser.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+      const pending = store.refreshUser()
+      await store.logout()
+      resolve({ data: { ...fakeUser, balance: 80 } })
+      await pending
+      expect(store.user).toBeNull()
+      expect(localStorage.getItem('auth_user')).toBeNull()
+    })
+
+    it('旧账号的未授权响应不会清除新登录账号', async () => {
+      mockLogin.mockResolvedValue(fakeAuthResponse)
+      const store = useAuthStore()
+      await store.login({ email: 'test@example.com', password: '123456' })
+      let reject!: (reason: unknown) => void
+      mockGetCurrentUser.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail }))
+      const pending = store.refreshUser().catch(error => error)
+      mockLogin.mockResolvedValueOnce({ ...fakeAuthResponse, access_token: 'other-token', user: fakeAdminUser })
+      await store.login({ email: fakeAdminUser.email, password: '123456' })
+      mockGetCurrentUser.mockResolvedValueOnce({ data: { ...fakeAdminUser, balance: 42 } })
+      await store.refreshUser()
+      reject({ status: 401 })
+      await pending
+      expect(store.user?.id).toBe(fakeAdminUser.id)
+      expect(store.user?.balance).toBe(42)
+      expect(store.token).toBe('other-token')
+    })
+
+    it('刷新失败保留余额且后续可重试', async () => {
+      mockLogin.mockResolvedValue(fakeAuthResponse)
+      const store = useAuthStore()
+      await store.login({ email: 'test@example.com', password: '123456' })
+      mockGetCurrentUser.mockRejectedValueOnce(new Error('offline'))
+      await expect(store.refreshUser()).rejects.toThrow('offline')
+      expect(store.user?.balance).toBe(100)
+      mockGetCurrentUser.mockResolvedValueOnce({ data: { ...fakeUser, balance: 50 } })
+      await store.refreshUser()
+      expect(store.user?.balance).toBe(50)
+    })
+
     it('刷新用户数据并更新 localStorage', async () => {
       mockLogin.mockResolvedValue(fakeAuthResponse)
       const store = useAuthStore()

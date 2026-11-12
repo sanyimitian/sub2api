@@ -1,7 +1,7 @@
 import { apiClient } from './client'
 import type { BenchmarkRun, BenchmarkState, CreateBenchmark, Effort } from './admin/model-benchmarks'
 
-export type SharedResult = Pick<BenchmarkRun, 'id' | 'model' | 'effort' | 'status' | 'created_at' | 'finished_at' | 'total' | 'completed' | 'passed' | 'pass_rate' | 'categories' | 'suite_day' | 'suite_revision' | 'suite_fingerprint' | 'elapsed_seconds'> & { base_url?: string; url_masked?: boolean } & Partial<Pick<BenchmarkRun, 'usage' | 'api_errors' | 'api_error_details' | 'grading_errors' | 'incomplete_responses'>>
+export type SharedResult = Pick<BenchmarkRun, 'id' | 'model' | 'effort' | 'status' | 'created_at' | 'finished_at' | 'total' | 'completed' | 'passed' | 'pass_rate' | 'categories' | 'suite_day' | 'suite_revision' | 'suite_fingerprint' | 'elapsed_seconds'> & { base_url?: string; url_masked?: boolean; test_source?: 'admin' | 'user' } & Partial<Pick<BenchmarkRun, 'usage' | 'api_errors' | 'api_error_details' | 'grading_errors' | 'incomplete_responses' | 'group_id' | 'group_name'>>
 export interface SharedSchedule { id: string; name: string; model: string; effort: Effort; results: SharedResult[] }
 export interface SharedDisplay { id: string; name: string; source_type: 'local' | 'remote'; last_success_at: string | null; stale: boolean; pending: boolean; items: SharedSchedule[] }
 export interface ResultPage<T> { items: T[]; next_cursor?: string | null }

@@ -8,6 +8,28 @@ function groups(): SharedSchedule[] { return [{ id: 'first', name: 'First task',
 function render(items = groups()) { return mount(BenchmarkResultGallery, { props: { items, displayName: 'Selected source', testSource: 'admin' }, global: { stubs: { BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' } } } }) }
 enableAutoUnmount(afterEach)
 describe('benchmark result gallery', () => {
+  it('labels administrator one-off tests separately within the user results row', async () => {
+    const items = groups()
+    items[0].results = [{ ...result, test_source: 'admin' }]
+    const wrapper = render(items)
+    await wrapper.setProps({ testSource: 'user' })
+    expect(wrapper.get('[data-shared-result="old"] [data-testid="test-source"]').text()).toBe('modelBenchmark.adminTest')
+    expect(wrapper.get('[data-shared-result="new"] [data-testid="test-source"]').text()).toBe('modelBenchmark.userTest')
+    await wrapper.get('[data-shared-result="old"]').trigger('click')
+    expect(wrapper.get('[data-testid="detail-test-source"]').text()).toBe('modelBenchmark.adminTest')
+  })
+  it('shows group and model on scheduled cards and details without a URL', async () => {
+    const items = groups().slice(0, 1)
+    items[0].results = [{ ...result, group_id: 4, group_name: 'Premium', base_url: 'https://hidden.example/v1' }]
+    const wrapper = render(items)
+    expect(wrapper.get('[data-testid="result-group"]').text()).toBe('Premium')
+    expect(wrapper.text()).toContain('example-model')
+    expect(wrapper.find('[data-testid="result-url"]').exists()).toBe(false)
+    await wrapper.get('[data-shared-result="old"]').trigger('click')
+    expect(wrapper.get('[data-testid="detail-group"]').text()).toBe('Premium')
+    expect(wrapper.find('[data-testid="detail-url"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('hidden.example')
+  })
   it.each(['https://test.one/private/v1', 'https://***t.one'])('shows the supplied URL in both card and detail: %s', async url => {
     const items = groups()
     items[0].results = [{ ...result, base_url: url, url_masked: url.includes('*') }]

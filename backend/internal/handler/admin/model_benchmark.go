@@ -30,6 +30,7 @@ type ModelBenchmarkHandler struct {
 	publicGuard *benchmarkPublicGuard
 	users       benchmarkUsers
 	federation  *service.ModelBenchmarkFederationService
+	groups      benchmarkGroupTargets
 }
 
 type benchmarkUsers interface {
@@ -398,17 +399,45 @@ func (h *ModelBenchmarkHandler) List(c *gin.Context) {
 	query.Set("page", c.DefaultQuery("page", "1"))
 	h.forward(c, "/runs?"+query.Encode())
 }
-func (h *ModelBenchmarkHandler) Detail(c *gin.Context)    { h.runAction(c, "") }
-func (h *ModelBenchmarkHandler) Delete(c *gin.Context)    { h.runAction(c, "") }
-func (h *ModelBenchmarkHandler) Rerun(c *gin.Context)     { h.runAction(c, "/rerun") }
-func (h *ModelBenchmarkHandler) Cancel(c *gin.Context)    { h.runAction(c, "/cancel") }
-func (h *ModelBenchmarkHandler) Schedules(c *gin.Context) { h.forward(c, "/schedules") }
+func (h *ModelBenchmarkHandler) Detail(c *gin.Context) { h.runAction(c, "") }
+func (h *ModelBenchmarkHandler) Delete(c *gin.Context) { h.runAction(c, "") }
+func (h *ModelBenchmarkHandler) Rerun(c *gin.Context)  { h.runAction(c, "/rerun") }
+func (h *ModelBenchmarkHandler) Cancel(c *gin.Context) { h.runAction(c, "/cancel") }
+func (h *ModelBenchmarkHandler) Schedules(c *gin.Context) {
+	if c.Request.Method == http.MethodPost {
+		if !h.prepareGroupSchedule(c) {
+			return
+		}
+	}
+	h.forward(c, "/schedules")
+}
 func (h *ModelBenchmarkHandler) Schedule(c *gin.Context) {
 	if !benchmarkID.MatchString(c.Param("id")) {
 		response.BadRequest(c, "Invalid benchmark schedule ID")
 		return
 	}
 	path := "/schedules/" + c.Param("id")
+	if c.Request.Method == http.MethodPut {
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, 16*1024+1))
+		var fields map[string]json.RawMessage
+		if err != nil || len(body) > 16*1024 || json.Unmarshal(body, &fields) != nil {
+			response.BadRequest(c, "任务配置格式不正确")
+			return
+		}
+		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+		if _, changesTarget := fields["group_id"]; changesTarget {
+			if !h.prepareGroupSchedule(c) {
+				return
+			}
+		} else {
+			for key := range fields {
+				if key != "name" && key != "cron_expression" && key != "enabled" && key != "public_results" {
+					response.BadRequest(c, "请通过分组和模型选择测试目标")
+					return
+				}
+			}
+		}
+	}
 	if strings.HasSuffix(c.FullPath(), "/run") {
 		path += "/run"
 	}

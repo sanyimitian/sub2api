@@ -50,6 +50,7 @@ func TestModelBenchmarkAdminAuthentication(t *testing.T) {
 		{"GET", "/runs/" + strings.Repeat("a", 32)}, {"POST", "/runs/" + strings.Repeat("a", 32) + "/rerun"}, {"POST", "/runs/" + strings.Repeat("a", 32) + "/cancel"},
 		{"DELETE", "/runs/" + strings.Repeat("a", 32)},
 		{"GET", "/schedules"}, {"POST", "/schedules"}, {"PUT", "/schedules/" + strings.Repeat("a", 32)}, {"DELETE", "/schedules/" + strings.Repeat("a", 32)},
+		{"GET", "/groups"}, {"GET", "/groups/1/models"},
 		{"POST", "/bank/update"}, {"POST", "/bank/activate"},
 		{"POST", "/schedules/" + strings.Repeat("a", 32) + "/run"},
 		{"GET", "/execution"}, {"PUT", "/execution"}, {"GET", "/displays"}, {"POST", "/displays"},
@@ -67,7 +68,11 @@ func TestModelBenchmarkAdminAuthentication(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
-			require.Equal(t, identity.want, w.Code, "%s %s: %s", endpoint.method, endpoint.path, w.Body)
+			want := identity.want
+			if identity.token == adminToken && ((endpoint.method == "POST" && endpoint.path == "/schedules") || strings.HasPrefix(endpoint.path, "/groups")) {
+				want = 503 // This auth fixture intentionally has no group service wired.
+			}
+			require.Equal(t, want, w.Code, "%s %s: %s", endpoint.method, endpoint.path, w.Body)
 			if identity.want != 200 {
 				require.Equal(t, before, hits.Load(), "unauthorized request reached worker")
 			}

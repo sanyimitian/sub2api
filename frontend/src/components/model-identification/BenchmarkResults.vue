@@ -1,11 +1,11 @@
 <template>
-  <section class="space-y-6 rounded-2xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900 sm:p-6" data-testid="site-results-section" :aria-label="t('modelBenchmark.resultsTitle')">
+  <section class="min-w-0 space-y-6" data-testid="site-results-section" :aria-label="t('modelBenchmark.resultsTitle')">
     <header class="flex flex-wrap items-center justify-between gap-3">
       <h2 class="text-lg font-semibold">{{ t('modelBenchmark.resultsTitle') }}</h2>
       <button type="button" class="btn btn-secondary" :disabled="rows.some(row => row.loading)" @click="emit('refresh')">{{ t('modelBenchmark.refreshResults') }}</button>
     </header>
-    <section v-for="row in rows" :key="row.kind" class="min-w-0 space-y-3 border-t border-gray-100 pt-5 dark:border-dark-800" :data-testid="`${row.kind}-result-row`" :aria-label="t(row.title)" :aria-busy="row.loading">
-      <h3 class="font-semibold">{{ t(row.title) }}</h3>
+    <section v-for="row in rows" :key="row.kind" class="min-w-0 space-y-4 border-b border-gray-200 pb-7 dark:border-dark-700" :data-testid="`${row.kind}-result-row`" :aria-label="t(row.title)" :aria-busy="row.loading">
+      <h3 class="text-base font-semibold">{{ t(row.title) }}</h3>
       <div v-if="row.sources.length" class="flex flex-wrap gap-x-5 gap-y-2 text-xs text-gray-600 dark:text-gray-300">
         <span v-for="source in row.sources" :key="source.id" :data-display-id="source.id">
           {{ source.name }} · {{ t(source.source_type === 'local' ? 'modelBenchmark.localSource' : 'modelBenchmark.remoteSource') }}
@@ -20,7 +20,8 @@
       </p>
       <p v-if="row.loading && !row.items.length" role="status" class="py-4 text-sm text-gray-600 dark:text-gray-300">{{ t('modelBenchmark.loading') }}</p>
       <p v-else-if="!row.items.length && !row.error" class="py-4 text-sm text-gray-600 dark:text-gray-300">{{ t(row.kind === 'site' ? 'modelBenchmark.noSharedResults' : 'modelBenchmark.noUserResults') }}</p>
-      <BenchmarkResultGallery v-if="row.items.length" :items="row.items" :display-name="t(row.title)" :test-source="row.kind === 'site' ? 'admin' : 'user'" />
+      <BenchmarkGroupResults v-if="row.kind === 'site' && row.items.length" :items="row.items" :sources="row.sources" />
+      <BenchmarkResultGallery v-else-if="row.items.length" :items="row.items" :display-name="t(row.title)" test-source="user" />
       <div v-if="row.items.length" class="flex flex-wrap items-center justify-between gap-3 text-sm">
         <span class="text-gray-600 dark:text-gray-300" role="status">{{ t('modelBenchmark.loadedResults', { count: row.items.reduce((sum, item) => sum + item.results.length, 0) }) }}</span>
         <button v-if="row.cursor" type="button" class="btn btn-secondary" :disabled="row.loading" :data-testid="`${row.kind}-load-more`" @click="loadMore(row)">{{ t(row.loading ? 'modelBenchmark.loading' : 'modelBenchmark.loadMoreResults') }}</button>
@@ -37,6 +38,7 @@ import { useI18n } from 'vue-i18n'
 import { benchmarks } from '@/api/admin/model-benchmarks'
 import { userBenchmarks, type SharedDisplay, type SharedSchedule } from '@/api/model-benchmarks'
 import BenchmarkResultGallery from './BenchmarkResultGallery.vue'
+import BenchmarkGroupResults from './BenchmarkGroupResults.vue'
 
 const props = defineProps<{ userMode: boolean }>()
 const emit = defineEmits<{ refresh: [] }>()

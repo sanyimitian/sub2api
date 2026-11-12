@@ -987,6 +987,7 @@ var ProviderSet = wire.NewSet(
 	NewModelIdentificationService,
 	NewModelIdentificationSourceService,
 	NewModelBenchmarkFederationService,
+	NewModelBenchmarkGroupService,
 	NewGroupGenerationService,
 	ProvideDegradationTestRunnerService,
 	NewGroupCapacityService,

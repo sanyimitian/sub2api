@@ -7,9 +7,11 @@ Accept: application/json
 
 无需登录、API Key 或 Cookie。允许跨域 GET/OPTIONS；请使用 `credentials: 'omit'`。
 只包含本站管理员定时任务中开启「结果是否开放展示」的已结束结果，所有任务合计最多返回最新 20 条。
+
+本站分组测试的每条结果新增可选字段 `group_id`（正整数）和 `group_name`（测试时的分组名称快照），并省略 `base_url`。展示时使用「分组名称 + model」；旧任务没有分组字段，不应根据网址猜测分组。协议版本仍为 v2，兼容已有的外站结果订阅。
 按结束时间倒序排列，结束时间相同时按记录入库顺序倒序；不足 20 条时返回全部，暂无结果时返回空列表。
 新任务可能尚无结果。暂停任务仍可导出已公开成绩；关闭公开或删除任务后停止导出。
-手动测试、用户测试、外站导入数据均不在此接口中。响应包含完整测试网址，不含凭据、模型答案或原始错误。
+手动测试、用户测试、外站导入数据均不在此接口中。分组测试不返回请求地址；旧任务仅返回后端脱敏的 `base_url`，并带有 `url_masked: true`。响应不含凭据、模型答案或原始错误。
 
 响应示例：
 
@@ -26,7 +28,8 @@ Accept: application/json
         "id": "测试记录ID",
         "schedule_id": "管理员定时任务ID",
         "schedule_name": "每日模型测试",
-        "base_url": "https://api.example.com/v1",
+        "group_id": 12,
+        "group_name": "标准分组",
         "model": "example-model",
         "effort": "medium",
         "status": "completed",
@@ -57,6 +60,7 @@ Accept: application/json
 ```
 
 `items` 是扁平的结果数组，每条带所属任务的 `schedule_id` 和 `schedule_name`。
+旧任务没有分组字段时，可能包含 `"base_url": "https://**********e.com", "url_masked": true`。脱敏由 worker 和应用公开接口在后端执行，保留协议、主机末尾一个字符及后缀，隐藏其余主机字符、端口和路径，IP 地址整体隐藏；前端只展示处理后的值。外站导入及旧缓存再次展示时也会在后端执行相同处理。
 `status` 为 `completed`、`failed`、`cancelled` 或 `interrupted`。
 仅 `completed` 有最终 `pass_rate`（0–100 的数字），其他状态为 `null`，不能显示为 0 分。
 `effort` 为 `low`、`medium`、`high` 或 `xhigh`。只有相同题库指纹和推理强度的结果适合直接比较。
@@ -99,7 +103,7 @@ const results = body.data.items
 
 - 仅开放固定 GET 地址，不接受查询参数、请求体、回调函数、任意目标地址或客户端筛选条件。POST/PUT/DELETE 不能触发操作。
 - 匿名请求不会携带调用方的 Cookie、Authorization 或转发头进入 worker；只访问部署配置中的固定 worker 路径，不跟随重定向。
-- 公开结果在 worker 和应用出口分别使用字段白名单；应用还校验最多 20 条、ID、状态、时间、分类计数及数值范围，重新计算通过率。API Key、答案、原始错误和未知字段不会被导出；`base_url` 是公开任务的完整测试网址。
+- 公开结果在 worker 和应用出口分别使用字段白名单；应用还校验最多 20 条、ID、状态、时间、分类计数及数值范围，重新计算通过率。API Key、答案、原始错误和未知字段不会被导出；分组测试不返回 `base_url`，旧任务的 `base_url` 在后端脱敏后返回。
 - 返回 JSON，设置 `X-Content-Type-Options: nosniff`、严格内容安全策略和 `Cache-Control: no-store`；跨域只允许无凭据读取。展示端按文本渲染外部名称和模型，不执行 HTML。
 - 除站点配置的公开 IP 限流外，每个应用进程始终执行每 IP 每秒 1 次、突发 10 次；进程总计每秒 2 次、突发 20 次；最多 4 个同时进行的公开读取。IP 桶最多保存 4096 项并回收过期项。超限返回 HTTP 429 和 `Retry-After`，不占用模型测试任务名额。
 - worker 请求超时 5 秒，公开响应上限 256 KiB；错误只返回通用提示，不透出内部堆栈、路径或凭据。建议接入站按配置周期刷新，收到 429 时遵守 `Retry-After`，失败时保留上次成功结果。

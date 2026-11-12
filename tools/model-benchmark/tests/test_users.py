@@ -168,8 +168,9 @@ class UserTests(Fixture):
         shared = self.store.public_results()["items"]
         self.assertEqual([r["id"] for r in shared], ids[::-1])
         self.assertIsNone(shared[0]["pass_rate"])
-        self.assertEqual(shared[0]["base_url"], "https://example.com/v1")
-        for secret in ("private-user-key", "private-answer", "private-error", "credential"):
+        self.assertEqual(shared[0]["base_url"], "https://******e.com")
+        self.assertTrue(shared[0]["url_masked"])
+        for secret in ("private-user-key", "private-answer", "private-error", "credential", "example.com/v1"):
             self.assertNotIn(secret, json.dumps(shared))
         self.store.update_schedule(plan["id"], {"public_results": False})
         self.assertEqual(self.store.public_results()["items"], [])
