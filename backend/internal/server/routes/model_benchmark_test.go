@@ -72,6 +72,22 @@ func TestModelBenchmarkAdminAuthentication(t *testing.T) {
 			}
 		}
 	}
+	for _, endpoint := range []struct{ method, path string }{
+		{"GET", "/source"}, {"PUT", "/source"}, {"GET", "/sites"}, {"POST", "/sites"}, {"DELETE", "/sites/" + strings.Repeat("a", 32)},
+	} {
+		for _, identity := range []struct {
+			token  string
+			status int
+		}{{"", 401}, {userToken, 403}} {
+			req := httptest.NewRequest(endpoint.method, "/api/v1/admin/model-benchmarks"+endpoint.path, strings.NewReader("{}"))
+			if identity.token != "" {
+				req.Header.Set("Authorization", "Bearer "+identity.token)
+			}
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			require.Equal(t, identity.status, w.Code, endpoint.path)
+		}
+	}
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/model-benchmarks/state", nil))
 	require.Equal(t, http.StatusNotFound, w.Code)

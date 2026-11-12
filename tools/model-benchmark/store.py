@@ -156,11 +156,15 @@ class Store:
             for column, kind in (("owner_user_id", "INTEGER"), ("quota_at", "REAL")):
                 if column not in columns:
                     db.execute(f"ALTER TABLE runs ADD COLUMN {column} {kind}")
+            if "owner_site_id" not in columns:
+                db.execute("ALTER TABLE runs ADD COLUMN owner_site_id TEXT NOT NULL DEFAULT ''")
             schedule_columns = {row["name"] for row in db.execute("PRAGMA table_info(schedules)")}
             if "public_results" not in schedule_columns:
                 db.execute("ALTER TABLE schedules ADD COLUMN public_results INTEGER NOT NULL DEFAULT 0")
-            db.execute("CREATE INDEX IF NOT EXISTS runs_user_quota ON runs(owner_user_id,quota_at)")
-            db.execute("CREATE INDEX IF NOT EXISTS runs_user_active ON runs(owner_user_id,status)")
+            db.execute("DROP INDEX IF EXISTS runs_user_quota")
+            db.execute("DROP INDEX IF EXISTS runs_user_active")
+            db.execute("CREATE INDEX IF NOT EXISTS runs_site_user_quota ON runs(owner_site_id,owner_user_id,quota_at)")
+            db.execute("CREATE INDEX IF NOT EXISTS runs_site_user_active ON runs(owner_site_id,owner_user_id,status)")
             db.execute("CREATE INDEX IF NOT EXISTS runs_finished_page ON runs(julianday(finished_at) DESC,id DESC) WHERE finished_at IS NOT NULL")
             db.execute("CREATE INDEX IF NOT EXISTS runs_schedule_page ON runs(schedule_id,julianday(finished_at) DESC,id DESC) WHERE finished_at IS NOT NULL")
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS run_schedule_occurrence ON runs(schedule_id,scheduled_for)")
@@ -293,14 +297,14 @@ class Store:
         result["total"] = len(ids)
         return result
 
-    def state(self, owner_user_id=None) -> dict:
+    def state(self, owner_user_id=None, owner_site_id="") -> dict:
         with self.transaction() as db:
             suite = self._suite(db)
             counts = json.loads(db.execute("SELECT counts FROM config WHERE id=1").fetchone()[0])
             coding_counts = json.loads(db.execute("SELECT coding_counts FROM config WHERE id=1").fetchone()[0])
-            quota = self._quota(db, owner_user_id) if owner_user_id is not None else None
+            quota = self._quota(db, owner_user_id, owner_site_id) if owner_user_id is not None else None
             execution = self._execution_settings(db)
-            active = self._active_user_run(db, owner_user_id) if owner_user_id is not None else None
+            active = self._active_user_run(db, owner_user_id, owner_site_id) if owner_user_id is not None else None
             bank = self.bank
         return {"counts": counts, "total": sum(counts.values()), "timezone": str(self.timezone),
                 "capacities": bank.sizes(), "coding_counts": coding_counts, "coding_capacities": bank.coding_sizes(),
@@ -308,8 +312,8 @@ class Store:
                 "bank_version": bank.manifest["version"], "efforts": list(EFFORTS), "quota": quota, "execution": execution,
                 "active_run": dict(active) if active else None}
 
-    def _active_user_run(self, db, owner_user_id):
-        return db.execute("SELECT id,status FROM runs WHERE owner_user_id=? AND status IN ('queued','running','cancelling') ORDER BY rowid LIMIT 1", (owner_user_id,)).fetchone()
+    def _active_user_run(self, db, owner_user_id, owner_site_id=""):
+        return db.execute("SELECT id,status FROM runs WHERE owner_site_id=? AND owner_user_id=? AND status IN ('queued','running','cancelling') ORDER BY rowid LIMIT 1", (owner_site_id, owner_user_id)).fetchone()
 
     def _execution_settings(self, db):
         return {"max_concurrency": db.execute("SELECT max_concurrency FROM config WHERE id=1").fetchone()[0],
@@ -332,16 +336,16 @@ class Store:
                     db.execute("UPDATE config SET user_testing_enabled=? WHERE id=1", (int(data["user_testing_enabled"]),))
             return self._execution_settings(db)
 
-    def _quota(self, db, owner_user_id):
+    def _quota(self, db, owner_user_id, owner_site_id=""):
         timestamps = [r[0] for r in db.execute(
-            "SELECT quota_at FROM runs WHERE owner_user_id=? AND quota_at>? ORDER BY quota_at",
-            (owner_user_id, self.clock().timestamp() - 3600))]
+            "SELECT quota_at FROM runs WHERE owner_site_id=? AND owner_user_id=? AND quota_at>? ORDER BY quota_at",
+            (owner_site_id, owner_user_id, self.clock().timestamp() - 3600))]
         return {"limit": HOURLY_LIMIT, "used": len(timestamps), "remaining": max(0, HOURLY_LIMIT - len(timestamps)),
                 "next_available_at": datetime.fromtimestamp(timestamps[0] + 3600, timezone.utc).isoformat() if timestamps else None}
 
-    def _owned_run(self, db, run_id, owner_user_id):
+    def _owned_run(self, db, run_id, owner_user_id, owner_site_id=""):
         row = db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-        if row is None or (owner_user_id is not None and row["owner_user_id"] != owner_user_id):
+        if row is None or (owner_user_id is not None and (row["owner_user_id"] != owner_user_id or row["owner_site_id"] != owner_site_id)) or (owner_site_id and row["owner_site_id"] != owner_site_id):
             raise Problem("测试记录不存在", 404)
         return row
 
@@ -384,21 +388,21 @@ class Store:
             raise Problem("推理强度不受支持")
         return base_url, model.strip(), effort, self.cipher.encrypt(key.strip().encode())
 
-    def create(self, data: dict, owner_user_id=None) -> dict:
+    def create(self, data: dict, owner_user_id=None, owner_site_id="") -> dict:
         base_url, model, effort, credential = self.validate_target(data)
         with self.transaction() as db:
             suite = self._suite(db)
             if data.get("suite_id") != suite["id"]:
                 raise Problem("当天题库已变更，请刷新后再开始测试", 409)
-            run_id = self._insert_run(db, suite["id"], base_url, model, effort, credential, owner_user_id=owner_user_id)
+            run_id = self._insert_run(db, suite["id"], base_url, model, effort, credential, owner_user_id=owner_user_id, owner_site_id=owner_site_id)
         return self.detail(run_id)
 
-    def _insert_run(self, db, suite_id, base_url, model, effort, credential, rerun_of=None, schedule_id=None, scheduled_for=None, owner_user_id=None):
+    def _insert_run(self, db, suite_id, base_url, model, effort, credential, rerun_of=None, schedule_id=None, scheduled_for=None, owner_user_id=None, owner_site_id=""):
         if owner_user_id is not None and not db.execute("SELECT user_testing_enabled FROM config WHERE id=1").fetchone()[0]:
             raise Problem("管理员暂未开放用户自行测试", 403)
-        if owner_user_id is not None and self._active_user_run(db, owner_user_id):
+        if owner_user_id is not None and self._active_user_run(db, owner_user_id, owner_site_id):
             raise Problem("你已有未结束的测试（含排队和正在停止），请等待结束后再发起", 409)
-        if owner_user_id is not None and self._quota(db, owner_user_id)["remaining"] == 0:
+        if owner_user_id is not None and self._quota(db, owner_user_id, owner_site_id)["remaining"] == 0:
             raise Problem("每小时最多测试 3 次（含重新测试），请等待额度恢复", 429)
         if self.resources:
             from resources import ResourcePressure
@@ -407,13 +411,13 @@ class Store:
             except ResourcePressure as exc:
                 raise Problem(str(exc), 503) from exc
         run_id = uuid.uuid4().hex
-        db.execute("INSERT INTO runs(id,suite_id,rerun_of,base_url,model,effort,credential,created_at,status,schedule_id,scheduled_for,owner_user_id,quota_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                   (run_id, suite_id, rerun_of, base_url, model, effort, credential, now(), "queued", schedule_id, scheduled_for, owner_user_id, self.clock().timestamp()))
+        db.execute("INSERT INTO runs(id,suite_id,rerun_of,base_url,model,effort,credential,created_at,status,schedule_id,scheduled_for,owner_user_id,quota_at,owner_site_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (run_id, suite_id, rerun_of, base_url, model, effort, credential, now(), "queued", schedule_id, scheduled_for, owner_user_id, self.clock().timestamp(), owner_site_id))
         return run_id
 
-    def rerun(self, run_id: str, owner_user_id=None) -> dict:
+    def rerun(self, run_id: str, owner_user_id=None, owner_site_id="") -> dict:
         with self.transaction() as db:
-            row = self._owned_run(db, run_id, owner_user_id)
+            row = self._owned_run(db, run_id, owner_user_id, owner_site_id)
             if row["status"] in ACTIVE:
                 raise Problem("该测试尚未结束", 409)
             child = db.execute("SELECT id FROM runs WHERE rerun_of=? AND status IN ('queued','running','cancelling')", (run_id,)).fetchone()
@@ -422,7 +426,7 @@ class Store:
             # Resolve today's latest suite in the same transaction as enqueueing.
             # Retain connection settings, but never reuse a historical suite.
             suite = self._suite(db)
-            new_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"], run_id, owner_user_id=owner_user_id)
+            new_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"], run_id, owner_user_id=owner_user_id, owner_site_id=owner_site_id)
         return self.detail(new_id)
 
     def _public_run(self, row, suite, detail=False):
@@ -455,13 +459,13 @@ class Store:
             record["suite"] = self.suite_public(dict(suite))
         return record
 
-    def detail(self, run_id: str, owner_user_id=None) -> dict:
+    def detail(self, run_id: str, owner_user_id=None, owner_site_id="") -> dict:
         with self.transaction() as db:
-            row = self._owned_run(db, run_id, owner_user_id)
+            row = self._owned_run(db, run_id, owner_user_id, owner_site_id)
             suite = db.execute("SELECT * FROM suites WHERE id=?", (row["suite_id"],)).fetchone()
             return self._queue_position(db, self._public_run(row, suite, True))
 
-    def list_runs(self, page=1, owner_user_id=None, *, users_only=False, model='') -> dict:
+    def list_runs(self, page=1, owner_user_id=None, *, users_only=False, model='', owner_site_id='') -> dict:
         if type(page) is not int or not 1 <= page <= 1000000:
             raise Problem("页码不正确")
         if not isinstance(model, str) or len(model) > 200 or any(ord(c) < 32 for c in model):
@@ -475,6 +479,9 @@ class Store:
             if owner_user_id is not None:
                 conditions.append('owner_user_id=?')
                 params.append(owner_user_id)
+            if owner_user_id is not None or owner_site_id:
+                conditions.append('owner_site_id=?')
+                params.append(owner_site_id)
             if model.strip():
                 # Literal substring matching: %, _ and quotes are ordinary data.
                 conditions.append('instr(lower(model), lower(?)) > 0')
@@ -487,6 +494,7 @@ class Store:
             if users_only:
                 for item, row in zip(items, rows):
                     item['owner_user_id'] = row['owner_user_id']
+                    item['owner_site_id'] = row['owner_site_id']
         return {"items": items, "total": total, "page": page, "page_size": 20}
 
     def prune_history(self):
@@ -678,9 +686,9 @@ class Store:
         with self.transaction() as db:
             return db.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()[0] in ("cancelling", "cancelled")
 
-    def cancel(self, run_id, owner_user_id=None):
+    def cancel(self, run_id, owner_user_id=None, owner_site_id=""):
         with self.transaction() as db:
-            row = self._owned_run(db, run_id, owner_user_id)
+            row = self._owned_run(db, run_id, owner_user_id, owner_site_id)
             if row["status"] == "queued":
                 db.execute("UPDATE runs SET status='cancelled',finished_at=? WHERE id=?", (now(), run_id))
                 self._resume_interval(db, run_id)
@@ -697,7 +705,7 @@ class Store:
         record = self._public_run(row, suite)
         return {key: record[key] for key in fields}
 
-    def user_results(self, viewer_user_id=None, cursor=""):
+    def user_results(self, viewer_user_id=None, cursor="", viewer_site_id=""):
         before = result_cursor(cursor, "users")
         with self.transaction() as db:
             query = "SELECT *,julianday(finished_at) AS sort_time FROM runs WHERE owner_user_id IS NOT NULL AND finished_at IS NOT NULL"
@@ -708,7 +716,7 @@ class Store:
             rows = db.execute(query + " ORDER BY sort_time DESC,id DESC LIMIT ?", (*params, RESULT_PAGE_SIZE + 1)).fetchall()
             items = []
             for row in rows[:RESULT_PAGE_SIZE]:
-                visible = viewer_user_id is None or row["owner_user_id"] == viewer_user_id
+                visible = viewer_user_id is None or (row["owner_user_id"] == viewer_user_id and row["owner_site_id"] == viewer_site_id)
                 result = {**self._shared_result(db, row), "base_url": row["base_url"] if visible else mask_result_url(row["base_url"]), "url_masked": not visible}
                 items.append({"id": row["id"], "name": "", "model": row["model"], "effort": row["effort"], "results": [result]})
             last = rows[RESULT_PAGE_SIZE - 1] if len(rows) > RESULT_PAGE_SIZE else None

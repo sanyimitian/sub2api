@@ -52,6 +52,7 @@ func ProvideAdminHandlers(
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	opencodeGoUsage *service.OpenCodeGoUsageService,
 	claudeResetCredits *service.ClaudeResetCreditService,
+	benchmarkFederation *service.ModelBenchmarkFederationService,
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
@@ -86,7 +87,7 @@ func ProvideAdminHandlers(
 		APIKey:                 apiKeyHandler,
 		ScheduledTest:          scheduledTestHandler,
 		DegradationTest:        degradationTestHandler,
-		ModelBenchmark:         admin.NewModelBenchmarkHandlerForAdmin(userHandler),
+		ModelBenchmark:         admin.NewModelBenchmarkHandlerForAdmin(userHandler, benchmarkFederation),
 		Channel:                channelHandler,
 		ChannelMonitor:         channelMonitorHandler,
 		ChannelMonitorTemplate: channelMonitorTemplateHandler,

@@ -20,7 +20,11 @@ func RegisterUserRoutes(
 ) {
 	// 鉴定结果对所有访客开放，管理接口仍受管理员认证保护。
 	registerModelIdentificationReadRoutes(v1, h)
-	registerPublicModelBenchmarkRoutes(v1, panelRateLimiter)
+	var benchmarkHandler *admin.ModelBenchmarkHandler
+	if h.Admin != nil {
+		benchmarkHandler = h.Admin.ModelBenchmark
+	}
+	registerPublicModelBenchmarkRoutes(v1, panelRateLimiter, benchmarkHandler)
 	authenticated := v1.Group("")
 	authenticated.Use(gin.HandlerFunc(jwtAuth))
 	authenticated.Use(middleware.BackendModeUserGuard(settingService))
@@ -28,7 +32,7 @@ func RegisterUserRoutes(
 	authenticated.Use(panelRateLimiter.Global())
 	// 用户管理面变更类操作入审计（含 TOTP 启用/禁用、step-up 验证、密码修改等安全事件）
 	authenticated.Use(gin.HandlerFunc(auditLog))
-	registerUserModelBenchmarkRoutes(authenticated)
+	registerUserModelBenchmarkRoutes(authenticated, benchmarkHandler)
 	{
 		// 用户接口
 		user := authenticated.Group("/user")
@@ -162,8 +166,11 @@ func RegisterUserRoutes(
 	}
 }
 
-func registerUserModelBenchmarkRoutes(authenticated *gin.RouterGroup) {
+func registerUserModelBenchmarkRoutes(authenticated *gin.RouterGroup, handlers ...*admin.ModelBenchmarkHandler) {
 	h := admin.NewModelBenchmarkHandler()
+	if len(handlers) > 0 && handlers[0] != nil {
+		h = handlers[0]
+	}
 	group := authenticated.Group("/model-benchmarks")
 	group.GET("/state", h.User)
 	group.GET("/showcase", h.User)
@@ -175,7 +182,12 @@ func registerUserModelBenchmarkRoutes(authenticated *gin.RouterGroup) {
 	group.POST("/runs/:id/cancel", h.User)
 }
 
-func registerPublicModelBenchmarkRoutes(v1 *gin.RouterGroup, limiter *middleware.PanelRateLimiter) {
+func registerPublicModelBenchmarkRoutes(v1 *gin.RouterGroup, limiter *middleware.PanelRateLimiter, handlers ...*admin.ModelBenchmarkHandler) {
 	h := admin.NewModelBenchmarkHandler()
+	if len(handlers) > 0 && handlers[0] != nil {
+		h = handlers[0]
+	}
+	v1.GET("/model-benchmarks/federation/*path", h.Federation)
+	v1.POST("/model-benchmarks/federation/*path", h.Federation)
 	v1.GET("/model-benchmarks/public-results", limiter.PublicIP(), h.PublicResults)
 }

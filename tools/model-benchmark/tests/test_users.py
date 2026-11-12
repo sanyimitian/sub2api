@@ -182,8 +182,10 @@ class UserTests(Fixture):
         run = self.create()
         self.store.create_schedule({**self.target(), "name": "Old", "cron_expression": "0 9 * * *"})
         with sqlite3.connect(self.store.path) as db:
-            db.execute("DROP INDEX runs_user_quota")
-            db.execute("DROP INDEX runs_user_active")
+            db.execute("DROP INDEX runs_site_user_quota")
+            db.execute("DROP INDEX runs_site_user_active")
+            db.execute("DROP INDEX IF EXISTS runs_user_quota")
+            db.execute("DROP INDEX IF EXISTS runs_user_active")
             db.execute("ALTER TABLE runs DROP COLUMN owner_user_id")
             db.execute("ALTER TABLE runs DROP COLUMN quota_at")
             db.execute("ALTER TABLE schedules DROP COLUMN public_results")

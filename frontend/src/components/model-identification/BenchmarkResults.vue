@@ -6,7 +6,6 @@
     </header>
     <section v-for="row in rows" :key="row.kind" class="min-w-0 space-y-3 border-t border-gray-100 pt-5 dark:border-dark-800" :data-testid="`${row.kind}-result-row`" :aria-label="t(row.title)" :aria-busy="row.loading">
       <h3 class="font-semibold">{{ t(row.title) }}</h3>
-      <p class="text-sm text-gray-600 dark:text-gray-300">{{ t(row.kind === 'site' ? 'modelBenchmark.siteUrlVisibility' : 'modelBenchmark.userUrlVisibility') }}</p>
       <div v-if="row.sources.length" class="flex flex-wrap gap-x-5 gap-y-2 text-xs text-gray-600 dark:text-gray-300">
         <span v-for="source in row.sources" :key="source.id" :data-display-id="source.id">
           {{ source.name }} · {{ t(source.source_type === 'local' ? 'modelBenchmark.localSource' : 'modelBenchmark.remoteSource') }}

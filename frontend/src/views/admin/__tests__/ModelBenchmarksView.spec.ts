@@ -3,6 +3,8 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import ModelBenchmarksView from '../ModelBenchmarksView.vue'
 import { benchmarks, type BenchmarkRun, type BenchmarkState, type BenchmarkSchedule } from '@/api/admin/model-benchmarks'
 import BenchmarkKeyPicker from '@/components/model-identification/BenchmarkKeyPicker.vue'
+import BenchmarkSourceSettings from '@/components/model-identification/BenchmarkSourceSettings.vue'
+import BenchmarkResults from '@/components/model-identification/BenchmarkResults.vue'
 
 const app = vi.hoisted(() => ({ showError: vi.fn(), showSuccess: vi.fn(), apiBaseUrl: 'https://gateway.example.com' }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => app }))
@@ -11,7 +13,7 @@ vi.mock('vue-i18n', async importOriginal => ({
   useI18n: () => ({ t: (key: string) => key })
 }))
 vi.mock('@/api/admin/model-benchmarks', () => ({
-  benchmarks: { showcase: vi.fn(), results: vi.fn(), setUserTesting: vi.fn(), runSchedule: vi.fn(), updateBank: vi.fn(), activateBank: vi.fn(), retryEnvironment: vi.fn(), state: vi.fn(), setExecution: vi.fn(), displays: vi.fn(), configure: vi.fn(), refresh: vi.fn(), create: vi.fn(), list: vi.fn(), detail: vi.fn(), rerun: vi.fn(), cancel: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), deleteSchedule: vi.fn() }
+  benchmarks: { userRuns: vi.fn(), source: vi.fn(), showcase: vi.fn(), results: vi.fn(), setUserTesting: vi.fn(), runSchedule: vi.fn(), updateBank: vi.fn(), activateBank: vi.fn(), retryEnvironment: vi.fn(), state: vi.fn(), setExecution: vi.fn(), displays: vi.fn(), configure: vi.fn(), refresh: vi.fn(), create: vi.fn(), list: vi.fn(), detail: vi.fn(), rerun: vi.fn(), cancel: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), deleteSchedule: vi.fn() }
 }))
 const initial: BenchmarkState = {
   execution: { max_concurrency: 5, running: 2, queued: 4 },
@@ -29,14 +31,15 @@ function run(overrides: Partial<BenchmarkRun> = {}): BenchmarkRun {
   }
 }
 function render() {
-  return mount(ModelBenchmarksView, { global: { stubs: { AppLayout: { template: '<main><slot /></main>' }, IdentificationTabs: true, BenchmarkKeyPicker: true, BaseDialog: true, ConfirmDialog: true } } })
+  return mount(ModelBenchmarksView, { global: { stubs: { AppLayout: { template: '<main><slot /></main>' }, IdentificationTabs: true, BenchmarkSourceSettings: true, BenchmarkKeyPicker: true, BaseDialog: true, ConfirmDialog: true } } })
 }
 function schedule(): BenchmarkSchedule {
   return { id: 'schedule-one', name: 'Daily check', base_url: 'https://example.com/v1', model: 'fixture-model', effort: 'medium', cron_expression: '0 9 * * *', enabled: true, public_results: false, timezone: 'Asia/Shanghai', next_run_at: '2026-11-12T01:00:00Z', last_attempt_at: null, last_run_id: null, last_error: '', created_at: '', updated_at: '' }
 }
 enableAutoUnmount(afterEach)
 beforeEach(() => {
-  vi.clearAllMocks()
+  vi.resetAllMocks()
+  vi.mocked(benchmarks.source).mockResolvedValue({ source_url: '', site_id: '', has_token: false })
   vi.mocked(benchmarks.showcase).mockResolvedValue({ items: [], next_cursor: null })
   vi.mocked(benchmarks.results).mockResolvedValue({ items: [], next_cursor: null })
   vi.mocked(benchmarks.state).mockResolvedValue(structuredClone(initial))
@@ -46,6 +49,84 @@ beforeEach(() => {
 })
 
 describe('administrator model benchmarks', () => {
+  it('用户记录页在来源变化后清空旧记录并中止旧请求', async () => {
+    const records = { items: [run({ model: 'old-user-model', owner_user_id: 7 })], total: 1, page: 1, page_size: 20 }
+    vi.mocked(benchmarks.userRuns).mockResolvedValueOnce(records)
+    const wrapper = render(); await flushPromises()
+    await wrapper.findAll('[role="tab"]').find(tab => tab.text() === 'modelBenchmark.userRecords')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="user-records"]').text()).toContain('old-user-model')
+    let resolveOld!: (value: Awaited<ReturnType<typeof benchmarks.userRuns>>) => void
+    vi.mocked(benchmarks.userRuns).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+    await wrapper.get('[data-testid="user-records"] button').trigger('click')
+    const oldSignal = vi.mocked(benchmarks.userRuns).mock.calls[1][2]
+    vi.mocked(benchmarks.userRuns).mockRejectedValue(new Error('new site offline'))
+    vi.mocked(benchmarks.source).mockResolvedValue({ source_url: 'https://new.example/federation', site_id: 'b'.repeat(32), has_token: true })
+    wrapper.getComponent(BenchmarkResults).vm.$emit('refresh')
+    await flushPromises()
+    resolveOld(records)
+    await flushPromises()
+    expect(oldSignal?.aborted).toBe(true)
+    expect(wrapper.get('[data-testid="user-records"]').text()).not.toContain('old-user-model')
+  })
+  it('切换主站后即使新站请求失败也不保留旧站结果', async () => {
+    const record = run({ id: 'old-run', model: 'old-site-model' })
+    vi.mocked(benchmarks.results).mockResolvedValueOnce({ items: [{ id: record.id, name: '', model: record.model, effort: record.effort, results: [record] }] })
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.text()).toContain('old-site-model')
+    vi.mocked(benchmarks.results).mockRejectedValue(new Error('new site offline'))
+    vi.mocked(benchmarks.source).mockResolvedValue({ source_url: 'https://new.example/federation', site_id: 'b'.repeat(32), has_token: true })
+    await wrapper.findAll('[role="tab"]').find(tab => tab.text() === 'modelBenchmark.sourceSettings')!.trigger('click')
+    wrapper.getComponent(BenchmarkSourceSettings).vm.$emit('saved', { source_url: 'https://new.example/federation', site_id: 'b'.repeat(32), has_token: true })
+    await flushPromises()
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('old-site-model')
+  })
+  it('切换主站后旧站在途响应不能写入新站结果', async () => {
+    let resolveOld!: (value: Awaited<ReturnType<typeof benchmarks.results>>) => void
+    vi.mocked(benchmarks.results).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+    const wrapper = render(); await flushPromises()
+    const oldSignal = vi.mocked(benchmarks.results).mock.calls[0][0]
+    vi.mocked(benchmarks.source).mockResolvedValue({ source_url: 'https://new.example/federation', site_id: 'b'.repeat(32), has_token: true })
+    await wrapper.findAll('[role="tab"]').find(tab => tab.text() === 'modelBenchmark.sourceSettings')!.trigger('click')
+    wrapper.getComponent(BenchmarkSourceSettings).vm.$emit('saved', { source_url: 'https://new.example/federation', site_id: 'b'.repeat(32), has_token: true })
+    await flushPromises()
+    const record = run({ id: 'old-run', model: 'late-old-model' })
+    resolveOld({ items: [{ id: record.id, name: '', model: record.model, effort: record.effort, results: [record] }] })
+    await flushPromises()
+    expect(oldSignal?.aborted).toBe(true)
+    expect(wrapper.text()).not.toContain('late-old-model')
+  })
+  it('刷新能识别其他管理员修改的主站配置', async () => {
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.find('input[name="base_url"]').exists()).toBe(true)
+    vi.mocked(benchmarks.source).mockResolvedValue({ source_url: 'https://new.example/federation', site_id: 'b'.repeat(32), has_token: true })
+    wrapper.getComponent(BenchmarkResults).vm.$emit('refresh')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="remote-benchmark-hint"]').exists()).toBe(true)
+    expect(wrapper.find('input[name="base_url"]').exists()).toBe(false)
+  })
+  it('接入站展示主站结果且不请求本地测试管理数据', async () => {
+    vi.mocked(benchmarks.source).mockResolvedValue({ source_url: 'https://main.example/api/v1/model-benchmarks/federation', site_id: 'a'.repeat(32), has_token: true })
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.find('[data-testid="remote-benchmark-hint"]').exists()).toBe(true)
+    expect(wrapper.find('input[name="base_url"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="user-testing-toggle"]').exists()).toBe(false)
+    expect(wrapper.findAll('[role="tab"]').some(tab => tab.text() === 'modelBenchmark.displaySettings')).toBe(false)
+    expect(benchmarks.state).toHaveBeenCalled()
+    expect(benchmarks.showcase).toHaveBeenCalled()
+    expect(benchmarks.results).toHaveBeenCalled()
+    expect(benchmarks.list).not.toHaveBeenCalled()
+    expect(benchmarks.schedules).not.toHaveBeenCalled()
+  })
+  it('接入配置读取失败时不按本站模式发起测试管理请求', async () => {
+    vi.mocked(benchmarks.source).mockRejectedValueOnce(new Error('offline'))
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.find('input[name="base_url"]').exists()).toBe(false)
+    expect(benchmarks.state).not.toHaveBeenCalled()
+    expect(benchmarks.list).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('modelBenchmark.loadError')
+  })
   it('opens the administrator user-record tab independently of test configuration', async () => {
     const wrapper = mount(ModelBenchmarksView, { global: { stubs: { AppLayout: { template: '<main><slot /></main>' }, IdentificationTabs: true, BenchmarkKeyPicker: true, BenchmarkUserRecords: true, BaseDialog: true, ConfirmDialog: true } } })
     await flushPromises()

@@ -140,6 +140,11 @@ func RegisterAdminRoutes(
 
 func registerModelBenchmarkRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	benchmarks := admin.Group("/model-benchmarks")
+	benchmarks.GET("/source", h.Admin.ModelBenchmark.Source)
+	benchmarks.PUT("/source", h.Admin.ModelBenchmark.Source)
+	benchmarks.GET("/sites", h.Admin.ModelBenchmark.Sites)
+	benchmarks.POST("/sites", h.Admin.ModelBenchmark.Sites)
+	benchmarks.DELETE("/sites/:id", h.Admin.ModelBenchmark.Sites)
 	benchmarks.GET("/state", h.Admin.ModelBenchmark.State)
 	benchmarks.GET("/showcase", h.Admin.ModelBenchmark.Showcase)
 	benchmarks.GET("/results", h.Admin.ModelBenchmark.Results)

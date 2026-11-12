@@ -68,6 +68,7 @@ export interface QuestionResult {
   test_count?: number
 }
 export interface BenchmarkRun {
+  owner_site_id?: string
   owner_user_id?: number
   owner?: BenchmarkOwner
   coding_difficulties?: Record<CodingDifficulty, { total: number; passed: number; completed: number }>
@@ -150,8 +151,15 @@ export interface DisplayConfig extends DisplayInput {
   last_error: string
 }
 const root = '/admin/model-benchmarks'
-export interface BenchmarkOwner { id: number; email: string; username: string; deleted: boolean; missing?: boolean }
+export interface BenchmarkOwner { id: number; email: string; username: string; deleted: boolean; missing?: boolean; site_id?: string }
+export interface BenchmarkSource { source_url: string; site_id: string; has_token: boolean }
+export interface BenchmarkSite { id: string; name: string; created_at: string }
 export const benchmarks = {
+  async source(signal?: AbortSignal) { return (await apiClient.get<BenchmarkSource>(root + '/source', { signal })).data },
+  async saveSource(source_url: string, token: string, signal?: AbortSignal) { return (await apiClient.put<BenchmarkSource>(root + '/source', { source_url, token }, { signal })).data },
+  async sites(signal?: AbortSignal) { return (await apiClient.get<{ items: BenchmarkSite[] }>(root + '/sites', { signal })).data },
+  async createSite(name: string, signal?: AbortSignal) { return (await apiClient.post<{ site: BenchmarkSite; token: string }>(root + '/sites', { name }, { signal })).data },
+  async revokeSite(id: string, signal?: AbortSignal) { return (await apiClient.delete(root + '/sites/' + id, { signal })).data },
   async showcase(signal?: AbortSignal, cursor?: string) {
     return (await apiClient.get<ResultPage<SharedDisplay>>(`${root}/showcase`, { params: { cursor }, signal })).data
   },

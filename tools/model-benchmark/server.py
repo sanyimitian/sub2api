@@ -61,6 +61,17 @@ def make_handler(store, engine, token, environment=None):
                 parsed = urlsplit(self.path)
                 path = parsed.path
                 owner_user_id = None
+                owner_site_id = ""
+                site_match = re.fullmatch(r"/sites/([a-f0-9]{32})(/.*)", path)
+                if site_match:
+                    owner_site_id, path = site_match.groups()
+                    # Only the authenticated application proxy selects a site namespace.
+                    # Remote administrators can read results and their site's records,
+                    # but cannot alter the main site's execution settings or schedules.
+                    if not path.startswith("/users/") and not (
+                        self.command == "GET" and re.fullmatch(r"/(?:state|showcase|results|user-runs|runs/[a-f0-9]{32})", path)
+                    ):
+                        raise Problem("请在主站管理测试配置", 403)
                 user_match = re.fullmatch(r"/users/([1-9][0-9]{0,18})(/.*)", path)
                 if user_match:
                     owner_user_id = int(user_match[1])
@@ -70,9 +81,9 @@ def make_handler(store, engine, token, environment=None):
                 if environment:
                     setup = environment.snapshot()
                     if self.command == "GET" and path == "/state":
-                        state = store.state(owner_user_id) if store else environment.pending_state()
+                        state = store.state(owner_user_id, owner_site_id) if store else environment.pending_state()
                         state.update(ready=setup["status"] == "ready", message=setup["message"], environment=setup)
-                        if owner_user_id is None and environment.bank_updates:
+                        if owner_user_id is None and not owner_site_id and environment.bank_updates:
                             state["bank_update"] = environment.bank_updates.snapshot()
                         self.send_json(200, with_resources(state, store, owner_user_id))
                         return
@@ -92,7 +103,7 @@ def make_handler(store, engine, token, environment=None):
                     if setup["status"] != "ready" and self.command in ("POST", "PUT") and not path.endswith("/cancel"):
                         raise Problem("评测环境正在自动准备，请就绪后重试", 503)
                 if self.command == "GET" and path == "/state":
-                    state = store.state(owner_user_id)
+                    state = store.state(owner_user_id, owner_site_id)
                     try:
                         engine.grader.check_ready()
                         state.update(ready=True, message="")
@@ -117,26 +128,26 @@ def make_handler(store, engine, token, environment=None):
                     self.send_json(200, store.refresh(expected_suite=data.get("suite_id")))
                 elif self.command == "GET" and path == "/runs":
                     page = int(parse_qs(parsed.query).get("page", ["1"])[0])
-                    self.send_json(200, store.list_runs(page, owner_user_id))
+                    self.send_json(200, store.list_runs(page, owner_user_id, owner_site_id=owner_site_id))
                 elif self.command == 'GET' and path == '/user-runs' and owner_user_id is None:
                     query = parse_qs(parsed.query, keep_blank_values=True)
                     if set(query) - {'page', 'user_id', 'model'} or any(len(v) != 1 for v in query.values()):
                         raise Problem('查询条件不正确')
                     page = int(query.get('page', ['1'])[0])
                     user_id = int(query['user_id'][0]) if query.get('user_id', [''])[0] else None
-                    self.send_json(200, store.list_runs(page, user_id, users_only=True, model=query.get('model', [''])[0]))
+                    self.send_json(200, store.list_runs(page, user_id, users_only=True, model=query.get('model', [''])[0], owner_site_id=owner_site_id))
                 elif self.command == "POST" and path == "/runs":
                     try:
                         engine.grader.check_ready()
                     except Exception:
                         raise Problem("评测环境尚未就绪，未创建任务", 503)
-                    result = store.create(data, owner_user_id)
+                    result = store.create(data, owner_user_id, owner_site_id)
                     engine.wake.set()
                     self.send_json(202, result)
                 elif self.command == "GET" and path == "/showcase":
                     self.send_json(200, engine.displays.showcase(parse_qs(parsed.query).get("cursor", [""])[0]))
                 elif self.command == "GET" and path == "/results":
-                    self.send_json(200, store.user_results(owner_user_id, parse_qs(parsed.query).get("cursor", [""])[0]))
+                    self.send_json(200, store.user_results(owner_user_id, parse_qs(parsed.query).get("cursor", [""])[0], owner_site_id))
                 elif self.command == "GET" and path == "/public-results":
                     self.send_json(200, store.public_results())
                 elif path == "/execution" and self.command in ("GET", "PUT"):
@@ -184,17 +195,17 @@ def make_handler(store, engine, token, environment=None):
                         raise Problem("Not found", 404)
                     run_id, action = match.groups()
                     if self.command == "GET" and not action:
-                        self.send_json(200, store.detail(run_id, owner_user_id))
+                        self.send_json(200, store.detail(run_id, owner_user_id, owner_site_id))
                     elif self.command == "POST" and action == "rerun":
                         try:
                             engine.grader.check_ready()
                         except Exception:
                             raise Problem("评测环境尚未就绪，未创建任务", 503)
-                        result = store.rerun(run_id, owner_user_id)
+                        result = store.rerun(run_id, owner_user_id, owner_site_id)
                         engine.wake.set()
                         self.send_json(202, result)
                     elif self.command == "POST" and action == "cancel":
-                        self.send_json(200, store.cancel(run_id, owner_user_id))
+                        self.send_json(200, store.cancel(run_id, owner_user_id, owner_site_id))
                     else:
                         raise Problem("Method not allowed", 405)
             except Problem as exc:

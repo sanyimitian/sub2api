@@ -10,11 +10,14 @@
       <p v-if="userMode" class="text-sm text-gray-500 dark:text-gray-400" data-testid="benchmark-reference-notice">{{ t('modelBenchmark.referenceTitle') }}</p>
       <div v-if="!userMode" class="flex flex-wrap gap-2" role="tablist" :aria-label="t('modelBenchmark.title')">
         <button type="button" role="tab" :aria-selected="activeTab === 'tests'" class="btn" :class="activeTab === 'tests' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'tests'">{{ t('modelBenchmark.testManagement') }}</button>
-        <button type="button" role="tab" :aria-selected="activeTab === 'display'" class="btn" :class="activeTab === 'display' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'display'">{{ t('modelBenchmark.displaySettings') }}</button>
+        <button v-if="!remoteMode" type="button" role="tab" :aria-selected="activeTab === 'display'" class="btn" :class="activeTab === 'display' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'display'">{{ t('modelBenchmark.displaySettings') }}</button>
         <button type="button" role="tab" :aria-selected="activeTab === 'users'" class="btn" :class="activeTab === 'users' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'users'">{{ t('modelBenchmark.userRecords') }}</button>
+        <button type="button" role="tab" :aria-selected="activeTab === 'source'" class="btn" :class="activeTab === 'source' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'source'">{{ t('modelBenchmark.sourceSettings') }}</button>
       </div>
-      <BenchmarkDisplaySettings v-if="!userMode && activeTab === 'display'" />
-      <BenchmarkUserRecords v-if="!userMode && activeTab === 'users'" />
+      <BenchmarkSourceSettings v-if="!userMode && activeTab === 'source'" @saved="sourceSaved" />
+      <p v-if="!userMode && remoteMode" class="text-sm text-gray-600 dark:text-gray-300" data-testid="remote-benchmark-hint">{{ t('modelBenchmark.remoteModeHint') }}</p>
+      <BenchmarkDisplaySettings v-if="!userMode && !remoteMode && activeTab === 'display'" />
+      <BenchmarkUserRecords v-if="!userMode && activeTab === 'users'" :key="resultGeneration" />
       <div v-show="userMode || activeTab === 'tests'" class="space-y-6">
       <div v-if="loadError" role="alert" class="rounded-xl bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
         {{ loadError }} <button class="ml-3 underline" :disabled="loading" @click="reload()">{{ t('modelBenchmark.retry') }}</button>
@@ -32,12 +35,12 @@
         <template v-if="state.environment">
           <progress :value="state.environment.progress" max="100" class="h-2 w-full accent-primary-600" :aria-label="t('modelBenchmark.environmentProgress')" />
           <p v-if="state.environment.next_retry_at" class="text-xs">{{ t('modelBenchmark.environmentNextRetry', { time: formatDate(state.environment.next_retry_at) }) }}</p>
-          <button v-if="!userMode && state.environment.status === 'failed'" type="button" class="btn btn-secondary" :disabled="!!busy" data-testid="environment-retry" @click="retryEnvironment">{{ t('modelBenchmark.environmentRetry') }}</button>
+          <button v-if="!userMode && !remoteMode && state.environment.status === 'failed'" type="button" class="btn btn-secondary" :disabled="!!busy" data-testid="environment-retry" @click="retryEnvironment">{{ t('modelBenchmark.environmentRetry') }}</button>
         </template>
       </section>
 
-      <BenchmarkResults ref="resultSection" :user-mode="userMode" @refresh="reload" />
-      <BenchmarkBankSettings v-if="!userMode" :state="state" :busy="!!busy" @update="updateBank" @activate="activateBank" />
+      <BenchmarkResults :key="resultGeneration" ref="resultSection" :user-mode="userMode" @refresh="reload" />
+      <BenchmarkBankSettings v-if="!userMode && !remoteMode" :state="state" :busy="!!busy" @update="updateBank" @activate="activateBank" />
       <section v-if="canUsePersonalTests" :class="userMode ? 'space-y-5 rounded-2xl border border-primary-200 bg-primary-50/40 p-4 dark:border-primary-900/60 dark:bg-primary-950/10 sm:p-6' : 'space-y-6'" :aria-label="userMode ? t('modelBenchmark.myTests') : undefined" :data-testid="userMode ? 'my-tests-section' : undefined">
       <div v-if="userMode" class="flex flex-wrap items-center justify-between gap-3 border-b border-primary-100 pb-4 dark:border-primary-900/50"><div class="flex items-center gap-3"><span class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-100 text-xs font-semibold tracking-wider text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">02</span><h2 class="text-lg font-semibold">{{ t('modelBenchmark.myTests') }}</h2></div><span v-if="state?.quota" class="rounded-full bg-white px-3 py-1 text-xs text-primary-700 dark:bg-dark-900 dark:text-primary-300">{{ t('modelBenchmark.quotaRemaining', { remaining: state.quota.remaining, limit: state.quota.limit }) }}</span></div>
       <div :class="userMode ? 'space-y-3' : 'grid gap-6 xl:grid-cols-2'">
@@ -276,20 +279,24 @@ import BenchmarkDisplaySettings from '@/components/model-identification/Benchmar
 import BenchmarkBankSettings from '@/components/model-identification/BenchmarkBankSettings.vue'
 import BenchmarkResults from '@/components/model-identification/BenchmarkResults.vue'
 import BenchmarkUserRecords from '@/components/model-identification/BenchmarkUserRecords.vue'
+import BenchmarkSourceSettings from '@/components/model-identification/BenchmarkSourceSettings.vue'
 import { formatBenchmarkPassRate, benchmarkScoreClass, benchmarkCategoryScore } from '@/utils/benchmarkScore'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { useAppStore } from '@/stores/app'
 import { buildGatewayUrl } from '@/api/url'
-import { benchmarks as adminBenchmarks, type BenchmarkRun, type BenchmarkState, type BenchmarkSchedule, type ScheduleSettings, type Category, type Counts, type Effort, type CodingCounts, type CodingDifficulty } from '@/api/admin/model-benchmarks'
+import { benchmarks as adminBenchmarks, type BenchmarkSource, type BenchmarkRun, type BenchmarkState, type BenchmarkSchedule, type ScheduleSettings, type Category, type Counts, type Effort, type CodingCounts, type CodingDifficulty } from '@/api/admin/model-benchmarks'
 
 import { userBenchmarks } from '@/api/model-benchmarks'
 
 const { userMode = false } = defineProps<{ userMode?: boolean }>()
 const benchmarks = userMode ? userBenchmarks : adminBenchmarks
 const resultSection = ref<InstanceType<typeof BenchmarkResults> | null>(null)
-const activeTab = ref<'tests' | 'display' | 'users'>('tests')
+const resultGeneration = ref(0)
+const activeTab = ref<'tests' | 'display' | 'users' | 'source'>('tests')
+const source = ref<BenchmarkSource | null>(null)
+const remoteMode = computed(() => !!source.value?.source_url)
 const maxConcurrency = ref(5)
 const { t } = useI18n()
 const app = useAppStore()
@@ -327,7 +334,7 @@ const savedCodingCounts = computed(() => state.value?.coding_counts ?? { medium:
 const dirtyCounts = computed(() => !!state.value && (categories.some(c => counts[c] !== state.value?.counts[c]) || codingDifficulties.some(d => codingCounts[d] !== savedCodingCounts.value[d])))
 const validCounts = computed(() => countTotal.value >= 1 && countTotal.value <= 100 && categories.every(c => Number.isInteger(counts[c]) && counts[c] >= 0 && counts[c] <= (state.value?.capacities[c] ?? 100)) && codingDifficulties.every(d => Number.isInteger(codingCounts[d]) && codingCounts[d] >= 0 && codingCounts[d] <= (state.value?.coding_capacities?.[d] ?? 100)) && codingCounts.medium + codingCounts.hard === counts.coding)
 const hasQuota = computed(() => !userMode || (state.value?.quota?.remaining ?? 0) > 0)
-const canUsePersonalTests = computed(() => !userMode || state.value?.execution?.user_testing_enabled === true)
+const canUsePersonalTests = computed(() => userMode ? state.value?.execution?.user_testing_enabled === true : !!source.value && !remoteMode.value)
 const userHasActive = computed(() => userMode && (!!state.value?.active_run || runs.value.some(isActive)))
 const canStart = computed(() => canUsePersonalTests.value && !userHasActive.value && hasQuota.value && state.value?.ready && !state.value?.resources?.blocked && !busy.value && !dirtyCounts.value && !!form.base_url && !!form.api_key.trim() && !!form.model)
 const isActive = (run: BenchmarkRun) => ['queued', 'running', 'cancelling'].includes(run.status)
@@ -354,18 +361,48 @@ function errorMessage(error: unknown, fallback: string) {
   const e = error as { response?: { data?: { message?: string } }; message?: string }
   return e?.response?.data?.message || e?.message || t(fallback)
 }
+function applySource(value: BenchmarkSource) {
+  const changed = source.value && (source.value.source_url !== value.source_url || source.value.site_id !== value.site_id)
+  source.value = value
+  if (!changed) return
+  runs.value = []; schedules.value = []; detail.value = null; page.value = 1; state.value = null
+  totalRuns.value = 0
+  form.api_key = ''; selectedKeyName.value = ''; showKeyPicker.value = false
+  scheduledMode.value = false; editingSchedule.value = null; deletingSchedule.value = null
+  // 新来源不能复用旧分页或旧请求；卸载结果组件会中止旧来源读取。
+  ++resultGeneration.value
+  ++detailRevision
+}
+async function sourceSaved(value: BenchmarkSource) {
+  ++revision
+  applySource(value)
+  await nextTick()
+  await reload()
+}
 async function reload() {
   const current = ++revision
+  loading.value = true
+  if (!userMode) {
+    try {
+      const value = await adminBenchmarks.source(controller.signal)
+      if (controller.signal.aborted || current !== revision) return
+      applySource(value)
+      await nextTick()
+      if (controller.signal.aborted || current !== revision) return
+    } catch {
+      if (!controller.signal.aborted && current === revision) { loadError.value = t('modelBenchmark.loadError'); loading.value = false }
+      return
+    }
+  }
   const selected = detail.value?.id
   const selectedRevision = detailRevision
-  loading.value = true
   const stateRequest = benchmarks.state(controller.signal)
-  const personalTestsAllowed = stateRequest.then(value => !userMode || value.execution?.user_testing_enabled === true)
+  const personalTestsAllowed = stateRequest.then(value => userMode ? value.execution?.user_testing_enabled === true : !remoteMode.value)
   const results = await Promise.allSettled([
     stateRequest,
     personalTestsAllowed.then(allowed => allowed ? benchmarks.list(page.value, controller.signal) : { items: [] as BenchmarkRun[], total: 0, page: 1, page_size: 20 }),
     personalTestsAllowed.then(allowed => allowed && selected ? benchmarks.detail(selected, controller.signal) : null),
-    userMode ? Promise.resolve({ items: [] as BenchmarkSchedule[] }) : adminBenchmarks.schedules(controller.signal),
+    userMode || remoteMode.value ? Promise.resolve({ items: [] as BenchmarkSchedule[] }) : adminBenchmarks.schedules(controller.signal),
     resultSection.value?.refresh()
   ])
   if (controller.signal.aborted || current !== revision) return

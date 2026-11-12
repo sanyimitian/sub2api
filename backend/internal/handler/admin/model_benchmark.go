@@ -28,6 +28,7 @@ type ModelBenchmarkHandler struct {
 	client      *http.Client
 	publicGuard *benchmarkPublicGuard
 	users       benchmarkUsers
+	federation  *service.ModelBenchmarkFederationService
 }
 
 type benchmarkUsers interface {
@@ -36,8 +37,9 @@ type benchmarkUsers interface {
 }
 
 // Account access is wired only for the administrator handler.
-func NewModelBenchmarkHandlerForAdmin(users *UserHandler) *ModelBenchmarkHandler {
+func NewModelBenchmarkHandlerForAdmin(users *UserHandler, federation *service.ModelBenchmarkFederationService) *ModelBenchmarkHandler {
 	h := NewModelBenchmarkHandler()
+	h.federation = federation
 	if users != nil {
 		h.users = users.adminService
 	}
@@ -50,6 +52,7 @@ type benchmarkOwner struct {
 	Username string `json:"username"`
 	Deleted  bool   `json:"deleted"`
 	Missing  bool   `json:"missing"`
+	SiteID   string `json:"site_id,omitempty"`
 }
 
 func (h *ModelBenchmarkHandler) UserOptions(c *gin.Context) {
@@ -83,9 +86,15 @@ func (h *ModelBenchmarkHandler) UserOptions(c *gin.Context) {
 }
 
 func (h *ModelBenchmarkHandler) UserRuns(c *gin.Context) {
+	source, sourceErr := h.connection(c)
+	if sourceErr != nil {
+		response.Error(c, http.StatusServiceUnavailable, "无法读取主站配置")
+		return
+	}
 	query := url.Values{}
 	for key, values := range c.Request.URL.Query() {
-		if (key != "page" && key != "user_id" && key != "model") || len(values) != 1 {
+		// 前端统一附加的时区只影响本地显示，不作为评测筛选条件转发。
+		if (key != "page" && key != "user_id" && key != "model" && key != "timezone") || len(values) != 1 {
 			response.BadRequest(c, "Invalid benchmark filters")
 			return
 		}
@@ -123,6 +132,17 @@ func (h *ModelBenchmarkHandler) UserRuns(c *gin.Context) {
 			var id int64
 			if err := json.Unmarshal(item["owner_user_id"], &id); err != nil || id <= 0 {
 				return nil, errors.New("invalid benchmark owner")
+			}
+			var siteID string
+			if raw, ok := item["owner_site_id"]; ok {
+				if err := json.Unmarshal(raw, &siteID); err != nil {
+					return nil, err
+				}
+			}
+			// 外站账号编号不能用于查询本站的同编号账号。
+			if siteID != source.SiteID {
+				item["owner"], _ = json.Marshal(benchmarkOwner{ID: id, SiteID: siteID, Missing: true})
+				continue
 			}
 			owner, ok := owners[id]
 			if !ok {
@@ -272,6 +292,15 @@ func (h *ModelBenchmarkHandler) forward(c *gin.Context, path string) {
 
 func (h *ModelBenchmarkHandler) forwardWith(c *gin.Context, path string, transform func([]byte) ([]byte, error)) {
 	c.Header("Cache-Control", "no-store")
+	source, sourceErr := h.connection(c)
+	if sourceErr != nil {
+		response.Error(c, http.StatusServiceUnavailable, "无法读取主站配置")
+		return
+	}
+	if source.SourceURL != "" {
+		h.forwardRemote(c, source, path, transform)
+		return
+	}
 	u, err := url.Parse(h.baseURL)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || h.token == "" {
 		response.Error(c, http.StatusServiceUnavailable, "Model benchmark worker is not configured")
