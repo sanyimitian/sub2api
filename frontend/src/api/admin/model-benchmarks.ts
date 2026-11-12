@@ -1,4 +1,5 @@
 import { apiClient } from '../client'
+import type { ResultPage, SharedDisplay, SharedSchedule } from '../model-benchmarks'
 
 export type Category = 'coding' | 'math' | 'reasoning'
 export type Counts = Record<Category, number>
@@ -138,6 +139,12 @@ export interface DisplayConfig extends DisplayInput {
 }
 const root = '/admin/model-benchmarks'
 export const benchmarks = {
+  async showcase(signal?: AbortSignal, cursor?: string) {
+    return (await apiClient.get<ResultPage<SharedDisplay>>(`${root}/showcase`, { params: { cursor }, signal })).data
+  },
+  async results(signal?: AbortSignal, cursor?: string) {
+    return (await apiClient.get<ResultPage<SharedSchedule>>(`${root}/results`, { params: { cursor }, signal })).data
+  },
   async updateBank(signal?: AbortSignal) {
     return (await apiClient.post<BankUpdate>(root + '/bank/update', {}, { signal })).data
   },

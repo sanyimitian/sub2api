@@ -141,6 +141,8 @@ func RegisterAdminRoutes(
 func registerModelBenchmarkRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	benchmarks := admin.Group("/model-benchmarks")
 	benchmarks.GET("/state", h.Admin.ModelBenchmark.State)
+	benchmarks.GET("/showcase", h.Admin.ModelBenchmark.Showcase)
+	benchmarks.GET("/results", h.Admin.ModelBenchmark.Results)
 	benchmarks.POST("/bank/update", h.Admin.ModelBenchmark.UpdateBank)
 	benchmarks.POST("/bank/activate", h.Admin.ModelBenchmark.ActivateBank)
 	benchmarks.POST("/environment/retry", h.Admin.ModelBenchmark.PrepareEnvironment)

@@ -58,7 +58,7 @@ def make_handler(store, engine, token, environment=None):
                 if user_match:
                     owner_user_id = int(user_match[1])
                     path = user_match[2]
-                    if not re.fullmatch(r"/(?:state|runs(?:/[a-f0-9]{32}(?:/(?:rerun|cancel))?)?)", path):
+                    if not re.fullmatch(r"/(?:state|results|runs(?:/[a-f0-9]{32}(?:/(?:rerun|cancel))?)?)", path):
                         raise Problem("Not found", 404)
                 if environment:
                     setup = environment.snapshot()
@@ -75,6 +75,9 @@ def make_handler(store, engine, token, environment=None):
                         self.send_json(202, environment.retry())
                         return
                     if not store or not engine:
+                        if self.command == "GET" and path in ("/results", "/showcase"):
+                            self.send_json(200, {"items": [], "next_cursor": None})
+                            return
                         if self.command == "GET" and path in ("/runs", "/schedules", "/displays", "/showcase"):
                             self.send_json(200, {"items": [], "total": 0, "page": 1, "page_size": 20})
                             return
@@ -117,7 +120,9 @@ def make_handler(store, engine, token, environment=None):
                     engine.wake.set()
                     self.send_json(202, result)
                 elif self.command == "GET" and path == "/showcase":
-                    self.send_json(200, engine.displays.showcase())
+                    self.send_json(200, engine.displays.showcase(parse_qs(parsed.query).get("cursor", [""])[0]))
+                elif self.command == "GET" and path == "/results":
+                    self.send_json(200, store.user_results(owner_user_id, parse_qs(parsed.query).get("cursor", [""])[0]))
                 elif self.command == "GET" and path == "/public-results":
                     self.send_json(200, store.public_results())
                 elif path == "/execution" and self.command in ("GET", "PUT"):

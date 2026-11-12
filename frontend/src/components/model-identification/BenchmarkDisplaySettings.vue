@@ -22,7 +22,7 @@
         </div>
         <template v-if="item.source_type === 'local'">
           <p class="text-sm">{{ schedules.find(s => s.id === item.schedule_id)?.name || t('modelBenchmark.sourceUnavailable') }}</p>
-          <p class="text-xs text-gray-500">{{ t('modelBenchmark.displayLimitSummary', { count: item.max_results }) }}</p>
+          <p class="text-xs text-gray-500">{{ t('modelBenchmark.resultPaginationHint') }}</p>
           <p v-if="!schedules.some(s => s.id === item.schedule_id && s.public_results)" class="text-xs text-amber-700">{{ t('modelBenchmark.sourceUnavailable') }}</p>
         </template>
         <template v-else>
@@ -40,8 +40,7 @@
         <template v-if="form.source_type === 'local'">
           <label class="block space-y-1 text-sm"><span>{{ t('modelBenchmark.selectPublicSchedule') }}</span><select v-model="form.schedule_id" name="display_schedule" class="input w-full" required><option :value="null" disabled>{{ t('modelBenchmark.selectPublicSchedule') }}</option><option v-for="schedule in publicSchedules" :key="schedule.id" :value="schedule.id">{{ schedule.name }} · {{ schedule.model }}</option></select></label>
           <p v-if="!publicSchedules.length" class="text-xs text-amber-700">{{ t('modelBenchmark.noPublicSchedules') }}</p>
-          <label class="block space-y-1 text-sm"><span>{{ t('modelBenchmark.maxDisplayResults') }}</span><input v-model.number="form.max_results" name="max_results" type="number" min="1" max="100" step="1" required class="input w-full" /></label>
-          <p class="text-xs text-gray-500">{{ t('modelBenchmark.displayLimitHint') }}</p>
+          <p class="text-xs text-gray-500">{{ t('modelBenchmark.resultPaginationHint') }}</p>
         </template>
         <template v-else>
           <label class="block space-y-1 text-sm"><span>{{ t('modelBenchmark.feedUrl') }}</span><input v-model.trim="form.remote_url" name="remote_url" type="url" required maxlength="2048" placeholder="https://example.com/api/v1/model-benchmarks/public-results" class="input w-full" /></label>

@@ -167,6 +167,7 @@ func registerUserModelBenchmarkRoutes(authenticated *gin.RouterGroup) {
 	group := authenticated.Group("/model-benchmarks")
 	group.GET("/state", h.User)
 	group.GET("/showcase", h.User)
+	group.GET("/results", h.User)
 	group.GET("/runs", h.User)
 	group.POST("/runs", h.User)
 	group.GET("/runs/:id", h.User)

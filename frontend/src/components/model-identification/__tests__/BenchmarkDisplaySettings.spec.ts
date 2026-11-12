@@ -30,11 +30,10 @@ describe('benchmark display configuration', () => {
     expect(wrapper.get('[name="display_schedule"]').text()).not.toContain('Private plan')
     await wrapper.get('[name="display_name"]').setValue('Featured')
     await wrapper.get('[name="display_schedule"]').setValue('public')
-    expect((wrapper.get('[name="max_results"]').element as HTMLInputElement).value).toBe('20')
-    await wrapper.get('[name="max_results"]').setValue(12)
+    expect(wrapper.find('[name="max_results"]').exists()).toBe(false)
     await wrapper.get('form').trigger('submit')
     await flushPromises()
-    expect(benchmarks.createDisplay).toHaveBeenCalledWith({ name: 'Featured', source_type: 'local', schedule_id: 'public', remote_url: '', refresh_minutes: 60, max_results: 12, enabled: true }, expect.any(AbortSignal))
+    expect(benchmarks.createDisplay).toHaveBeenCalledWith({ name: 'Featured', source_type: 'local', schedule_id: 'public', remote_url: '', refresh_minutes: 60, max_results: 20, enabled: true }, expect.any(AbortSignal))
   })
 
   it('defaults external feeds to 60 minutes and saves a custom interval', async () => {

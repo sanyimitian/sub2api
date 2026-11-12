@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
 
-from store import CATEGORIES, EFFORTS, Problem
+from store import CATEGORIES, EFFORTS, Problem, RESULT_PAGE_SIZE, result_cursor, encode_result_cursor
 from transport import RequestFailure, public_addresses
 
 
@@ -139,6 +139,8 @@ def sanitize_feed(data):
             if not isinstance(result, dict):
                 raise ValueError("Invalid result")
             record = {k: text(result[k]) for k in ("id", "model", "effort", "status", "suite_day", "suite_fingerprint")}
+            if result.get("base_url"):
+                record["base_url"] = feed_url(result["base_url"])
             if record["effort"] not in EFFORTS or record["status"] not in ("completed", "failed", "cancelled", "interrupted"):
                 raise ValueError("Invalid finished result")
             record["suite_revision"] = integer(result["suite_revision"], 1000000)
@@ -298,20 +300,42 @@ class Displays:
                 (json.dumps(results) if results is not None else current["cache"], stamp if results is not None else current["last_success_at"],
                  error, self.store.clock().timestamp() + current["refresh_minutes"] * 60, item["id"]))
 
-    def showcase(self):
-        # Public feed always exports local plans only; imported feeds cannot recurse.
+    def showcase(self, cursor=""):
+        """所有启用来源共享一页额度；本地历史不受旧展示数量配置截断。"""
+        before = result_cursor(cursor, "site")
         with self.store.transaction() as db:
-            groups = []
+            sources, candidates = {}, []
             for row in db.execute("SELECT * FROM displays WHERE enabled=1 ORDER BY rowid"):
-                if row["source_type"] == "local":
-                    # Recheck visibility on every read, never cache local permissions.
-                    local = self.store.public_schedule_results(db, row["schedule_id"], row["max_results"])
-                    if local is None:
-                        continue
-                    items = [local]
-                else:
-                    items = sanitize_feed({"version": 1, "items": json.loads(row["cache"])})
-                groups.append({"id": row["id"], "name": row["name"], "source_type": row["source_type"],
+                source = {"id": row["id"], "name": row["name"], "source_type": row["source_type"],
                     "last_success_at": row["last_success_at"], "stale": bool(row["last_error"]),
-                    "pending": row["source_type"] == "remote" and row["last_success_at"] is None and not row["last_error"], "items": items})
-            return {"items": groups}
+                    "pending": row["source_type"] == "remote" and row["last_success_at"] is None and not row["last_error"], "items": []}
+                if row["source_type"] == "local":
+                    schedule = db.execute("SELECT * FROM schedules WHERE id=? AND public_results=1 AND deleted=0", (row["schedule_id"],)).fetchone()
+                    if schedule is None:
+                        continue
+                    query = "SELECT *,julianday(finished_at) AS sort_time FROM runs WHERE schedule_id=? AND finished_at IS NOT NULL"
+                    params = (schedule["id"],)
+                    if before:
+                        query += " AND (julianday(finished_at),id,?,?) < (?,?,?,?)"
+                        params += (row["id"], schedule["id"], *before)
+                    results = db.execute(query + " ORDER BY sort_time DESC,id DESC LIMIT ?", (*params, RESULT_PAGE_SIZE + 1)).fetchall()
+                    for result in results:
+                        candidates.append(((result["sort_time"], result["id"], row["id"], schedule["id"]), source, schedule, result))
+                else:
+                    for schedule in sanitize_feed({"version": 1, "items": json.loads(row["cache"])}):
+                        for result in schedule["results"]:
+                            stamp = db.execute("SELECT julianday(?)", (result["finished_at"],)).fetchone()[0]
+                            key = (stamp, result["id"], row["id"], schedule["id"])
+                            if before is None or key < before:
+                                candidates.append((key, source, schedule, result))
+                sources[row["id"]] = source
+            candidates.sort(key=lambda item: item[0], reverse=True)
+            for key, source, schedule, row in candidates[:RESULT_PAGE_SIZE]:
+                result = {**self.store._shared_result(db, row), "base_url": row["base_url"]} if source["source_type"] == "local" else row
+                group = next((item for item in source["items"] if item["id"] == schedule["id"]), None)
+                if group is None:
+                    group = {"id": schedule["id"], "name": schedule["name"], "model": result["model"], "effort": result["effort"], "results": []}
+                    source["items"].append(group)
+                group["results"].append(result)
+            more = len(candidates) > RESULT_PAGE_SIZE
+            return {"items": list(sources.values()), "next_cursor": encode_result_cursor(candidates[RESULT_PAGE_SIZE - 1][0], "site") if more else None}

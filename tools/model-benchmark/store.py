@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import ipaddress
 import json
+import math
 import os
 import re
 import secrets
@@ -13,6 +16,7 @@ import zlib
 from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -29,6 +33,42 @@ MAX_CONCURRENCY = 100
 HOURLY_LIMIT = 3
 CODING_DIFFICULTIES = ("medium", "hard")
 RETENTION_DAYS = 20
+RESULT_PAGE_SIZE = 24
+
+
+def mask_result_url(value):
+    """只保留协议、主机末尾一个字符和域名后缀；不泄露端口及路径。"""
+    parsed = urlsplit(value)
+    host = (parsed.hostname or "").rstrip(".")
+    try:
+        ipaddress.ip_address(host)
+        masked = "****"
+    except ValueError:
+        name, dot, suffix = host.rpartition(".")
+        masked = "*" * max(3, len(name) - 1) + name[-1:] + dot + suffix if name and dot else "****"
+    return f"{parsed.scheme}://{masked}"
+
+
+def result_cursor(value, scope):
+    if not value:
+        return None
+    try:
+        if len(value) > 1024:
+            raise ValueError()
+        decoded = json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)))
+        kind, *key = decoded
+        if kind != scope or len(key) != (4 if scope == "site" else 3):
+            raise ValueError()
+        stamp, *identifiers = key
+        if type(stamp) not in (int, float) or not math.isfinite(stamp) or not all(isinstance(v, str) and len(v) <= 200 for v in identifiers):
+            raise ValueError()
+        return tuple(key)
+    except (ValueError, TypeError, UnicodeError, OverflowError):
+        raise Problem("分页位置不正确") from None
+
+
+def encode_result_cursor(key, scope):
+    return base64.urlsafe_b64encode(json.dumps([scope, *key]).encode()).decode().rstrip("=")
 
 
 def now() -> str:
@@ -120,6 +160,8 @@ class Store:
                 db.execute("ALTER TABLE schedules ADD COLUMN public_results INTEGER NOT NULL DEFAULT 0")
             db.execute("CREATE INDEX IF NOT EXISTS runs_user_quota ON runs(owner_user_id,quota_at)")
             db.execute("CREATE INDEX IF NOT EXISTS runs_user_active ON runs(owner_user_id,status)")
+            db.execute("CREATE INDEX IF NOT EXISTS runs_finished_page ON runs(julianday(finished_at) DESC,id DESC) WHERE finished_at IS NOT NULL")
+            db.execute("CREATE INDEX IF NOT EXISTS runs_schedule_page ON runs(schedule_id,julianday(finished_at) DESC,id DESC) WHERE finished_at IS NOT NULL")
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS run_schedule_occurrence ON runs(schedule_id,scheduled_for)")
             config_columns = {row["name"] for row in db.execute("PRAGMA table_info(config)")}
             if "max_concurrency" not in config_columns:
@@ -627,19 +669,28 @@ class Store:
         record = self._public_run(row, suite)
         return {key: record[key] for key in fields}
 
-    def public_schedule_results(self, db, schedule_id, limit):
-        schedule = db.execute("SELECT * FROM schedules WHERE id=? AND public_results=1 AND deleted=0", (schedule_id,)).fetchone()
-        if schedule is None:
-            return None
-        rows = db.execute("SELECT * FROM runs WHERE schedule_id=? AND finished_at IS NOT NULL ORDER BY julianday(finished_at) DESC,rowid DESC LIMIT ?", (schedule_id, limit)).fetchall()
-        return {"id": schedule["id"], "name": schedule["name"], "model": schedule["model"], "effort": schedule["effort"],
-                "results": [self._shared_result(db, row) for row in rows]}
+    def user_results(self, viewer_user_id=None, cursor=""):
+        before = result_cursor(cursor, "users")
+        with self.transaction() as db:
+            query = "SELECT *,julianday(finished_at) AS sort_time FROM runs WHERE owner_user_id IS NOT NULL AND finished_at IS NOT NULL"
+            params = ()
+            if before:
+                query += " AND (julianday(finished_at),id) < (?,?)"
+                params = before[:2]
+            rows = db.execute(query + " ORDER BY sort_time DESC,id DESC LIMIT ?", (*params, RESULT_PAGE_SIZE + 1)).fetchall()
+            items = []
+            for row in rows[:RESULT_PAGE_SIZE]:
+                visible = viewer_user_id is None or row["owner_user_id"] == viewer_user_id
+                result = {**self._shared_result(db, row), "base_url": row["base_url"] if visible else mask_result_url(row["base_url"]), "url_masked": not visible}
+                items.append({"id": row["id"], "name": "", "model": row["model"], "effort": row["effort"], "results": [result]})
+            last = rows[RESULT_PAGE_SIZE - 1] if len(rows) > RESULT_PAGE_SIZE else None
+            return {"items": items, "next_cursor": encode_result_cursor((last["sort_time"], last["id"], ""), "users") if last else None}
 
     def public_results(self):
-        # The export limit is global, independent of each local display's limit.
+        # 对外订阅协议保留原来的全局条数限制，页面历史另行分页。
         with self.transaction() as db:
             rows = db.execute("""SELECT r.*,s.name AS schedule_name FROM runs r JOIN schedules s ON s.id=r.schedule_id
                 WHERE s.public_results=1 AND s.deleted=0 AND r.finished_at IS NOT NULL
                 ORDER BY julianday(r.finished_at) DESC,r.rowid DESC LIMIT 20""").fetchall()
-            items = [{**self._shared_result(db, row), "schedule_id": row["schedule_id"], "schedule_name": row["schedule_name"]} for row in rows]
+            items = [{**self._shared_result(db, row), "base_url": row["base_url"], "schedule_id": row["schedule_id"], "schedule_name": row["schedule_name"]} for row in rows]
             return {"version": 2, "generated_at": now(), "limit": 20, "items": items}

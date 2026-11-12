@@ -28,18 +28,7 @@
         </template>
       </section>
 
-      <section v-if="userMode" class="space-y-5 rounded-2xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900 sm:p-6" :aria-label="t('modelBenchmark.showcase')" data-testid="site-results-section">
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-4 dark:border-dark-800"><div class="flex items-center gap-3"><span class="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 text-xs font-semibold tracking-wider text-gray-500 dark:bg-dark-800">01</span><h2 class="text-lg font-semibold">{{ t('modelBenchmark.showcase') }}</h2></div><button class="btn btn-secondary" :disabled="loading || !!busy" @click="reload()">{{ t('modelBenchmark.refreshResults') }}</button></div>
-        <p v-if="!sharedDisplays.length && !loading" class="py-5 text-center text-sm text-gray-500">{{ t('modelBenchmark.noSharedResults') }}</p>
-        <div v-for="display in sharedDisplays" :key="display.id" class="space-y-3" :data-display-id="display.id">
-          <div class="flex flex-wrap items-center justify-between gap-2"><h3 class="font-semibold">{{ display.name }}</h3><span class="text-xs text-gray-500">{{ t(display.source_type === 'local' ? 'modelBenchmark.localSource' : 'modelBenchmark.remoteSource') }}<span v-if="display.last_success_at"> · {{ t('modelBenchmark.lastFetch', { time: formatDate(display.last_success_at) }) }}</span></span></div>
-          <p v-if="display.stale" class="text-xs text-amber-700" role="status">{{ t('modelBenchmark.sourceStale') }}</p>
-          <p v-else-if="display.pending" class="text-sm text-gray-500">{{ t('modelBenchmark.fetchingSource') }}</p>
-          <p v-else-if="!display.items.length" class="text-sm text-gray-500">{{ t('modelBenchmark.noSourceResults') }}</p>
-        <BenchmarkResultGallery :items="display.items" :display-name="display.name" />
-        </div>
-        <p class="text-xs text-gray-500">{{ t('modelBenchmark.passRateHint') }}</p>
-      </section>
+      <BenchmarkResults ref="resultSection" :user-mode="userMode" @refresh="reload" />
       <BenchmarkBankSettings v-if="!userMode" :state="state" :busy="!!busy" @update="updateBank" @activate="activateBank" />
       <section v-if="canUsePersonalTests" :class="userMode ? 'space-y-5 rounded-2xl border border-primary-200 bg-primary-50/40 p-4 dark:border-primary-900/60 dark:bg-primary-950/10 sm:p-6' : 'space-y-6'" :aria-label="userMode ? t('modelBenchmark.myTests') : undefined" :data-testid="userMode ? 'my-tests-section' : undefined">
       <div v-if="userMode" class="flex flex-wrap items-center justify-between gap-3 border-b border-primary-100 pb-4 dark:border-primary-900/50"><div class="flex items-center gap-3"><span class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-100 text-xs font-semibold tracking-wider text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">02</span><h2 class="text-lg font-semibold">{{ t('modelBenchmark.myTests') }}</h2></div><span v-if="state?.quota" class="rounded-full bg-white px-3 py-1 text-xs text-primary-700 dark:bg-dark-900 dark:text-primary-300">{{ t('modelBenchmark.quotaRemaining', { remaining: state.quota.remaining, limit: state.quota.limit }) }}</span></div>
@@ -275,7 +264,7 @@ import BenchmarkKeyPicker from '@/components/model-identification/BenchmarkKeyPi
 import BenchmarkScheduleFields from '@/components/model-identification/BenchmarkScheduleFields.vue'
 import BenchmarkDisplaySettings from '@/components/model-identification/BenchmarkDisplaySettings.vue'
 import BenchmarkBankSettings from '@/components/model-identification/BenchmarkBankSettings.vue'
-import BenchmarkResultGallery from '@/components/model-identification/BenchmarkResultGallery.vue'
+import BenchmarkResults from '@/components/model-identification/BenchmarkResults.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -283,11 +272,11 @@ import { useAppStore } from '@/stores/app'
 import { buildGatewayUrl } from '@/api/url'
 import { benchmarks as adminBenchmarks, type BenchmarkRun, type BenchmarkState, type BenchmarkSchedule, type ScheduleSettings, type Category, type Counts, type Effort, type CodingCounts, type CodingDifficulty } from '@/api/admin/model-benchmarks'
 
-import { userBenchmarks, type SharedDisplay } from '@/api/model-benchmarks'
+import { userBenchmarks } from '@/api/model-benchmarks'
 
 const { userMode = false } = defineProps<{ userMode?: boolean }>()
 const benchmarks = userMode ? userBenchmarks : adminBenchmarks
-const sharedDisplays = ref<SharedDisplay[]>([])
+const resultSection = ref<InstanceType<typeof BenchmarkResults> | null>(null)
 const activeTab = ref<'tests' | 'display'>('tests')
 const maxConcurrency = ref(5)
 const { t } = useI18n()
@@ -365,10 +354,10 @@ async function reload() {
     personalTestsAllowed.then(allowed => allowed ? benchmarks.list(page.value, controller.signal) : { items: [] as BenchmarkRun[], total: 0, page: 1, page_size: 20 }),
     personalTestsAllowed.then(allowed => allowed && selected ? benchmarks.detail(selected, controller.signal) : null),
     userMode ? Promise.resolve({ items: [] as BenchmarkSchedule[] }) : adminBenchmarks.schedules(controller.signal),
-    userMode ? userBenchmarks.showcase(controller.signal) : Promise.resolve({ items: [] as SharedDisplay[] })
+    resultSection.value?.refresh()
   ])
   if (controller.signal.aborted || current !== revision) return
-  const [suite, history, selectedRun, plans, shared] = results
+  const [suite, history, selectedRun, plans] = results
   if (suite.status === 'fulfilled') {
     const preserve = dirtyCounts.value
     const preserveConcurrency = !!state.value?.execution && concurrencyDirty.value
@@ -385,8 +374,6 @@ async function reload() {
     selectedKeyName.value = ''
   }
   if (plans.status === 'fulfilled') schedules.value = plans.value.items
-  if (shared.status === 'fulfilled') sharedDisplays.value = shared.value.items
-  else if (userMode) sharedDisplays.value = []
   loadError.value = results.some(r => r.status === 'rejected') ? t('modelBenchmark.loadError') : ''
   loading.value = false
 }

@@ -63,11 +63,12 @@ func TestModelBenchmarkPublicProjectsOnlyAllowedFields(t *testing.T) {
 	fixture := benchmarkPublicFixture()
 	fixture["credential"] = "root-secret"
 	item := fixture["items"].([]any)[0].(map[string]any)
-	for _, name := range []string{"credential", "base_url", "answer", "error", "api_key"} {
+	for _, name := range []string{"credential", "answer", "error", "api_key"} {
 		item[name] = "private-secret"
 	}
 	item["schedule_name"] = "<img src=x onerror=alert(1)>"
 	item["pass_rate"] = 999
+	item["base_url"] = "https://test.one/v1"
 	router, _ := benchmarkPublicTestRouter(t, func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/public-results", r.URL.RequestURI())
 		require.Equal(t, "Bearer worker-secret", r.Header.Get("Authorization"))
@@ -93,6 +94,7 @@ func TestModelBenchmarkPublicProjectsOnlyAllowedFields(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
 	require.Equal(t, float64(100), *result.Data.Items[0].PassRate)
+	require.Equal(t, "https://test.one/v1", result.Data.Items[0].BaseURL)
 }
 
 func TestModelBenchmarkPublicRejectsMalformedAndOversizedWorkerData(t *testing.T) {

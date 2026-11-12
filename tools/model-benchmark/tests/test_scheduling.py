@@ -259,6 +259,7 @@ class ScheduleTests(Fixture):
         original = self.create()
         with sqlite3.connect(self.store.path) as db:
             db.execute("DROP INDEX run_schedule_occurrence")
+            db.execute("DROP INDEX runs_schedule_page")
             db.execute("ALTER TABLE runs DROP COLUMN schedule_id")
             db.execute("ALTER TABLE runs DROP COLUMN scheduled_for")
             db.execute("DROP TABLE schedules")

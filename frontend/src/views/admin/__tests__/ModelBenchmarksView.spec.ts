@@ -11,7 +11,7 @@ vi.mock('vue-i18n', async importOriginal => ({
   useI18n: () => ({ t: (key: string) => key })
 }))
 vi.mock('@/api/admin/model-benchmarks', () => ({
-  benchmarks: { setUserTesting: vi.fn(), runSchedule: vi.fn(), updateBank: vi.fn(), activateBank: vi.fn(), retryEnvironment: vi.fn(), state: vi.fn(), setExecution: vi.fn(), displays: vi.fn(), configure: vi.fn(), refresh: vi.fn(), create: vi.fn(), list: vi.fn(), detail: vi.fn(), rerun: vi.fn(), cancel: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), deleteSchedule: vi.fn() }
+  benchmarks: { showcase: vi.fn(), results: vi.fn(), setUserTesting: vi.fn(), runSchedule: vi.fn(), updateBank: vi.fn(), activateBank: vi.fn(), retryEnvironment: vi.fn(), state: vi.fn(), setExecution: vi.fn(), displays: vi.fn(), configure: vi.fn(), refresh: vi.fn(), create: vi.fn(), list: vi.fn(), detail: vi.fn(), rerun: vi.fn(), cancel: vi.fn(), schedules: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), deleteSchedule: vi.fn() }
 }))
 const initial: BenchmarkState = {
   execution: { max_concurrency: 5, running: 2, queued: 4 },
@@ -37,6 +37,8 @@ function schedule(): BenchmarkSchedule {
 enableAutoUnmount(afterEach)
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(benchmarks.showcase).mockResolvedValue({ items: [], next_cursor: null })
+  vi.mocked(benchmarks.results).mockResolvedValue({ items: [], next_cursor: null })
   vi.mocked(benchmarks.state).mockResolvedValue(structuredClone(initial))
   vi.mocked(benchmarks.list).mockResolvedValue({ items: [], total: 0, page_size: 20 })
   vi.mocked(benchmarks.detail).mockResolvedValue(run())

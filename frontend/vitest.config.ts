@@ -7,8 +7,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      'vue-i18n': 'vue-i18n/dist/vue-i18n.runtime.esm-bundler.js'
+      'vue-i18n': 'vue-i18n/dist/vue-i18n.esm-bundler.js'
     }
+  },
+  define: {
+    __INTLIFY_JIT_COMPILATION__: true
   },
   test: {
     globals: true,

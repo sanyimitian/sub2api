@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -52,7 +53,16 @@ func (h *ModelBenchmarkHandler) User(c *gin.Context) {
 	}
 	path := strings.TrimPrefix(c.FullPath(), "/api/v1/model-benchmarks")
 	if path == "/showcase" {
-		h.forward(c, path)
+		h.Showcase(c)
+		return
+	}
+	if path == "/results" {
+		role, _ := middleware.GetUserRoleFromContext(c)
+		if role == service.RoleAdmin {
+			h.Results(c)
+		} else {
+			h.forward(c, "/users/"+strconv.FormatInt(subject.UserID, 10)+"/results?"+benchmarkResultQuery(c))
+		}
 		return
 	}
 	if id := c.Param("id"); id != "" {
@@ -68,6 +78,20 @@ func (h *ModelBenchmarkHandler) User(c *gin.Context) {
 		path += "?" + query.Encode()
 	}
 	h.forward(c, "/users/"+strconv.FormatInt(subject.UserID, 10)+path)
+}
+
+func benchmarkResultQuery(c *gin.Context) string {
+	query := url.Values{}
+	query.Set("cursor", c.Query("cursor"))
+	return query.Encode()
+}
+
+func (h *ModelBenchmarkHandler) Showcase(c *gin.Context) {
+	h.forward(c, "/showcase?"+benchmarkResultQuery(c))
+}
+
+func (h *ModelBenchmarkHandler) Results(c *gin.Context) {
+	h.forward(c, "/results?"+benchmarkResultQuery(c))
 }
 
 func (h *ModelBenchmarkHandler) State(c *gin.Context)        { h.forward(c, "/state") }

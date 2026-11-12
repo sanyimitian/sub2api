@@ -45,7 +45,7 @@ func TestModelBenchmarkAdminAuthentication(t *testing.T) {
 	RegisterAdminRoutes(router.Group("/api/v1"), h, middleware.NewAdminAuthMiddleware(auth, service.NewUserService(users, nil, nil, nil), nil, nil), passAudit, passStep, nil, nil)
 	for _, endpoint := range []struct{ method, path string }{
 		{"POST", "/environment/retry"},
-		{"GET", "/state"}, {"PUT", "/config"}, {"POST", "/suites/refresh"}, {"GET", "/runs"}, {"POST", "/runs"},
+		{"GET", "/results"}, {"GET", "/showcase"}, {"GET", "/state"}, {"PUT", "/config"}, {"POST", "/suites/refresh"}, {"GET", "/runs"}, {"POST", "/runs"},
 		{"GET", "/runs/" + strings.Repeat("a", 32)}, {"POST", "/runs/" + strings.Repeat("a", 32) + "/rerun"}, {"POST", "/runs/" + strings.Repeat("a", 32) + "/cancel"},
 		{"GET", "/schedules"}, {"POST", "/schedules"}, {"PUT", "/schedules/" + strings.Repeat("a", 32)}, {"DELETE", "/schedules/" + strings.Repeat("a", 32)},
 		{"POST", "/bank/update"}, {"POST", "/bank/activate"},
@@ -90,6 +90,7 @@ func TestModelBenchmarkUserAuthenticationAndScope(t *testing.T) {
 	t.Setenv("MODEL_BENCHMARK_WORKER_TOKEN", "worker-test-token")
 	users := &identificationAuthUsers{users: map[int64]*service.User{
 		7: {ID: 7, Email: "user@example.invalid", Role: service.RoleUser, Status: service.StatusActive, TokenVersion: 1, TokenVersionResolved: true},
+		1: {ID: 1, Email: "admin@example.invalid", Role: service.RoleAdmin, Status: service.StatusActive, TokenVersion: 1, TokenVersionResolved: true},
 	}}
 	auth := service.NewAuthService(nil, users, nil, nil, &config.Config{JWT: config.JWTConfig{Secret: "benchmark-auth-test-secret", ExpireHour: 1}}, nil, nil, nil, nil, nil, nil, nil, nil)
 	token, err := auth.GenerateToken(context.Background(), users.users[7])
@@ -99,9 +100,18 @@ func TestModelBenchmarkUserAuthenticationAndScope(t *testing.T) {
 	group := router.Group("/api/v1")
 	group.Use(gin.HandlerFunc(middleware.NewJWTAuthMiddleware(auth, service.NewUserService(users, nil, nil, nil), nil, nil)))
 	registerUserModelBenchmarkRoutes(group)
+	adminToken, err := auth.GenerateToken(context.Background(), users.users[1])
+	require.NoError(t, err)
+	adminRequest := httptest.NewRequest("GET", "/api/v1/model-benchmarks/results?cursor=next", nil)
+	adminRequest.Header.Set("Authorization", "Bearer "+adminToken)
+	adminResponse := httptest.NewRecorder()
+	router.ServeHTTP(adminResponse, adminRequest)
+	require.Equal(t, 200, adminResponse.Code)
+	require.Equal(t, "/results?cursor=next", gotPath)
 	id := strings.Repeat("a", 32)
 	for _, endpoint := range []struct{ method, path, workerPath string }{
-		{"GET", "/state", "/users/7/state"}, {"GET", "/showcase", "/showcase"},
+		{"GET", "/state", "/users/7/state"}, {"GET", "/showcase", "/showcase?cursor="},
+		{"GET", "/results?cursor=next&owner_user_id=8&role=admin", "/users/7/results?cursor=next"},
 		{"GET", "/runs?page=2&owner_user_id=8", "/users/7/runs?page=2"}, {"POST", "/runs", "/users/7/runs"},
 		{"GET", "/runs/" + id, "/users/7/runs/" + id},
 		{"POST", "/runs/" + id + "/rerun", "/users/7/runs/" + id + "/rerun"},

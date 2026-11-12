@@ -147,6 +147,7 @@ type benchmarkPublicResult struct {
 	ScheduleID       string                           `json:"schedule_id"`
 	ScheduleName     string                           `json:"schedule_name"`
 	Model            string                           `json:"model"`
+	BaseURL          string                           `json:"base_url,omitempty"`
 	Effort           string                           `json:"effort"`
 	Status           string                           `json:"status"`
 	CreatedAt        time.Time                        `json:"created_at"`
@@ -185,6 +186,12 @@ func decodeBenchmarkPublicFeed(data []byte) (*benchmarkPublicFeed, error) {
 	ids := make(map[string]bool)
 	for i := range feed.Items {
 		r := &feed.Items[i]
+		if r.BaseURL != "" {
+			u, err := url.Parse(r.BaseURL)
+			if err != nil || !benchmarkPublicText(r.BaseURL, 2048) || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+				return nil, invalid
+			}
+		}
 		if !benchmarkID.MatchString(r.ID) || !benchmarkID.MatchString(r.ScheduleID) || ids[r.ID] || !benchmarkPublicText(r.ScheduleName, 100) || !benchmarkPublicText(r.Model, 200) {
 			return nil, invalid
 		}

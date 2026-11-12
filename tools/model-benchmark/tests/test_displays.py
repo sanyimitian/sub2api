@@ -173,7 +173,8 @@ class DisplayTests(Fixture):
         result.update(api_key="result-secret", answer="hidden answer", base_url="https://private.example", pass_rate=12)
         cleaned = sanitize_feed({"code": 0, "message": "success", "data": data})
         self.assertEqual(cleaned[0]["results"][0]["pass_rate"], 100)
-        for field in ("api_key", "credential", "answer", "base_url"): self.assertNotIn(field, json.dumps(cleaned))
+        self.assertEqual(cleaned[0]["results"][0]["base_url"], "https://private.example/")
+        for field in ("api_key", "credential", "answer"): self.assertNotIn(field, json.dumps(cleaned))
         for key, value in (("total", -1), ("status", "running"), ("completed", 0), ("elapsed_seconds", float("nan"))):
             bad = copy.deepcopy(data)
             bad["items"][0][key] = value
@@ -217,7 +218,7 @@ class DisplayTests(Fixture):
         self.assertEqual(upgraded.state()["suite"], suite)
         self.assertEqual(upgraded.execution_settings()["max_concurrency"], 5)
 
-    def test_export_is_latest_twenty_across_schedules_and_local_limit_is_independent(self):
+    def test_export_is_latest_twenty_and_showcase_ignores_legacy_limit(self):
         first, _ = self.feed()
         second = self.plan(name="Second")
         private = self.plan(name="Private", public_results=False)
@@ -244,7 +245,8 @@ class DisplayTests(Fixture):
         self.assertEqual(sum(len(group["results"]) for group in sanitize_feed(feed)), 20)
         local = self.displays.save({"name": "History", "source_type": "local", "schedule_id": first["id"], "max_results": 3})
         local_results = self.displays.showcase()["items"][0]["items"][0]["results"]
-        self.assertEqual([r["id"] for r in local_results], [r[1] for r in ids if r[2] == first["id"]][:3])
+        self.assertEqual([r["id"] for r in local_results[:16]], [r[1] for r in ids if r[2] == first["id"]])
+        self.assertEqual(len(local_results), 17)
         self.displays.save({"max_results": 100}, local["id"])
         self.assertEqual(len(self.displays.showcase()["items"][0]["items"][0]["results"]), 17)
         # A local task must remain visible even when none of its results make the export.

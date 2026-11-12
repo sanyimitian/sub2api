@@ -7,7 +7,7 @@ import { benchmarks, type BenchmarkRun, type BenchmarkState } from '@/api/admin/
 const app = vi.hoisted(() => ({ showError: vi.fn(), showSuccess: vi.fn(), apiBaseUrl: 'https://gateway.example.com' }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => app }))
 vi.mock('vue-i18n', async importOriginal => ({ ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string) => key }) }))
-vi.mock('@/api/model-benchmarks', () => ({ userBenchmarks: { state: vi.fn(), showcase: vi.fn(), list: vi.fn(), create: vi.fn(), detail: vi.fn(), rerun: vi.fn(), cancel: vi.fn() } }))
+vi.mock('@/api/model-benchmarks', () => ({ userBenchmarks: { state: vi.fn(), showcase: vi.fn(), results: vi.fn(), list: vi.fn(), create: vi.fn(), detail: vi.fn(), rerun: vi.fn(), cancel: vi.fn() } }))
 vi.mock('@/api/admin/model-benchmarks', () => ({ benchmarks: { state: vi.fn(), list: vi.fn(), schedules: vi.fn(), configure: vi.fn(), createSchedule: vi.fn() } }))
 const initial: BenchmarkState = {
   execution: { user_testing_enabled: true, max_concurrency: 5, running: 0, queued: 0 },
@@ -26,6 +26,7 @@ function render() { return mount(ModelBenchmarksView, { global: { stubs: { AppLa
 enableAutoUnmount(afterEach)
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(userBenchmarks.results).mockResolvedValue({ items: [], next_cursor: null })
   vi.mocked(userBenchmarks.state).mockResolvedValue(structuredClone(initial))
   vi.mocked(userBenchmarks.list).mockResolvedValue({ items: [structuredClone(run)], total: 1, page_size: 20 })
   vi.mocked(userBenchmarks.showcase).mockResolvedValue({ items: [{ id: 'display', name: 'Configured source', source_type: 'local', last_success_at: null, stale: false, pending: false, items: [{ id: 'public-plan', name: 'Shared plan', model: 'test-model', effort: 'medium', results: [{ ...run, id: 'shared-new' }, { ...run, id: 'shared-old' }] }] }] })
@@ -33,6 +34,51 @@ beforeEach(() => {
 })
 
 describe('user model benchmarks', () => {
+  it('removes revoked sources even when refreshing a later history page fails', async () => {
+    const source = (id: string) => ({ id, name: id, source_type: 'local' as const, last_success_at: null, stale: false, pending: false, items: [{ id: `plan-${id}`, name: id, model: run.model, effort: run.effort, results: [{ ...run, id }] }] })
+    vi.mocked(userBenchmarks.showcase).mockImplementation(async (_signal, cursor) => ({ items: [source(cursor ? 'revoked' : 'kept')], next_cursor: cursor ? null : 'page-two' }))
+    const wrapper = render(); await flushPromises()
+    await wrapper.get('[data-testid="site-load-more"]').trigger('click'); await flushPromises()
+    expect(wrapper.find('[data-shared-result="revoked"]').exists()).toBe(true)
+    vi.mocked(userBenchmarks.showcase).mockImplementation(async (_signal, cursor) => {
+      if (cursor) throw new Error('later page failed')
+      return { items: [source('kept')], next_cursor: 'page-two' }
+    })
+    await wrapper.findAll('button').find(button => button.text() === 'modelBenchmark.refreshResults')!.trigger('click'); await flushPromises()
+    expect(wrapper.find('[data-shared-result="revoked"]').exists()).toBe(false)
+    expect(wrapper.find('[data-shared-result="kept"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="site-result-row"] [role="alert"]').exists()).toBe(true)
+  })
+  it('loads another 24 user results, retries failures and retains expanded pages on refresh', async () => {
+    const items = (start: number) => Array.from({ length: 24 }, (_, index) => ({ id: `user-${start + index}`, name: '', model: run.model, effort: run.effort, results: [{ ...run, id: `user-${start + index}`, base_url: 'https://***t.one', url_masked: true }] }))
+    vi.mocked(userBenchmarks.results).mockImplementation(async (_signal, cursor) => ({ items: items(cursor ? 24 : 0), next_cursor: cursor ? null : 'second-page' }))
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.get('[data-testid="site-result-row"]').findAll('[data-shared-result]')).toHaveLength(2)
+    const row = wrapper.get('[data-testid="users-result-row"]')
+    expect(row.findAll('[data-shared-result]')).toHaveLength(24)
+    expect(row.text()).toContain('https://***t.one')
+    expect(row.get('[data-testid="test-source"]').text()).toBe('modelBenchmark.userTest')
+    expect(wrapper.get('[data-testid="site-result-row"] [data-testid="test-source"]').text()).toBe('modelBenchmark.adminTest')
+    vi.mocked(userBenchmarks.results).mockRejectedValueOnce(new Error('offline'))
+    await row.get('[data-testid="users-load-more"]').trigger('click'); await flushPromises()
+    expect(row.findAll('[data-shared-result]')).toHaveLength(24)
+    expect(row.find('[role="alert"]').exists()).toBe(true)
+    await row.get('[role="alert"] button').trigger('click'); await flushPromises()
+    expect(userBenchmarks.results).toHaveBeenLastCalledWith(expect.any(AbortSignal), 'second-page')
+    expect(row.findAll('[data-shared-result]')).toHaveLength(48)
+    expect(row.find('[data-testid="users-load-more"]').exists()).toBe(false)
+    await wrapper.findAll('button').find(button => button.text() === 'modelBenchmark.refreshResults')!.trigger('click'); await flushPromises()
+    expect(row.findAll('[data-shared-result]')).toHaveLength(48)
+    expect(row.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('keeps the public user row visible when personal testing is disabled', async () => {
+    vi.mocked(userBenchmarks.state).mockResolvedValue({ ...initial, execution: { ...initial.execution!, user_testing_enabled: false } })
+    vi.mocked(userBenchmarks.results).mockResolvedValue({ items: [{ id: 'other', name: '', model: run.model, effort: run.effort, results: [{ ...run, id: 'other', base_url: 'https://***t.one' }] }], next_cursor: null })
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.get('[data-testid="users-result-row"]').text()).toContain('https://***t.one')
+    expect(wrapper.find('[data-testid="my-tests-section"]').exists()).toBe(false)
+  })
   it.each([false, undefined])('hides My tests unless the administrator explicitly enables it (%s)', async enabled => {
     vi.mocked(userBenchmarks.state).mockResolvedValue({ ...initial, execution: { ...initial.execution!, user_testing_enabled: enabled } })
     const wrapper = render()
