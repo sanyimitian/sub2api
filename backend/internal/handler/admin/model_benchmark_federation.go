@@ -142,6 +142,15 @@ func (h *ModelBenchmarkHandler) Federation(c *gin.Context) {
 		response.Error(c, 403, "站点无权执行此操作")
 		return
 	}
+	if c.Request.Method == http.MethodPost && !strings.HasSuffix(path, "/cancel") {
+		if err := rewriteBenchmarkIdentity(c, func(identity *benchmarkIdentity) error {
+			identity.SiteName = site.Name
+			return nil
+		}, true); err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+	}
 	if c.Request.URL.RawQuery != "" {
 		path += "?" + c.Request.URL.RawQuery
 	}

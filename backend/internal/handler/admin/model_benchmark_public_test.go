@@ -153,6 +153,64 @@ func TestModelBenchmarkPublicPreservesIncompleteResponses(t *testing.T) {
 	require.Nil(t, result.Data.Items[0].PassRate)
 }
 
+func TestModelBenchmarkPublicPreservesSafeAPIErrorDetails(t *testing.T) {
+	fixture := benchmarkPublicFixture()
+	item := fixture["items"].([]any)[0].(map[string]any)
+	item["status"] = "failed"
+	item["passed"] = 0
+	item["categories"].(map[string]any)["math"].(map[string]int)["passed"] = 0
+	item["api_errors"] = 1
+	item["api_error_details"] = []any{map[string]any{
+		"code": "http_error", "count": 1, "http_status": 524,
+		"message": "private-secret <script>alert(1)</script>", "api_key": "private-secret",
+	}}
+	router, _ := benchmarkPublicTestRouter(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(fixture)
+	})
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("GET", "/public-results", nil))
+	require.Equal(t, 200, w.Code)
+	require.NotContains(t, w.Body.String(), "private-secret")
+	require.NotContains(t, w.Body.String(), "script")
+	var result struct {
+		Data benchmarkPublicFeed `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	details := result.Data.Items[0].APIErrorDetails
+	require.Len(t, details, 1)
+	require.Equal(t, "http_error", details[0].Code)
+	require.Equal(t, 1, details[0].Count)
+	require.NotNil(t, details[0].HTTPStatus)
+	require.Equal(t, 524, *details[0].HTTPStatus)
+	require.Nil(t, result.Data.Items[0].PassRate)
+}
+
+func TestModelBenchmarkPublicRejectsMalformedAPIErrorDetails(t *testing.T) {
+	for _, details := range []string{
+		`{}`, `[null]`, `[{"code":"<script>","count":1}]`,
+		`[{"code":"http_error","count":1}]`,
+		`[{"code":"http_error","count":1,"http_status":200}]`,
+		`[{"code":"http_error","count":1,"http_status":600}]`,
+		`[{"code":"http_error","count":1,"http_status":"524"}]`,
+		`[{"code":"http_error","count":true,"http_status":524}]`,
+		`[{"code":"http_error","count":0,"http_status":524}]`,
+		`[{"code":"http_error","count":2,"http_status":524}]`,
+		`[{"code":"request_error","count":1,"http_status":524}]`,
+		`[{"code":"unknown","count":1},{"code":"unknown","count":1}]`,
+	} {
+		t.Run(details, func(t *testing.T) {
+			fixture := benchmarkPublicFixture()
+			item := fixture["items"].([]any)[0].(map[string]any)
+			item["api_errors"] = 1
+			item["api_error_details"] = json.RawMessage(details)
+			data, err := json.Marshal(fixture)
+			require.NoError(t, err)
+			_, err = decodeBenchmarkPublicFeed(data)
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestModelBenchmarkPublicHidesWorkerErrorsAndRedirects(t *testing.T) {
 	for _, status := range []int{401, 500, 302} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {

@@ -131,17 +131,30 @@ def make_handler(store, engine, token, environment=None):
                     self.send_json(200, store.list_runs(page, owner_user_id, owner_site_id=owner_site_id))
                 elif self.command == 'GET' and path == '/user-runs' and owner_user_id is None:
                     query = parse_qs(parsed.query, keep_blank_values=True)
-                    if set(query) - {'page', 'user_id', 'model'} or any(len(v) != 1 for v in query.values()):
+                    if set(query) - {'page', 'user_id', 'model', 'site_id'} or any(len(v) != 1 for v in query.values()):
                         raise Problem('查询条件不正确')
                     page = int(query.get('page', ['1'])[0])
                     user_id = int(query['user_id'][0]) if query.get('user_id', [''])[0] else None
-                    self.send_json(200, store.list_runs(page, user_id, users_only=True, model=query.get('model', [''])[0], owner_site_id=owner_site_id))
+                    site_id = query.get('site_id', [''])[0]
+                    if site_id and site_id != 'local' and not re.fullmatch(r'[a-f0-9]{32}', site_id):
+                        raise Problem('站点标识不正确')
+                    if owner_site_id and site_id and site_id != owner_site_id:
+                        raise Problem('无权查看其他站点的用户记录', 403)
+                    result = store.list_runs(page, user_id, users_only=True, model=query.get('model', [''])[0],
+                                             owner_site_id=owner_site_id or (site_id if site_id != 'local' else ''), local_only=site_id == 'local')
+                    result['site_options'] = store.user_record_sites(owner_site_id)
+                    self.send_json(200, result)
+                elif self.command == 'GET' and path == '/user-options' and owner_user_id is None and not owner_site_id:
+                    query = parse_qs(parsed.query, keep_blank_values=True)
+                    if set(query) - {'q', 'site_id'} or any(len(v) != 1 for v in query.values()):
+                        raise Problem('查询条件不正确')
+                    self.send_json(200, store.remote_user_options(query.get('q', [''])[0], query.get('site_id', [''])[0]))
                 elif self.command == "POST" and path == "/runs":
                     try:
                         engine.grader.check_ready()
                     except Exception:
                         raise Problem("评测环境尚未就绪，未创建任务", 503)
-                    result = store.create(data, owner_user_id, owner_site_id)
+                    result = store.create(data, owner_user_id, owner_site_id, identity=data.get('_benchmark_identity') if owner_user_id is not None else None)
                     engine.wake.set()
                     self.send_json(202, result)
                 elif self.command == "GET" and path == "/showcase":
@@ -205,7 +218,7 @@ def make_handler(store, engine, token, environment=None):
                             engine.grader.check_ready()
                         except Exception:
                             raise Problem("评测环境尚未就绪，未创建任务", 503)
-                        result = store.rerun(run_id, owner_user_id, owner_site_id)
+                        result = store.rerun(run_id, owner_user_id, owner_site_id, identity=data.get('_benchmark_identity') if owner_user_id is not None else None)
                         engine.wake.set()
                         self.send_json(202, result)
                     elif self.command == "POST" and action == "cancel":

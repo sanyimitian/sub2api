@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import BenchmarkResultGallery from '../BenchmarkResultGallery.vue'
 import type { SharedResult, SharedSchedule } from '@/api/model-benchmarks'
-vi.mock('vue-i18n', async importOriginal => ({ ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string, values?: Record<string, unknown>) => key === 'modelBenchmark.errors' ? `${key} ${JSON.stringify(values)}` : key }) }))
+vi.mock('vue-i18n', async importOriginal => ({ ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string, values?: Record<string, unknown>) => values ? `${key} ${JSON.stringify(values)}` : key }) }))
 const result: SharedResult = { id: 'old', model: 'example-model', effort: 'high', status: 'completed', created_at: '2026-11-12T01:00:00Z', finished_at: '2026-11-12T01:05:00Z', total: 30, completed: 30, passed: 27, pass_rate: 90, elapsed_seconds: 300, categories: { coding: { total: 20, completed: 20, passed: 18 }, math: { total: 5, completed: 5, passed: 5 }, reasoning: { total: 5, completed: 5, passed: 4 } }, suite_day: '2026-11-12', suite_revision: 2, suite_fingerprint: 'a'.repeat(64), usage: { input_tokens: 100, output_tokens: 200, total_tokens: 300 }, api_errors: 0, grading_errors: 0 }
 function groups(): SharedSchedule[] { return [{ id: 'first', name: 'First task', model: 'example-model', effort: 'medium', results: [result] }, { id: 'second', name: 'Second task', model: 'example-model', effort: 'medium', results: [{ ...result, id: 'new', finished_at: '2026-11-12T02:00:00Z' }] }] }
 function render(items = groups()) { return mount(BenchmarkResultGallery, { props: { items, displayName: 'Selected source', testSource: 'admin' }, global: { stubs: { BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' } } } }) }
@@ -58,17 +58,28 @@ describe('benchmark result gallery', () => {
     expect(wrapper.text()).toContain('—')
     expect(wrapper.text()).not.toContain('0.0%')
     expect(wrapper.text()).toContain('modelBenchmark.statuses.failed')
-    expect(wrapper.text()).toContain('modelBenchmark.errors')
+    expect(wrapper.text()).toContain('modelBenchmark.apiErrorUnknown {"count":2}')
   })
   it('shows incomplete responses separately in both the card and summary', async () => {
     const items = groups()
     items[0].results = [{ ...result, status: 'failed', pass_rate: null, incomplete_responses: 6 }]
     items.splice(1)
     const wrapper = render(items)
-    const counts = 'modelBenchmark.errors {"api":0,"grading":0,"incomplete":6}'
+    const counts = 'modelBenchmark.incompleteErrorSummary {"count":6}'
     expect(wrapper.get('[data-shared-result="old"]').text()).toContain(counts)
     expect(wrapper.get('[data-testid="shared-pass-rate"]').text()).toBe('—')
     await wrapper.get('[data-shared-result="old"]').trigger('click')
     expect(wrapper.get('[data-testid="shared-result-detail"]').text()).toContain(counts)
+  })
+  it('shows the tested API HTTP failure on both the card and its detail', async () => {
+    const items = groups().slice(0, 1)
+    items[0].results = [{ ...result, status: 'failed', pass_rate: null, api_errors: 2,
+      api_error_details: [{ code: 'http_error', http_status: 524, count: 2 }] }]
+    const wrapper = render(items)
+    const reason = 'modelBenchmark.apiErrorTimeout {"count":2,"status":524}'
+    expect(wrapper.get('[data-shared-result="old"]').text()).toContain(reason)
+    await wrapper.get('[data-shared-result="old"]').trigger('click')
+    expect(wrapper.get('[data-testid="shared-result-detail"]').text()).toContain(reason)
+    expect(wrapper.get('[data-testid="shared-detail-pass-rate"]').text()).toBe('—')
   })
 })

@@ -52,6 +52,8 @@ export interface BankUpdate {
   candidate: { version: string; counts: Counts; coding_counts: CodingCounts; added: number; changed: number; removed: number; skipped?: number } | null
 }
 export interface QuestionResult {
+  http_status?: number
+  api_error_code?: BenchmarkAPIErrorDetail['code']
   difficulty?: string
   index: number
   id: string
@@ -68,7 +70,13 @@ export interface QuestionResult {
   tests_passed?: number
   test_count?: number
 }
+export interface BenchmarkAPIErrorDetail {
+  code: 'http_error' | 'request_error' | 'response_error' | 'cancelled' | 'unknown'
+  http_status?: number
+  count: number
+}
 export interface BenchmarkRun {
+  owner_site_name?: string
   owner_site_id?: string
   owner_user_id?: number
   owner?: BenchmarkOwner
@@ -97,6 +105,7 @@ export interface BenchmarkRun {
   usage: { input_tokens: number; output_tokens: number; total_tokens: number }
   error: string
   api_errors: number
+  api_error_details?: BenchmarkAPIErrorDetail[]
   grading_errors: number
   incomplete_responses?: number
   results?: QuestionResult[]
@@ -153,9 +162,10 @@ export interface DisplayConfig extends DisplayInput {
   last_error: string
 }
 const root = '/admin/model-benchmarks'
-export interface BenchmarkOwner { id: number; email: string; username: string; deleted: boolean; missing?: boolean; site_id?: string }
+export interface BenchmarkOwner { id: number; email: string; username: string; deleted: boolean; missing?: boolean; site_id?: string; site_name?: string }
 export interface BenchmarkSource { source_url: string; site_id: string; has_token: boolean }
 export interface BenchmarkSite { id: string; name: string; created_at: string }
+export interface BenchmarkSiteOption { id: string; name: string }
 export const benchmarks = {
   async deleteRun(id: string, signal?: AbortSignal) {
     return (await apiClient.delete<{ deleted: boolean }>(`${root}/runs/${id}`, { signal })).data
@@ -171,11 +181,11 @@ export const benchmarks = {
   async results(signal?: AbortSignal, cursor?: string) {
     return (await apiClient.get<ResultPage<SharedSchedule>>(`${root}/results`, { params: { cursor }, signal })).data
   },
-  async userRuns(page: number, filters: { user_id?: number; model?: string }, signal?: AbortSignal) {
-    return (await apiClient.get<{ items: BenchmarkRun[]; total: number; page: number; page_size: number }>(root + '/user-runs', { params: { page, ...filters }, signal })).data
+  async userRuns(page: number, filters: { user_id?: number; site_id?: string; model?: string }, signal?: AbortSignal) {
+    return (await apiClient.get<{ items: BenchmarkRun[]; total: number; page: number; page_size: number; site_options?: BenchmarkSiteOption[] }>(root + '/user-runs', { params: { page, ...filters }, signal })).data
   },
-  async userOptions(q: string, signal?: AbortSignal) {
-    return (await apiClient.get<{ items: BenchmarkOwner[]; has_more: boolean }>(root + '/user-options', { params: { q }, signal })).data
+  async userOptions(q: string, signal?: AbortSignal, site_id?: string) {
+    return (await apiClient.get<{ items: BenchmarkOwner[]; has_more: boolean }>(root + '/user-options', { params: { q, site_id }, signal })).data
   },
   async updateBank(signal?: AbortSignal) {
     return (await apiClient.post<BankUpdate>(root + '/bank/update', {}, { signal })).data

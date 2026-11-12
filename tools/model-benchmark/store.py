@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 from cryptography.fernet import Fernet, InvalidToken
 
 from transport import normalize_url
+from api_errors import summarize_api_errors
 from scheduling import interval_duration, next_occurrence
 
 CATEGORIES = ("coding", "math", "reasoning")
@@ -158,6 +159,9 @@ class Store:
                     db.execute(f"ALTER TABLE runs ADD COLUMN {column} {kind}")
             if "owner_site_id" not in columns:
                 db.execute("ALTER TABLE runs ADD COLUMN owner_site_id TEXT NOT NULL DEFAULT ''")
+            for column in ("owner_email", "owner_username", "owner_site_name"):
+                if column not in columns:
+                    db.execute(f"ALTER TABLE runs ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
             if "deleted_at" not in columns:
                 db.execute("ALTER TABLE runs ADD COLUMN deleted_at TEXT")
             schedule_columns = {row["name"] for row in db.execute("PRAGMA table_info(schedules)")}
@@ -390,16 +394,31 @@ class Store:
             raise Problem("推理强度不受支持")
         return base_url, model.strip(), effort, self.cipher.encrypt(key.strip().encode())
 
-    def create(self, data: dict, owner_user_id=None, owner_site_id="") -> dict:
+    @staticmethod
+    def validate_identity(identity):
+        if identity is None:
+            return {key: '' for key in ('email', 'username', 'site_name')}
+        if not isinstance(identity, dict):
+            raise Problem('用户来源信息格式不正确')
+        clean = {}
+        for key, maximum in (('email', 254), ('username', 200), ('site_name', 100)):
+            value = identity.get(key, '')
+            if not isinstance(value, str) or len(value) > maximum or any(ord(c) < 32 or ord(c) == 127 for c in value):
+                raise Problem('用户来源信息格式不正确')
+            clean[key] = value.strip()
+        return clean
+
+    def create(self, data: dict, owner_user_id=None, owner_site_id="", *, identity=None) -> dict:
         base_url, model, effort, credential = self.validate_target(data)
         with self.transaction() as db:
             suite = self._suite(db)
             if data.get("suite_id") != suite["id"]:
                 raise Problem("当天题库已变更，请刷新后再开始测试", 409)
-            run_id = self._insert_run(db, suite["id"], base_url, model, effort, credential, owner_user_id=owner_user_id, owner_site_id=owner_site_id)
+            run_id = self._insert_run(db, suite["id"], base_url, model, effort, credential, owner_user_id=owner_user_id, owner_site_id=owner_site_id, identity=identity)
         return self.detail(run_id)
 
-    def _insert_run(self, db, suite_id, base_url, model, effort, credential, rerun_of=None, schedule_id=None, scheduled_for=None, owner_user_id=None, owner_site_id=""):
+    def _insert_run(self, db, suite_id, base_url, model, effort, credential, rerun_of=None, schedule_id=None, scheduled_for=None, owner_user_id=None, owner_site_id="", identity=None):
+        identity = self.validate_identity(identity if owner_user_id is not None else None)
         if owner_user_id is not None and not db.execute("SELECT user_testing_enabled FROM config WHERE id=1").fetchone()[0]:
             raise Problem("管理员暂未开放用户自行测试", 403)
         if owner_user_id is not None and self._active_user_run(db, owner_user_id, owner_site_id):
@@ -413,11 +432,18 @@ class Store:
             except ResourcePressure as exc:
                 raise Problem(str(exc), 503) from exc
         run_id = uuid.uuid4().hex
-        db.execute("INSERT INTO runs(id,suite_id,rerun_of,base_url,model,effort,credential,created_at,status,schedule_id,scheduled_for,owner_user_id,quota_at,owner_site_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                   (run_id, suite_id, rerun_of, base_url, model, effort, credential, now(), "queued", schedule_id, scheduled_for, owner_user_id, self.clock().timestamp(), owner_site_id))
+        db.execute("INSERT INTO runs(id,suite_id,rerun_of,base_url,model,effort,credential,created_at,status,schedule_id,scheduled_for,owner_user_id,quota_at,owner_site_id,owner_email,owner_username,owner_site_name) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (run_id, suite_id, rerun_of, base_url, model, effort, credential, now(), "queued", schedule_id, scheduled_for, owner_user_id, self.clock().timestamp(), owner_site_id, identity['email'], identity['username'], identity['site_name']))
+        # Older records lack account snapshots. Only fill missing fields within
+        # this authenticated site/user pair; never overwrite another identity.
+        if owner_site_id and owner_user_id is not None:
+            for column, key in (('owner_email', 'email'), ('owner_username', 'username'), ('owner_site_name', 'site_name')):
+                if identity[key]:
+                    db.execute(f"UPDATE runs SET {column}=? WHERE owner_site_id=? AND owner_user_id=? AND {column}='' AND deleted_at IS NULL",
+                               (identity[key], owner_site_id, owner_user_id))
         return run_id
 
-    def rerun(self, run_id: str, owner_user_id=None, owner_site_id="") -> dict:
+    def rerun(self, run_id: str, owner_user_id=None, owner_site_id="", *, identity=None) -> dict:
         with self.transaction() as db:
             row = self._owned_run(db, run_id, owner_user_id, owner_site_id)
             if row["status"] in ACTIVE:
@@ -428,7 +454,9 @@ class Store:
             # Resolve today's latest suite in the same transaction as enqueueing.
             # Retain connection settings, but never reuse a historical suite.
             suite = self._suite(db)
-            new_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"], run_id, owner_user_id=owner_user_id, owner_site_id=owner_site_id)
+            if identity is None and owner_user_id is not None:
+                identity = {'email': row['owner_email'], 'username': row['owner_username'], 'site_name': row['owner_site_name']}
+            new_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"], run_id, owner_user_id=owner_user_id, owner_site_id=owner_site_id, identity=identity)
         return self.detail(new_id)
 
     def _public_run(self, row, suite, detail=False):
@@ -449,6 +477,7 @@ class Store:
             "passed": sum(r.get("passed") is True and questions.get(r.get("id"), {}).get("difficulty") == level for r in results),
         } for level in CODING_DIFFICULTIES}
         record["api_errors"] = sum(r["status"] == "api_error" for r in results)
+        record["api_error_details"] = summarize_api_errors(results)
         record["grading_errors"] = sum(r["status"] == "grading_error" for r in results)
         record["incomplete_responses"] = sum(r["status"] == "response_incomplete" for r in results)
         record["usage"] = {key: sum(r.get("usage", {}).get(key, 0) or 0 for r in results) for key in ("input_tokens", "output_tokens", "total_tokens")}
@@ -468,7 +497,7 @@ class Store:
             suite = db.execute("SELECT * FROM suites WHERE id=?", (row["suite_id"],)).fetchone()
             return self._queue_position(db, self._public_run(row, suite, True))
 
-    def list_runs(self, page=1, owner_user_id=None, *, users_only=False, model='', owner_site_id='') -> dict:
+    def list_runs(self, page=1, owner_user_id=None, *, users_only=False, model='', owner_site_id='', local_only=False) -> dict:
         if type(page) is not int or not 1 <= page <= 1000000:
             raise Problem("页码不正确")
         if not isinstance(model, str) or len(model) > 200 or any(ord(c) < 32 for c in model):
@@ -482,7 +511,7 @@ class Store:
             if owner_user_id is not None:
                 conditions.append('owner_user_id=?')
                 params.append(owner_user_id)
-            if owner_user_id is not None or owner_site_id:
+            if owner_user_id is not None or owner_site_id or local_only:
                 conditions.append('owner_site_id=?')
                 params.append(owner_site_id)
             if model.strip():
@@ -498,7 +527,45 @@ class Store:
                 for item, row in zip(items, rows):
                     item['owner_user_id'] = row['owner_user_id']
                     item['owner_site_id'] = row['owner_site_id']
+                    item['owner_email'] = row['owner_email']
+                    item['owner_username'] = row['owner_username']
+                    item['owner_site_name'] = row['owner_site_name']
         return {"items": items, "total": total, "page": page, "page_size": 20}
+
+    def user_record_sites(self, owner_site_id=''):
+        with self.transaction() as db:
+            rows = db.execute("""WITH latest AS (
+                SELECT owner_site_id,owner_site_name,ROW_NUMBER() OVER (
+                    PARTITION BY owner_site_id ORDER BY (owner_site_name!='') DESC,rowid DESC) AS position
+                FROM runs WHERE deleted_at IS NULL AND owner_user_id IS NOT NULL
+                AND (?='' OR owner_site_id=?))
+                SELECT owner_site_id AS id,owner_site_name AS name FROM latest WHERE position=1 ORDER BY name,id""",
+                (owner_site_id, owner_site_id)).fetchall()
+        options = {row['id']: dict(row) for row in rows}
+        if not owner_site_id:
+            options.setdefault('', {'id': '', 'name': ''})
+        else:
+            options.setdefault(owner_site_id, {'id': owner_site_id, 'name': ''})
+        return list(options.values())
+
+    def remote_user_options(self, keyword, site_id=''):
+        if not isinstance(keyword, str) or len(keyword) > 200 or any(ord(c) < 32 for c in keyword):
+            raise Problem('账号搜索条件不正确')
+        if not keyword.strip():
+            return {'items': [], 'has_more': False}
+        if site_id and not re.fullmatch(r'[a-f0-9]{32}', site_id):
+            raise Problem('站点标识不正确')
+        with self.transaction() as db:
+            rows = db.execute("""WITH latest AS (
+                SELECT *,ROW_NUMBER() OVER (PARTITION BY owner_site_id,owner_user_id ORDER BY rowid DESC) AS position
+                FROM runs WHERE deleted_at IS NULL AND owner_site_id!='' AND owner_user_id IS NOT NULL
+                AND (owner_email!='' OR owner_username!='') AND (?='' OR owner_site_id=?))
+                SELECT * FROM latest WHERE position=1
+                AND (instr(lower(owner_email),lower(?))>0 OR instr(lower(owner_username),lower(?))>0)
+                ORDER BY owner_email,owner_username,owner_site_id,owner_user_id LIMIT 31""", (site_id, site_id, keyword.strip(), keyword.strip())).fetchall()
+            items = [{'id': row['owner_user_id'], 'email': row['owner_email'], 'username': row['owner_username'],
+                      'site_id': row['owner_site_id'], 'site_name': row['owner_site_name'], 'deleted': False} for row in rows[:30]]
+        return {'items': items, 'has_more': len(rows) > 30}
 
     def delete_run(self, run_id):
         """Erase a finished result; retain only metadata needed for quota and scheduling."""
@@ -513,7 +580,7 @@ class Store:
             # The tombstone preserves the rolling quota and scheduled occurrence
             # uniqueness. Deleted results can never be read or retested.
             db.execute("""UPDATE runs SET deleted_at=COALESCE(deleted_at,?),results='[]',credential=X'',
-                          base_url='',model='',effort='',error='' WHERE id=?""", (now(), run_id))
+                          base_url='',model='',effort='',error='',owner_email='',owner_username='',owner_site_name='' WHERE id=?""", (now(), run_id))
             db.execute("UPDATE schedules SET last_run_id=NULL WHERE last_run_id=?", (run_id,))
         # If cleanup fails the result is already inaccessible. Retrying DELETE
         # or periodic history cleanup retries the same artifact removal.
@@ -737,7 +804,7 @@ class Store:
         # Explicit whitelist: never publish targets, credentials, raw errors or answers.
         fields = ("id", "model", "effort", "status", "created_at", "finished_at", "total", "completed", "passed",
                   "pass_rate", "categories", "suite_day", "suite_revision", "suite_fingerprint", "elapsed_seconds",
-                  "usage", "api_errors", "grading_errors", "incomplete_responses")
+                  "usage", "api_errors", "api_error_details", "grading_errors", "incomplete_responses")
         suite = db.execute("SELECT * FROM suites WHERE id=?", (row["suite_id"],)).fetchone()
         record = self._public_run(row, suite)
         return {key: record[key] for key in fields}

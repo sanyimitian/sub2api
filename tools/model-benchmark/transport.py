@@ -11,9 +11,10 @@ from urllib.parse import urlsplit, urlunsplit
 
 
 class RequestFailure(Exception):
-    def __init__(self, message: str, status: int = 0):
+    def __init__(self, message: str, status: int = 0, *, code: str = ""):
         super().__init__(message)
         self.status = status
+        self.code = code or ("http_error" if status else "request_error")
 
 
 def normalize_url(value: str) -> str:
@@ -55,7 +56,7 @@ def public_addresses(host: str, port: int, allow_private: bool = False) -> list[
                 return False
         return True
     if not addresses or (not allow_private and any(not safe_address(ip) for ip in addresses)):
-        raise RequestFailure("API 地址不能指向本机或内网", 400)
+        raise RequestFailure("API 地址不能指向本机或内网", 400, code="request_error")
     return addresses
 
 
@@ -120,10 +121,10 @@ class ResponsesClient:
                 raise RequestFailure(f"API 返回 HTTP {response.status}", response.status)
             body = response.read(8 * 1024 * 1024 + 1)
             if len(body) > 8 * 1024 * 1024:
-                raise RequestFailure("API 响应超过大小限制")
+                raise RequestFailure("API 响应超过大小限制", code="response_error")
             data = json.loads(body)
             if not isinstance(data, dict):
-                raise RequestFailure("API 返回格式不正确")
+                raise RequestFailure("API 返回格式不正确", code="response_error")
             # Ensure even an upstream echo never stores the submitted key.
             def redact(value):
                 if isinstance(value, str):

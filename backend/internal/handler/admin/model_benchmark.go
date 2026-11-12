@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -53,6 +54,22 @@ type benchmarkOwner struct {
 	Deleted  bool   `json:"deleted"`
 	Missing  bool   `json:"missing"`
 	SiteID   string `json:"site_id,omitempty"`
+	SiteName string `json:"site_name,omitempty"`
+}
+
+type benchmarkSiteOption struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func validBenchmarkSiteFilter(siteID string, source *service.ModelBenchmarkConnection) bool {
+	if siteID == "" {
+		return true
+	}
+	if siteID != "local" && !benchmarkID.MatchString(siteID) {
+		return false
+	}
+	return source.SourceURL == "" || siteID == source.SiteID
 }
 
 func (h *ModelBenchmarkHandler) UserOptions(c *gin.Context) {
@@ -62,25 +79,64 @@ func (h *ModelBenchmarkHandler) UserOptions(c *gin.Context) {
 		response.BadRequest(c, "Account search is too long")
 		return
 	}
+	source, err := h.connection(c)
+	if err != nil {
+		response.Error(c, http.StatusServiceUnavailable, "无法读取主站配置")
+		return
+	}
+	siteID := c.Query("site_id")
+	if len(c.QueryArray("site_id")) > 1 || !validBenchmarkSiteFilter(siteID, source) {
+		response.BadRequest(c, "Invalid site filter")
+		return
+	}
 	items := make([]benchmarkOwner, 0)
 	if keyword == "" {
 		response.Success(c, gin.H{"items": items, "has_more": false})
 		return
 	}
-	if h.users == nil {
-		response.Error(c, http.StatusServiceUnavailable, "Account search is unavailable")
-		return
+	var total int64
+	if siteID == "" || siteID == "local" || source.SourceURL != "" {
+		if h.users == nil {
+			response.Error(c, http.StatusServiceUnavailable, "Account search is unavailable")
+			return
+		}
+		includeSubscriptions := false
+		users, count, err := h.users.ListUsers(c.Request.Context(), 1, 30, service.UserListFilters{
+			AccountSearch: keyword, IncludeDeleted: true, IncludeSubscriptions: &includeSubscriptions,
+		}, "email", "asc")
+		if err != nil {
+			response.Error(c, http.StatusServiceUnavailable, "Account search is unavailable")
+			return
+		}
+		total = count
+		for _, user := range users {
+			items = append(items, benchmarkOwner{ID: user.ID, Email: user.Email, Username: user.Username, Deleted: user.DeletedAt != nil})
+		}
 	}
-	includeSubscriptions := false
-	users, total, err := h.users.ListUsers(c.Request.Context(), 1, 30, service.UserListFilters{
-		AccountSearch: keyword, IncludeDeleted: true, IncludeSubscriptions: &includeSubscriptions,
-	}, "email", "asc")
-	if err != nil {
-		response.Error(c, http.StatusServiceUnavailable, "Account search is unavailable")
+	// A connected site's local accounts are resolved locally; only the main
+	// administrator searches the saved identities of other sites.
+	if source.SourceURL == "" && siteID != "local" && h.federation != nil && h.baseURL != "" && h.token != "" {
+		query := url.Values{"q": {keyword}}
+		if siteID != "" {
+			query.Set("site_id", siteID)
+		}
+		h.forwardWith(c, "/user-options?"+query.Encode(), func(data []byte) ([]byte, error) {
+			var remote struct {
+				Items   []benchmarkOwner `json:"items"`
+				HasMore bool             `json:"has_more"`
+			}
+			if json.Unmarshal(data, &remote) != nil || len(remote.Items) > 30 {
+				return nil, errors.New("invalid account options")
+			}
+			for _, owner := range remote.Items {
+				if owner.ID <= 0 || !benchmarkID.MatchString(owner.SiteID) || (siteID != "" && owner.SiteID != siteID) || !validBenchmarkIdentity(benchmarkIdentity{Email: owner.Email, Username: owner.Username, SiteName: owner.SiteName}) {
+					return nil, errors.New("invalid account identity")
+				}
+			}
+			combined := append(items, remote.Items...)
+			return json.Marshal(gin.H{"items": combined, "has_more": remote.HasMore || total > int64(len(items))})
+		})
 		return
-	}
-	for _, user := range users {
-		items = append(items, benchmarkOwner{ID: user.ID, Email: user.Email, Username: user.Username, Deleted: user.DeletedAt != nil})
 	}
 	response.Success(c, gin.H{"items": items, "has_more": total > int64(len(items))})
 }
@@ -94,7 +150,7 @@ func (h *ModelBenchmarkHandler) UserRuns(c *gin.Context) {
 	query := url.Values{}
 	for key, values := range c.Request.URL.Query() {
 		// 前端统一附加的时区只影响本地显示，不作为评测筛选条件转发。
-		if (key != "page" && key != "user_id" && key != "model" && key != "timezone") || len(values) != 1 {
+		if (key != "page" && key != "user_id" && key != "site_id" && key != "model" && key != "timezone") || len(values) != 1 {
 			response.BadRequest(c, "Invalid benchmark filters")
 			return
 		}
@@ -114,12 +170,20 @@ func (h *ModelBenchmarkHandler) UserRuns(c *gin.Context) {
 		query.Set("user_id", strconv.FormatInt(id, 10))
 	}
 	query.Set("model", strings.TrimSpace(c.Query("model")))
+	if siteID := c.Query("site_id"); siteID != "" {
+		if !validBenchmarkSiteFilter(siteID, source) {
+			response.BadRequest(c, "Invalid site filter")
+			return
+		}
+		query.Set("site_id", siteID)
+	}
 	h.forwardWith(c, "/user-runs?"+query.Encode(), func(data []byte) ([]byte, error) {
 		var list struct {
-			Items    []map[string]json.RawMessage `json:"items"`
-			Total    int                          `json:"total"`
-			Page     int                          `json:"page"`
-			PageSize int                          `json:"page_size"`
+			SiteOptions []benchmarkSiteOption        `json:"site_options"`
+			Items       []map[string]json.RawMessage `json:"items"`
+			Total       int                          `json:"total"`
+			Page        int                          `json:"page"`
+			PageSize    int                          `json:"page_size"`
 		}
 		if err := json.Unmarshal(data, &list); err != nil {
 			return nil, err
@@ -128,6 +192,28 @@ func (h *ModelBenchmarkHandler) UserRuns(c *gin.Context) {
 			return nil, errors.New("invalid page size")
 		}
 		owners := make(map[int64]benchmarkOwner)
+		siteNames := make(map[string]string)
+		for _, site := range list.SiteOptions {
+			if (site.ID != "" && !benchmarkID.MatchString(site.ID)) || !validBenchmarkIdentity(benchmarkIdentity{SiteName: site.Name}) {
+				return nil, errors.New("invalid site option")
+			}
+			if source.SourceURL != "" && site.ID != source.SiteID {
+				return nil, errors.New("invalid site scope")
+			}
+			siteNames[site.ID] = site.Name
+		}
+		if _, ok := siteNames[source.SiteID]; !ok {
+			siteNames[source.SiteID] = ""
+		}
+		if h.federation != nil && source.SourceURL == "" {
+			sites, err := h.federation.Sites(c.Request.Context())
+			if err != nil {
+				return nil, err
+			}
+			for _, site := range sites {
+				siteNames[site.ID] = site.Name
+			}
+		}
 		for _, item := range list.Items {
 			var id int64
 			if err := json.Unmarshal(item["owner_user_id"], &id); err != nil || id <= 0 {
@@ -139,9 +225,29 @@ func (h *ModelBenchmarkHandler) UserRuns(c *gin.Context) {
 					return nil, err
 				}
 			}
+			if (siteID != "" && !benchmarkID.MatchString(siteID)) || (source.SourceURL != "" && siteID != source.SiteID) {
+				return nil, errors.New("invalid site scope")
+			}
+			var snapshot benchmarkIdentity
+			for key, target := range map[string]*string{"owner_email": &snapshot.Email, "owner_username": &snapshot.Username, "owner_site_name": &snapshot.SiteName} {
+				if raw, ok := item[key]; ok {
+					if err := json.Unmarshal(raw, target); err != nil {
+						return nil, err
+					}
+				}
+			}
+			if name := siteNames[siteID]; name != "" {
+				snapshot.SiteName = name
+			}
+			if !validBenchmarkIdentity(snapshot) {
+				return nil, errors.New("invalid account snapshot")
+			}
+			item["owner_site_name"], _ = json.Marshal(snapshot.SiteName)
+			siteNames[siteID] = snapshot.SiteName
 			// 外站账号编号不能用于查询本站的同编号账号。
 			if siteID != source.SiteID {
-				item["owner"], _ = json.Marshal(benchmarkOwner{ID: id, SiteID: siteID, Missing: true})
+				item["owner"], _ = json.Marshal(benchmarkOwner{ID: id, SiteID: siteID, SiteName: snapshot.SiteName,
+					Email: snapshot.Email, Username: snapshot.Username, Missing: snapshot.Email == "" && snapshot.Username == ""})
 				continue
 			}
 			owner, ok := owners[id]
@@ -159,11 +265,26 @@ func (h *ModelBenchmarkHandler) UserRuns(c *gin.Context) {
 				}
 				owners[id] = owner
 			}
+			owner.SiteID, owner.SiteName = siteID, snapshot.SiteName
 			item["owner"], _ = json.Marshal(owner)
 		}
 		if list.Items == nil {
 			list.Items = make([]map[string]json.RawMessage, 0)
 		}
+		list.SiteOptions = make([]benchmarkSiteOption, 0, len(siteNames))
+		for id, name := range siteNames {
+			list.SiteOptions = append(list.SiteOptions, benchmarkSiteOption{ID: id, Name: name})
+		}
+		sort.Slice(list.SiteOptions, func(i, j int) bool {
+			a, b := list.SiteOptions[i], list.SiteOptions[j]
+			if a.ID == "" || b.ID == "" {
+				return a.ID == "" && b.ID != ""
+			}
+			if a.Name == b.Name {
+				return a.ID < b.ID
+			}
+			return a.Name < b.Name
+		})
 		return json.Marshal(list)
 	})
 }
@@ -217,6 +338,21 @@ func (h *ModelBenchmarkHandler) User(c *gin.Context) {
 		query := url.Values{}
 		query.Set("page", c.DefaultQuery("page", "1"))
 		path += "?" + query.Encode()
+	}
+	if c.Request.Method == http.MethodPost && (path == "/runs" || strings.HasSuffix(path, "/rerun")) {
+		identity := benchmarkIdentity{Email: c.GetString(middleware.ContextKeyAuthEmail)}
+		if h.users != nil {
+			user, err := h.users.GetUserIncludeDeleted(c.Request.Context(), subject.UserID)
+			if err != nil || user == nil {
+				response.Error(c, http.StatusServiceUnavailable, "无法读取测试用户账号")
+				return
+			}
+			identity.Email, identity.Username = user.Email, user.Username
+		}
+		if err := rewriteBenchmarkIdentity(c, func(value *benchmarkIdentity) error { *value = identity; return nil }, false); err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
 	}
 	h.forward(c, "/users/"+strconv.FormatInt(subject.UserID, 10)+path)
 }

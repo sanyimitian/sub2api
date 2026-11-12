@@ -208,6 +208,7 @@
                   <div class="mt-1 text-xs text-gray-500">{{ t('modelBenchmark.completed', { completed: run.completed, total: run.total }) }}</div>
                   <div v-if="run.status === 'queued' && run.queue_position" class="mt-1 text-xs text-primary-600">{{ t('modelBenchmark.queuePosition', { position: run.queue_position }) }}</div>
                   <progress v-if="isActive(run)" :value="run.completed" :max="run.total" class="mt-2 h-1.5 w-full" :aria-label="t('modelBenchmark.status')" />
+                  <BenchmarkErrorSummary :result="run" class="mt-2 max-w-xs" />
                 </td>
                 <td class="min-w-36 py-4 pr-4">
                   <strong class="text-xl" :class="benchmarkScoreClass(run.pass_rate, run.status)" data-testid="pass-rate">{{ formatBenchmarkPassRate(run.pass_rate, run.status) }}</strong>
@@ -239,7 +240,7 @@
         <p class="text-sm">{{ t(`modelBenchmark.statuses.${detail.status}`) }} · {{ detail.suite_day }} v{{ detail.suite_revision }} · {{ t('modelBenchmark.tokens', { count: detail.usage.total_tokens }) }}</p>
         <p class="text-sm">{{ t('modelBenchmark.passRate') }}: <strong class="text-2xl" :class="benchmarkScoreClass(detail.pass_rate, detail.status)" data-testid="detail-pass-rate">{{ formatBenchmarkPassRate(detail.pass_rate, detail.status) }}</strong></p>
         <p v-if="detail.error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ detail.error }}</p>
-        <p v-if="detail.api_errors || detail.grading_errors || detail.incomplete_responses" class="text-sm text-red-600 dark:text-red-400">{{ t('modelBenchmark.errors', { api: detail.api_errors, grading: detail.grading_errors, incomplete: detail.incomplete_responses || 0 }) }}</p>
+        <BenchmarkErrorSummary :result="detail" />
         <p v-if="!detail.results?.length" class="text-sm text-gray-500">{{ t('modelBenchmark.noResults') }}</p>
         <div v-for="result in detail.results" :key="result.id" class="rounded-lg border border-gray-200 p-4 dark:border-dark-700">
           <div class="flex flex-wrap justify-between gap-2 text-sm">
@@ -280,6 +281,7 @@ import BenchmarkScheduleFields from '@/components/model-identification/Benchmark
 import BenchmarkDisplaySettings from '@/components/model-identification/BenchmarkDisplaySettings.vue'
 import BenchmarkBankSettings from '@/components/model-identification/BenchmarkBankSettings.vue'
 import BenchmarkResults from '@/components/model-identification/BenchmarkResults.vue'
+import BenchmarkErrorSummary from './BenchmarkErrorSummary.vue'
 import BenchmarkUserRecords from '@/components/model-identification/BenchmarkUserRecords.vue'
 import BenchmarkDeleteDialog from '@/components/model-identification/BenchmarkDeleteDialog.vue'
 import BenchmarkSourceSettings from '@/components/model-identification/BenchmarkSourceSettings.vue'

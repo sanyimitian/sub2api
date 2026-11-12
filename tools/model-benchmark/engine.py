@@ -244,7 +244,10 @@ class Engine:
                 if attempt < 2 and (exc.status in RETRYABLE or exc.status == 0) and not self.store.cancelled(run["id"]):
                     time.sleep(2 ** (attempt + 1))
                     continue
-                result.update(status="api_error", message=str(exc), fatal=exc.status in (400, 401, 403, 404, 405))
+                result.update(status="api_error", message=str(exc), api_error_code=exc.code,
+                              fatal=exc.status in (400, 401, 403, 404, 405))
+                if exc.code == "http_error" and type(exc.status) is int and 300 <= exc.status <= 599:
+                    result["http_status"] = exc.status
                 break
         if data is not None:
             # A response may arrive after resource pressure changed. Keep it in
@@ -280,7 +283,7 @@ class Engine:
                 result.update(status="response_incomplete", incomplete_reason=reason,
                               message=messages.get(reason, "上游标记响应未完成，未获得完整答案"))
             elif data.get("status") != "completed" or malformed_output:
-                result.update(status="api_error", message="模型响应状态异常或响应格式不正确")
+                result.update(status="api_error", api_error_code="response_error", message="模型响应状态异常或响应格式不正确")
             elif not answer.strip():
                 result.update(status="response_incomplete", incomplete_reason="no_answer",
                               message="上游未返回可评分的最终答案")

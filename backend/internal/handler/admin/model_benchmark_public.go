@@ -142,6 +142,42 @@ type benchmarkPublicUsage struct {
 	Total  int64 `json:"total_tokens"`
 }
 
+type benchmarkAPIErrorDetail struct {
+	Code       string `json:"code"`
+	Count      int    `json:"count"`
+	HTTPStatus *int   `json:"http_status,omitempty"`
+}
+
+func validBenchmarkAPIErrors(details []benchmarkAPIErrorDetail, total int) bool {
+	if len(details) > 100 {
+		return false
+	}
+	seen := make(map[string]bool)
+	count := 0
+	for _, detail := range details {
+		key := detail.Code
+		switch detail.Code {
+		case "http_error":
+			if detail.HTTPStatus == nil || *detail.HTTPStatus < 300 || *detail.HTTPStatus > 599 {
+				return false
+			}
+			key = fmt.Sprintf("http_%d", *detail.HTTPStatus)
+		case "request_error", "response_error", "cancelled", "unknown":
+			if detail.HTTPStatus != nil {
+				return false
+			}
+		default:
+			return false
+		}
+		if detail.Count < 1 || detail.Count > 100 || seen[key] {
+			return false
+		}
+		seen[key] = true
+		count += detail.Count
+	}
+	return count <= total
+}
+
 type benchmarkPublicResult struct {
 	ID                  string                           `json:"id"`
 	ScheduleID          string                           `json:"schedule_id"`
@@ -163,6 +199,7 @@ type benchmarkPublicResult struct {
 	Elapsed             float64                          `json:"elapsed_seconds"`
 	Usage               benchmarkPublicUsage             `json:"usage"`
 	APIErrors           int                              `json:"api_errors"`
+	APIErrorDetails     []benchmarkAPIErrorDetail        `json:"api_error_details,omitempty"`
 	GradingErrors       int                              `json:"grading_errors"`
 	IncompleteResponses int                              `json:"incomplete_responses"`
 }
@@ -234,6 +271,9 @@ func decodeBenchmarkPublicFeed(data []byte) (*benchmarkPublicFeed, error) {
 			r.PassRate = &score
 		}
 		if r.Usage.Input < 0 || r.Usage.Input > 1e12 || r.Usage.Output < 0 || r.Usage.Output > 1e12 || r.Usage.Total < 0 || r.Usage.Total > 1e12 || r.APIErrors < 0 || r.APIErrors > r.Total || r.GradingErrors < 0 || r.GradingErrors > r.Total || r.IncompleteResponses < 0 || r.IncompleteResponses > r.Total {
+			return nil, invalid
+		}
+		if !validBenchmarkAPIErrors(r.APIErrorDetails, r.APIErrors) {
 			return nil, invalid
 		}
 	}

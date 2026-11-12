@@ -47,6 +47,7 @@ Accept: application/json
         "elapsed_seconds": 480,
         "usage": { "input_tokens": 22000, "output_tokens": 38000, "total_tokens": 60000 },
         "api_errors": 0,
+        "api_error_details": [],
         "grading_errors": 0,
         "incomplete_responses": 0
       }
@@ -61,6 +62,13 @@ Accept: application/json
 `effort` 为 `low`、`medium`、`high` 或 `xhigh`。只有相同题库指纹和推理强度的结果适合直接比较。
 关闭公开后客户端应在下次成功获取时替换整个列表，不能只追加结果。
 `usage` 是本次测试汇总的 Token 用量；`api_errors`（接口错误）、`grading_errors`（评分异常）和 `incomplete_responses`（响应未完成）分别提供数量，不返回原始错误。旧版本缺少 `incomplete_responses` 时按 0 展示。响应未完成包括上游额度截断、内容过滤及无最终答案，不作为答错，也不生成最终通过率。
+
+可选字段 `api_error_details` 提供安全的接口错误分组摘要，例如 `[{"code":"http_error","http_status":524,"count":2}]`，
+表示被测 API 返回 HTTP 524，影响 2 道题（按题目计数，不是重试次数）。卡片和详情据此显示错误原因；评分异常、响应未完成另行展示。
+`code` 仅允许 `http_error`、`request_error`（请求/连接异常）、`response_error`（响应异常）、`cancelled`（测试停止）和 `unknown`。
+只有 `http_error` 带 300–599 的整数 `http_status`；每组 `count` 为 1–100，分组不重复，总数不超过 `api_errors`。
+不包含上游原始文本、响应头、密钥或答案，未知字段会被移除。旧记录从已保存的逐题错误生成摘要，无需重新测试；
+旧来源不提供摘要或只提供部分分组时，剩余数量显示通用请求异常，不猜测错误码。接口版本仍为 v2。
 
 浏览器调用：
 

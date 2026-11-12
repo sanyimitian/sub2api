@@ -19,6 +19,7 @@
     <section v-if="source && !source.source_url" class="space-y-4 border-t border-gray-200 pt-5 dark:border-dark-700" :aria-label="t('modelBenchmark.connectedSites')">
       <h2 class="text-lg font-semibold">{{ t('modelBenchmark.connectedSites') }}</h2>
       <p class="max-w-2xl text-sm text-gray-600 dark:text-gray-300">{{ t('modelBenchmark.connectedSitesHint') }}</p>
+      <p class="max-w-2xl text-xs text-gray-500">{{ t('modelBenchmark.siteNameHint') }}</p>
       <label class="block max-w-2xl space-y-2 text-sm"><span>{{ t('modelBenchmark.mainSiteAddress') }}</span><input :value="shareURL" class="input w-full" readonly @focus="selectText" /></label>
       <form class="flex max-w-2xl flex-wrap items-end gap-3" @submit.prevent="create">
         <label class="min-w-0 flex-1 space-y-2 text-sm"><span>{{ t('modelBenchmark.siteName') }}</span><input v-model.trim="siteName" name="site_name" required maxlength="100" class="input w-full" :disabled="saving" /></label>

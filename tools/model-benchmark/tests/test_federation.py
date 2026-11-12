@@ -97,6 +97,50 @@ class FederationTests(Fixture):
         self.assertEqual(upgraded.state(7)['quota']['used'], 1)
         self.assertEqual(upgraded.state(7, self.site_a)['quota']['used'], 0)
 
+    def test_account_snapshots_survive_restart_and_backfill_only_the_same_site_user(self):
+        legacy = {site: self.store.create(self.target, 7, site) for site in ('', self.site_a, self.site_b)}
+        for site, run in legacy.items():
+            self.store.cancel(run['id'], 7, site)
+        identity = {'email': 'remote@example.com', 'username': '远端账号', 'site_name': '甲站'}
+        rerun = self.store.rerun(legacy[self.site_a]['id'], 7, self.site_a, identity=identity)
+        restarted = Store(self.root / 'data', self.store.bank, clock=lambda: self.date)
+        rows = restarted.list_runs(users_only=True, owner_user_id=7, owner_site_id=self.site_a)['items']
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertEqual(row['owner_email'], identity['email'])
+            self.assertEqual(row['owner_username'], identity['username'])
+            self.assertEqual(row['owner_site_name'], identity['site_name'])
+            self.assertEqual(row['base_url'], self.target['base_url'])
+        for site in ('', self.site_b):
+            row = restarted.list_runs(users_only=True, owner_user_id=7, owner_site_id=site)['items'][0]
+            self.assertEqual(row['owner_email'], '')
+        options = restarted.remote_user_options('REMOTE')
+        self.assertEqual(len(options['items']), 1)
+        self.assertEqual(options['items'][0]['site_id'], self.site_a)
+        self.assertEqual(restarted.remote_user_options('远端')['items'], options['items'])
+        self.assertEqual(restarted.remote_user_options("' OR 1=1 --")['items'], [])
+        restarted.cancel(rerun['id'], 7, self.site_a)
+        for private in ('remote@example.com', '远端账号', '甲站', 'owner_email', 'owner_site_name'):
+            self.assertNotIn(private, json.dumps(restarted.user_results(), ensure_ascii=False))
+        restarted.delete_run(rerun['id'])
+        with restarted.transaction() as db:
+            row = db.execute('SELECT owner_email,owner_username,owner_site_name FROM runs WHERE id=?', (rerun['id'],)).fetchone()
+            self.assertEqual(tuple(row), ('', '', ''))
+
+    def test_account_search_keeps_same_ids_on_different_sites_separate(self):
+        for site in (self.site_a, self.site_b):
+            self.store.create(self.target, 7, site, identity={'email': 'same@example.com', 'site_name': site[:1]})
+        options = self.store.remote_user_options('same')['items']
+        self.assertEqual({(item['id'], item['site_id']) for item in options}, {(7, self.site_a), (7, self.site_b)})
+        filtered = self.store.remote_user_options('same', self.site_b)['items']
+        self.assertEqual([(item['id'], item['site_id']) for item in filtered], [(7, self.site_b)])
+        # Identity is an explicit trusted argument, never inferred from target parameters.
+        self.store.create({**self.target, '_benchmark_identity': {'email': 'forged@example.com'}}, 8, self.site_a)
+        self.assertEqual(self.store.remote_user_options('forged')['items'], [])
+        for identity in ([], {'email': 'x'*255}, {'username': 'bad\nname'}, {'site_name': 'x'*101}):
+            with self.subTest(identity=identity), self.assertRaises(Problem):
+                self.store.create(self.target, 9, self.site_a, identity=identity)
+
     def test_http_namespace_rejects_forged_ownership_and_remote_management(self):
         engine = Engine(self.store, None, FakeGrader())
         server = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(self.store, engine, 'internal-token'))
@@ -112,13 +156,17 @@ class FederationTests(Fixture):
             except urllib.error.HTTPError as err:
                 return err.code, json.load(err)
         try:
-            status, run = request(self.site_a, '/users/7/runs', 'POST', {**self.target, 'owner_site_id': self.site_b, 'owner_user_id': 8})
+            status, run = request(self.site_a, '/users/7/runs', 'POST', {**self.target, 'owner_site_id': self.site_b, 'owner_user_id': 8,
+                '_benchmark_identity': {'email': 'remote@example.com', 'username': 'remote-user', 'site_name': '甲站'}})
             self.assertEqual(status, 202)
             self.assertEqual(request(self.site_a, '/users/7/runs')[1]['total'], 1)
             self.assertEqual(request(self.site_b, '/users/7/runs')[1]['total'], 0)
             self.assertEqual(request(self.site_b, '/runs/' + run['id'])[0], 404)
             self.assertEqual(request(self.site_a, '/runs/' + run['id'])[0], 200)
             self.assertEqual(request(self.site_a, '/user-runs')[1]['items'][0]['owner_site_id'], self.site_a)
+            self.assertEqual(request(self.site_a, '/user-runs')[1]['items'][0]['owner_email'], 'remote@example.com')
+            self.assertEqual(request(self.site_a, '/user-runs?site_id=' + self.site_b)[0], 403)
+            self.assertEqual(request(self.site_a, '/user-options?q=remote')[0], 403)
             self.assertEqual(request(self.site_a, '/users/7/state', token='wrong')[0], 401)
             for path, method in (('/execution', 'PUT'), ('/config', 'PUT'), ('/runs', 'POST'), ('/schedules', 'POST'), ('/bank/update', 'POST'), ('/sites/' + self.site_b + '/state', 'GET')):
                 self.assertEqual(request(self.site_a, path, method, {})[0], 403, path)

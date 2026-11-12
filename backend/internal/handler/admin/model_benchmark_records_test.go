@@ -98,3 +98,82 @@ func TestModelBenchmarkUserOptionsOnlyReturnsAccountIdentity(t *testing.T) {
 	router.ServeHTTP(w, httptest.NewRequest("GET", "/user-options?q="+strings.Repeat("x", 201), nil))
 	require.Equal(t, 400, w.Code)
 }
+
+func TestModelBenchmarkSiteFiltersAndOptionsIncludeHistoricalSites(t *testing.T) {
+	repo := &benchmarkSiteRepo{values: map[string]string{}}
+	federation := service.NewModelBenchmarkFederationService(repo, nil)
+	site, _, err := federation.CreateSite(context.Background(), "当前接入站")
+	require.NoError(t, err)
+	historicalID := strings.Repeat("a", 32)
+	wantedSite := ""
+	hits := 0
+	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		require.Equal(t, wantedSite, r.URL.Query().Get("site_id"))
+		require.Equal(t, "2", r.URL.Query().Get("page"))
+		require.Equal(t, "sol", r.URL.Query().Get("model"))
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "total": 0, "page": 1, "page_size": 20,
+			"site_options": []benchmarkSiteOption{{ID: historicalID, Name: "历史外站"}}})
+	}))
+	defer worker.Close()
+	t.Setenv("MODEL_BENCHMARK_WORKER_URL", worker.URL)
+	t.Setenv("MODEL_BENCHMARK_WORKER_TOKEN", "internal-secret")
+	h := NewModelBenchmarkHandler()
+	h.federation = federation
+	router := gin.New()
+	router.GET("/user-runs", h.UserRuns)
+	for _, filter := range []string{"", "local", historicalID} {
+		wantedSite = filter
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest("GET", "/user-runs?page=2&model=sol&site_id="+filter, nil))
+		require.Equal(t, 200, w.Code, w.Body.String())
+		var result struct {
+			Data struct {
+				Sites []benchmarkSiteOption `json:"site_options"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+		require.ElementsMatch(t, []benchmarkSiteOption{{ID: "", Name: ""}, {ID: site.ID, Name: site.Name}, {ID: historicalID, Name: "历史外站"}}, result.Data.Sites)
+	}
+	for _, filter := range []string{"invalid", "local&site_id=" + historicalID, "'%20OR%201=1"} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest("GET", "/user-runs?site_id="+filter, nil))
+		require.Equal(t, 400, w.Code)
+	}
+	require.Equal(t, 3, hits)
+	// A connected site's administrator cannot turn a filter into cross-site access.
+	repo.values["model_benchmark_source"] = `{"source_url":"https://main.example/federation","site_id":"` + site.ID + `"}`
+	router.GET("/user-options", h.UserOptions)
+	for _, path := range []string{"/user-runs?site_id=local", "/user-runs?site_id=" + historicalID, "/user-options?q=remote&site_id=" + historicalID} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		require.Equal(t, 400, w.Code)
+	}
+	require.Equal(t, 3, hits)
+}
+
+func TestModelBenchmarkAccountSearchFiltersSitesBeforeCombiningOptions(t *testing.T) {
+	siteID := strings.Repeat("a", 32)
+	hits := 0
+	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		require.Equal(t, siteID, r.URL.Query().Get("site_id"))
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []benchmarkOwner{{ID: 7, SiteID: siteID, Email: "remote@example.com"}}, "has_more": false})
+	}))
+	defer worker.Close()
+	t.Setenv("MODEL_BENCHMARK_WORKER_URL", worker.URL)
+	t.Setenv("MODEL_BENCHMARK_WORKER_TOKEN", "internal-secret")
+	h := NewModelBenchmarkHandler()
+	h.users = &benchmarkUsersStub{}
+	h.federation = service.NewModelBenchmarkFederationService(&benchmarkSiteRepo{values: map[string]string{}}, nil)
+	router := gin.New()
+	router.GET("/user-options", h.UserOptions)
+	for _, tc := range []struct{ site, account, absent string }{{"local", "alice@example.com", "remote@example.com"}, {siteID, "remote@example.com", "alice@example.com"}} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest("GET", "/user-options?q=user&site_id="+tc.site, nil))
+		require.Equal(t, 200, w.Code, w.Body.String())
+		require.Contains(t, w.Body.String(), tc.account)
+		require.NotContains(t, w.Body.String(), tc.absent)
+	}
+	require.Equal(t, 1, hits, "local-only search must not query remote account snapshots")
+}

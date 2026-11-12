@@ -13,6 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from store import CATEGORIES, EFFORTS, Problem, RESULT_PAGE_SIZE, result_cursor, encode_result_cursor
 from transport import RequestFailure, public_addresses
+from api_errors import sanitize_api_error_details
 
 
 def feed_url(value):
@@ -168,6 +169,8 @@ def sanitize_feed(data):
             for key in ("api_errors", "grading_errors", "incomplete_responses"):
                 if key in result:
                     record[key] = integer(result[key])
+            if "api_error_details" in result:
+                record["api_error_details"] = sanitize_api_error_details(result["api_error_details"], record.get("api_errors", 0))
             results.append(record)
         schedule["results"] = sorted(results, key=lambda r: r["finished_at"], reverse=True)
         output.append(schedule)
