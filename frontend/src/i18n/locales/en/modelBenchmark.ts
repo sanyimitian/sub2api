@@ -221,7 +221,7 @@ export default {
   cancel: 'Stop',
   cancelHint: 'Stop requested. Questions already in progress will finish first.',
   statuses: { queued: 'Queued', running: 'Running', cancelling: 'Stopping', cancelled: 'Stopped', completed: 'Completed', failed: 'Error', interrupted: 'Interrupted' },
-  resultStatuses: { passed: 'Passed', failed: 'Failed', api_error: 'API error', grading_error: 'Grading error' },
+  resultStatuses: { response_incomplete: 'Incomplete response', passed: 'Passed', failed: 'Failed', api_error: 'API error', grading_error: 'Grading error' },
   previous: 'Previous',
   next: 'Next',
   page: 'Page {page} / {total} records',
@@ -230,7 +230,7 @@ export default {
   truncated: 'Only the first 12,000 characters are shown. Grading uses the complete answer.',
   tests: 'Cases: {passed} / {total}',
   tokens: 'Tokens used: {count}',
-  errors: 'API errors: {api} · Grading errors: {grading}',
+  errors: 'API errors: {api} · Grading errors: {grading} · Incomplete responses: {incomplete}',
   close: 'Close details',
   noResults: 'Waiting for questions to finish…'
 }

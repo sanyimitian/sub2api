@@ -165,7 +165,7 @@ def sanitize_feed(data):
             record["elapsed_seconds"] = elapsed
             if "usage" in result:
                 record["usage"] = {k: integer(result["usage"][k], 10**12) for k in ("input_tokens", "output_tokens", "total_tokens")}
-            for key in ("api_errors", "grading_errors"):
+            for key in ("api_errors", "grading_errors", "incomplete_responses"):
                 if key in result:
                     record[key] = integer(result[key])
             results.append(record)

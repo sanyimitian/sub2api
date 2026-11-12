@@ -238,7 +238,7 @@
         <p class="text-sm">{{ t(`modelBenchmark.statuses.${detail.status}`) }} · {{ detail.suite_day }} v{{ detail.suite_revision }} · {{ t('modelBenchmark.tokens', { count: detail.usage.total_tokens }) }}</p>
         <p class="text-sm">{{ t('modelBenchmark.passRate') }}: <strong class="text-2xl" :class="benchmarkScoreClass(detail.pass_rate, detail.status)" data-testid="detail-pass-rate">{{ formatBenchmarkPassRate(detail.pass_rate, detail.status) }}</strong></p>
         <p v-if="detail.error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ detail.error }}</p>
-        <p v-if="detail.api_errors || detail.grading_errors" class="text-sm text-red-600 dark:text-red-400">{{ t('modelBenchmark.errors', { api: detail.api_errors, grading: detail.grading_errors }) }}</p>
+        <p v-if="detail.api_errors || detail.grading_errors || detail.incomplete_responses" class="text-sm text-red-600 dark:text-red-400">{{ t('modelBenchmark.errors', { api: detail.api_errors, grading: detail.grading_errors, incomplete: detail.incomplete_responses || 0 }) }}</p>
         <p v-if="!detail.results?.length" class="text-sm text-gray-500">{{ t('modelBenchmark.noResults') }}</p>
         <div v-for="result in detail.results" :key="result.id" class="rounded-lg border border-gray-200 p-4 dark:border-dark-700">
           <div class="flex flex-wrap justify-between gap-2 text-sm">

@@ -47,7 +47,8 @@ Accept: application/json
         "elapsed_seconds": 480,
         "usage": { "input_tokens": 22000, "output_tokens": 38000, "total_tokens": 60000 },
         "api_errors": 0,
-        "grading_errors": 0
+        "grading_errors": 0,
+        "incomplete_responses": 0
       }
     ]
   }
@@ -59,7 +60,7 @@ Accept: application/json
 仅 `completed` 有最终 `pass_rate`（0–100 的数字），其他状态为 `null`，不能显示为 0 分。
 `effort` 为 `low`、`medium`、`high` 或 `xhigh`。只有相同题库指纹和推理强度的结果适合直接比较。
 关闭公开后客户端应在下次成功获取时替换整个列表，不能只追加结果。
-`usage` 是本次测试汇总的 Token 用量；`api_errors` 和 `grading_errors` 只提供错误数量，不返回原始错误。
+`usage` 是本次测试汇总的 Token 用量；`api_errors`（接口错误）、`grading_errors`（评分异常）和 `incomplete_responses`（响应未完成）分别提供数量，不返回原始错误。旧版本缺少 `incomplete_responses` 时按 0 展示。响应未完成包括上游额度截断、内容过滤及无最终答案，不作为答错，也不生成最终通过率。
 
 浏览器调用：
 

@@ -143,27 +143,28 @@ type benchmarkPublicUsage struct {
 }
 
 type benchmarkPublicResult struct {
-	ID               string                           `json:"id"`
-	ScheduleID       string                           `json:"schedule_id"`
-	ScheduleName     string                           `json:"schedule_name"`
-	Model            string                           `json:"model"`
-	BaseURL          string                           `json:"base_url,omitempty"`
-	Effort           string                           `json:"effort"`
-	Status           string                           `json:"status"`
-	CreatedAt        time.Time                        `json:"created_at"`
-	FinishedAt       time.Time                        `json:"finished_at"`
-	Total            int                              `json:"total"`
-	Completed        int                              `json:"completed"`
-	Passed           int                              `json:"passed"`
-	PassRate         *float64                         `json:"pass_rate"`
-	Categories       map[string]benchmarkPublicCounts `json:"categories"`
-	SuiteDay         string                           `json:"suite_day"`
-	SuiteRevision    int                              `json:"suite_revision"`
-	SuiteFingerprint string                           `json:"suite_fingerprint"`
-	Elapsed          float64                          `json:"elapsed_seconds"`
-	Usage            benchmarkPublicUsage             `json:"usage"`
-	APIErrors        int                              `json:"api_errors"`
-	GradingErrors    int                              `json:"grading_errors"`
+	ID                  string                           `json:"id"`
+	ScheduleID          string                           `json:"schedule_id"`
+	ScheduleName        string                           `json:"schedule_name"`
+	Model               string                           `json:"model"`
+	BaseURL             string                           `json:"base_url,omitempty"`
+	Effort              string                           `json:"effort"`
+	Status              string                           `json:"status"`
+	CreatedAt           time.Time                        `json:"created_at"`
+	FinishedAt          time.Time                        `json:"finished_at"`
+	Total               int                              `json:"total"`
+	Completed           int                              `json:"completed"`
+	Passed              int                              `json:"passed"`
+	PassRate            *float64                         `json:"pass_rate"`
+	Categories          map[string]benchmarkPublicCounts `json:"categories"`
+	SuiteDay            string                           `json:"suite_day"`
+	SuiteRevision       int                              `json:"suite_revision"`
+	SuiteFingerprint    string                           `json:"suite_fingerprint"`
+	Elapsed             float64                          `json:"elapsed_seconds"`
+	Usage               benchmarkPublicUsage             `json:"usage"`
+	APIErrors           int                              `json:"api_errors"`
+	GradingErrors       int                              `json:"grading_errors"`
+	IncompleteResponses int                              `json:"incomplete_responses"`
 }
 
 type benchmarkPublicFeed struct {
@@ -232,7 +233,7 @@ func decodeBenchmarkPublicFeed(data []byte) (*benchmarkPublicFeed, error) {
 			score := float64(r.Passed) / float64(r.Total) * 100
 			r.PassRate = &score
 		}
-		if r.Usage.Input < 0 || r.Usage.Input > 1e12 || r.Usage.Output < 0 || r.Usage.Output > 1e12 || r.Usage.Total < 0 || r.Usage.Total > 1e12 || r.APIErrors < 0 || r.APIErrors > r.Total || r.GradingErrors < 0 || r.GradingErrors > r.Total {
+		if r.Usage.Input < 0 || r.Usage.Input > 1e12 || r.Usage.Output < 0 || r.Usage.Output > 1e12 || r.Usage.Total < 0 || r.Usage.Total > 1e12 || r.APIErrors < 0 || r.APIErrors > r.Total || r.GradingErrors < 0 || r.GradingErrors > r.Total || r.IncompleteResponses < 0 || r.IncompleteResponses > r.Total {
 			return nil, invalid
 		}
 	}

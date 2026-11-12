@@ -448,6 +448,7 @@ class Store:
         } for level in CODING_DIFFICULTIES}
         record["api_errors"] = sum(r["status"] == "api_error" for r in results)
         record["grading_errors"] = sum(r["status"] == "grading_error" for r in results)
+        record["incomplete_responses"] = sum(r["status"] == "response_incomplete" for r in results)
         record["usage"] = {key: sum(r.get("usage", {}).get(key, 0) or 0 for r in results) for key in ("input_tokens", "output_tokens", "total_tokens")}
         if row["started_at"]:
             end = datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else datetime.now(timezone.utc)
@@ -700,7 +701,7 @@ class Store:
         # Explicit whitelist: never publish targets, credentials, raw errors or answers.
         fields = ("id", "model", "effort", "status", "created_at", "finished_at", "total", "completed", "passed",
                   "pass_rate", "categories", "suite_day", "suite_revision", "suite_fingerprint", "elapsed_seconds",
-                  "usage", "api_errors", "grading_errors")
+                  "usage", "api_errors", "grading_errors", "incomplete_responses")
         suite = db.execute("SELECT * FROM suites WHERE id=?", (row["suite_id"],)).fetchone()
         record = self._public_run(row, suite)
         return {key: record[key] for key in fields}

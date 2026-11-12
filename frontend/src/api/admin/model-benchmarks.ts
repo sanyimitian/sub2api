@@ -57,7 +57,8 @@ export interface QuestionResult {
   id: string
   category: Category
   title: string
-  status: 'passed' | 'failed' | 'api_error' | 'grading_error'
+  status: 'passed' | 'failed' | 'api_error' | 'grading_error' | 'response_incomplete'
+  incomplete_reason?: 'max_output_tokens' | 'content_filter' | 'no_answer' | 'unknown'
   passed: boolean
   score: number
   message: string
@@ -97,6 +98,7 @@ export interface BenchmarkRun {
   error: string
   api_errors: number
   grading_errors: number
+  incomplete_responses?: number
   results?: QuestionResult[]
   suite?: Suite
 }

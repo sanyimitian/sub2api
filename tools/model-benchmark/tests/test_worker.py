@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import urllib.error
 import urllib.request
 from zoneinfo import ZoneInfo
@@ -162,7 +162,8 @@ class EngineTests(Fixture):
         class Client:
             def generate(_, url, key, payload):
                 self.assertEqual(payload["reasoning"], {"effort": "medium"})
-                self.assertEqual(payload["max_output_tokens"], 16384)
+                for field in ("max_output_tokens", "max_tokens", "max_completion_tokens"):
+                    self.assertNotIn(field, payload)
                 return {"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "42"}]}],
                         "usage": {"input_tokens": "oops", "output_tokens": -1, "total_tokens": 12}}
         run = self.create()
@@ -198,6 +199,65 @@ class EngineTests(Fixture):
         detail = self.store.detail(run["id"])
         self.assertEqual(detail["api_errors"], 1)
         self.assertIsNone(detail["pass_rate"])
+
+    def test_incomplete_responses_are_not_api_errors_or_wrong_answers(self):
+        self.store.refresh({"coding": 0, "math": 1, "reasoning": 0})
+        answer = [{"type": "message", "content": [{"type": "output_text", "text": "42"}]}]
+        cases = [
+            ({"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": []}, "max_output_tokens", "额度耗尽"),
+            ({"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": answer}, "max_output_tokens", "被截断"),
+            ({"status": "incomplete", "incomplete_details": {"reason": "content_filter"}}, "content_filter", "内容过滤"),
+            ({"status": "incomplete", "incomplete_details": {"reason": "private-upstream-detail"}}, "unknown", "未完成"),
+            ({"status": "incomplete", "incomplete_details": {"reason": []}}, "unknown", "未完成"),
+            ({"status": "incomplete", "incomplete_details": None}, "unknown", "未完成"),
+            ({"status": "completed", "output": []}, "no_answer", "最终答案"),
+        ]
+        for response, reason, message in cases:
+            with self.subTest(reason=reason, response=response):
+                response["usage"] = {"input_tokens": 20, "output_tokens": 16384, "total_tokens": 16404}
+                client = Mock(generate=Mock(return_value=response))
+                grader = Mock()
+                run = self.create()
+                Engine(self.store, client, grader).execute(self.store.claim())
+                detail = self.store.detail(run["id"])
+                result = detail["results"][0]
+                self.assertEqual(detail["status"], "failed")
+                self.assertIsNone(detail["pass_rate"])
+                self.assertEqual(detail["api_errors"], 0)
+                self.assertEqual(detail["grading_errors"], 0)
+                self.assertEqual(detail["incomplete_responses"], 1)
+                self.assertEqual(detail["error"], "响应未完成，本次不生成最终通过率")
+                self.assertEqual(detail["usage"]["output_tokens"], 16384)
+                self.assertEqual(result["status"], "response_incomplete")
+                self.assertEqual(result["incomplete_reason"], reason)
+                self.assertIn(message, result["message"])
+                self.assertNotIn("private-upstream-detail", json.dumps(detail))
+                client.generate.assert_called_once()
+                grader.grade.assert_not_called()
+
+    def test_long_completed_answer_is_graded_in_full_and_run_continues_after_truncation(self):
+        self.store.refresh({"coding": 0, "math": 2, "reasoning": 0})
+        answer = "42" * 20000
+        client = Mock(generate=Mock(side_effect=[
+            {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}},
+            {"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": answer}]}],
+             "usage": {"output_tokens": 20000}},
+        ]))
+        grader = Mock(grade=Mock(return_value={"status": "passed", "passed": True, "score": 1}))
+        run = self.create()
+        Engine(self.store, client, grader).execute(self.store.claim())
+        detail = self.store.detail(run["id"])
+        self.assertEqual(detail["completed"], 2)
+        self.assertEqual(detail["passed"], 1)
+        self.assertEqual(detail["api_errors"], 0)
+        self.assertEqual(detail["incomplete_responses"], 1)
+        self.assertIsNone(detail["pass_rate"])
+        grader.grade.assert_called_once()
+        self.assertEqual(grader.grade.call_args.args[1], answer)
+        self.assertEqual(detail["usage"]["output_tokens"], 20000)
+        artifact = json.loads((self.store.directory / "artifacts" / run["id"] / "002.json").read_text())
+        self.assertNotIn("max_output_tokens", artifact["request"])
+        self.assertEqual(artifact["response"]["output"][0]["content"][0]["text"], answer)
 
     def test_transient_error_retries_but_does_not_retry_wrong_answers(self):
         self.store.refresh({"coding": 0, "math": 1, "reasoning": 0})

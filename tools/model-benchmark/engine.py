@@ -215,8 +215,11 @@ class Engine:
             self.store.finish(run["id"], "cancelled")
         elif fatal:
             self.store.finish(run["id"], "failed", results[-1]["message"] + "；已停止后续题目，请检查密钥、模型及接口兼容性")
-        elif any(result["status"] in ("grading_error", "api_error") for result in results):
-            self.store.finish(run["id"], "failed", "接口或评分环境出现异常，本次不生成最终通过率")
+        elif any(result["status"] in ("grading_error", "api_error", "response_incomplete") for result in results):
+            issues = [label for status, label in (("api_error", "接口错误"), ("grading_error", "评分异常"),
+                                                  ("response_incomplete", "响应未完成"))
+                      if any(result["status"] == status for result in results)]
+            self.store.finish(run["id"], "failed", "、".join(issues) + "，本次不生成最终通过率")
         else:
             self.store.finish(run["id"], "completed")
 
@@ -227,7 +230,7 @@ class Engine:
                   "difficulty": question.get("difficulty", ""), "passed": False, "score": 0, "attempts": 0}
         payload = {"model": run["model"], "instructions": INSTRUCTIONS,
                    "input": [{"role": "user", "content": question["prompt"]}],
-                   "reasoning": {"effort": run["effort"]}, "max_output_tokens": 16384, "store": False}
+                   "reasoning": {"effort": run["effort"]}, "store": False}
         data = None
         for attempt in range(3):
             if not self.wait_for_resources(run['id']):
@@ -254,11 +257,13 @@ class Engine:
             artifacts = self.store.directory / "artifacts" / run["id"]
             artifacts.mkdir(parents=True, exist_ok=True, mode=0o700)
             (artifacts / f"{index:03d}.json").write_text(json.dumps({"request": payload, "response": data}, ensure_ascii=False), encoding="utf-8")
+            malformed_output = False
             try:
                 answer = "\n".join(content.get("text", "") for item in data.get("output", []) if item.get("type") == "message"
                                    for content in item.get("content", []) if content.get("type") == "output_text")
             except (TypeError, AttributeError):
                 answer = ""
+                malformed_output = True
             usage = data.get("usage") or {}
             if not isinstance(usage, dict):
                 usage = {}
@@ -266,8 +271,19 @@ class Engine:
                           returned_model=str(data.get("model", ""))[:200],
                           usage={k: usage[k] if type(usage.get(k)) is int and usage[k] >= 0 else 0
                                  for k in ("input_tokens", "output_tokens", "total_tokens")})
-            if data.get("status") != "completed" or not answer:
-                result.update(status="api_error", message="模型响应未完成、被截断或没有返回答案")
+            if data.get("status") == "incomplete":
+                details = data.get("incomplete_details")
+                reason = details.get("reason") if isinstance(details, dict) else None
+                messages = {"max_output_tokens": "上游输出额度耗尽，响应被截断，未获得完整答案",
+                            "content_filter": "上游内容过滤导致响应未完成"}
+                reason = reason if isinstance(reason, str) and reason in messages else "unknown"
+                result.update(status="response_incomplete", incomplete_reason=reason,
+                              message=messages.get(reason, "上游标记响应未完成，未获得完整答案"))
+            elif data.get("status") != "completed" or malformed_output:
+                result.update(status="api_error", message="模型响应状态异常或响应格式不正确")
+            elif not answer.strip():
+                result.update(status="response_incomplete", incomplete_reason="no_answer",
+                              message="上游未返回可评分的最终答案")
             else:
                 try:
                     if self.wait_for_resources(run['id']):

@@ -39,6 +39,25 @@ class DisplayTests(Fixture):
     def remote(self, **extra):
         return self.displays.save({"name": "Remote", "source_type": "remote", "remote_url": "https://external.example/api/v1/model-benchmarks/public-results", **extra})
 
+    def test_incomplete_response_counts_survive_public_export_and_import(self):
+        self.store.refresh({"coding": 0, "math": 1, "reasoning": 0})
+        self.plan()
+        self.date += timedelta(minutes=1)
+        self.store.enqueue_due_schedules()
+        run = self.store.claim()
+        self.store.append(run["id"], {"index": 1, "category": "math", "passed": False,
+                                      "status": "response_incomplete", "incomplete_reason": "max_output_tokens"})
+        self.store.finish(run["id"], "failed")
+        feed = self.store.public_results()
+        item = feed["items"][0]
+        self.assertEqual(item["incomplete_responses"], 1)
+        self.assertEqual(item["api_errors"], 0)
+        imported = sanitize_feed(feed)[0]["results"][0]
+        self.assertEqual(imported["incomplete_responses"], 1)
+        self.assertIsNone(imported["pass_rate"])
+        del item["incomplete_responses"]
+        self.assertNotIn("incomplete_responses", sanitize_feed(feed)[0]["results"][0])
+
     def test_configurable_concurrency_shared_across_all_tasks_and_restart(self):
         self.store.execution_settings({"user_testing_enabled": True})
         self.assertEqual(self.store.execution_settings()["max_concurrency"], 5)

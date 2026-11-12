@@ -112,6 +112,8 @@ func TestModelBenchmarkPublicRejectsMalformedAndOversizedWorkerData(t *testing.T
 		}},
 		{"invalid id", func(f map[string]any) { f["items"].([]any)[0].(map[string]any)["id"] = "';DROP TABLE runs;--" }},
 		{"bad counts", func(f map[string]any) { f["items"].([]any)[0].(map[string]any)["passed"] = 2 }},
+		{"negative incomplete count", func(f map[string]any) { f["items"].([]any)[0].(map[string]any)["incomplete_responses"] = -1 }},
+		{"excess incomplete count", func(f map[string]any) { f["items"].([]any)[0].(map[string]any)["incomplete_responses"] = 2 }},
 		{"unknown category", func(f map[string]any) {
 			f["items"].([]any)[0].(map[string]any)["categories"].(map[string]any)["secret"] = map[string]int{}
 		}},
@@ -127,6 +129,28 @@ func TestModelBenchmarkPublicRejectsMalformedAndOversizedWorkerData(t *testing.T
 			require.Equal(t, 502, w.Code)
 		})
 	}
+}
+
+func TestModelBenchmarkPublicPreservesIncompleteResponses(t *testing.T) {
+	fixture := benchmarkPublicFixture()
+	item := fixture["items"].([]any)[0].(map[string]any)
+	item["status"] = "failed"
+	item["passed"] = 0
+	item["categories"].(map[string]any)["math"].(map[string]int)["passed"] = 0
+	item["incomplete_responses"] = 1
+	router, _ := benchmarkPublicTestRouter(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(fixture)
+	})
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("GET", "/public-results", nil))
+	require.Equal(t, 200, w.Code)
+	var result struct {
+		Data benchmarkPublicFeed `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	require.Equal(t, 1, result.Data.Items[0].IncompleteResponses)
+	require.Zero(t, result.Data.Items[0].APIErrors)
+	require.Nil(t, result.Data.Items[0].PassRate)
 }
 
 func TestModelBenchmarkPublicHidesWorkerErrorsAndRedirects(t *testing.T) {

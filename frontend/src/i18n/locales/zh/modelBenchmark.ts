@@ -221,7 +221,7 @@ export default {
   cancel: '停止',
   cancelHint: '已请求停止，正在处理的题目结束后停止。',
   statuses: { queued: '排队中', running: '测试中', cancelling: '正在停止', cancelled: '已停止', completed: '已完成', failed: '测试异常', interrupted: '已中断' },
-  resultStatuses: { passed: '通过', failed: '未通过', api_error: '接口错误', grading_error: '评分异常' },
+  resultStatuses: { response_incomplete: '响应未完成', passed: '通过', failed: '未通过', api_error: '接口错误', grading_error: '评分异常' },
   previous: '上一页',
   next: '下一页',
   page: '第 {page} 页 / 共 {total} 条',
@@ -230,7 +230,7 @@ export default {
   truncated: '页面仅展示回答前 12000 字符，评分使用完整回答。',
   tests: '用例 {passed} / {total}',
   tokens: 'Token 用量：{count}',
-  errors: '接口错误 {api} · 评分异常 {grading}',
+  errors: '接口错误 {api} · 评分异常 {grading} · 响应未完成 {incomplete}',
   close: '关闭详情',
   noResults: '等待题目完成…'
 }
