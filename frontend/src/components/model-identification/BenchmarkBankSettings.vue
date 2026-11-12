@@ -10,7 +10,7 @@
         </div>
         <p v-if="state?.bank_update?.checked_at" class="text-xs text-gray-500">{{ t('modelBenchmark.bankLastCheck', { time: new Date(state.bank_update.checked_at).toLocaleString() }) }}</p>
       </div>
-      <button type="button" class="btn btn-secondary shrink-0" :disabled="busy || !state?.ready || checking" data-testid="bank-update" @click="emit('update')">{{ t(checking ? 'modelBenchmark.bankChecking' : 'modelBenchmark.updateBank') }}</button>
+      <button type="button" class="btn btn-secondary shrink-0" :disabled="busy || !state?.ready || state?.resources?.blocked || checking" data-testid="bank-update" @click="emit('update')">{{ t(checking ? 'modelBenchmark.bankChecking' : 'modelBenchmark.updateBank') }}</button>
     </div>
     <p v-if="state?.bank_update?.message" class="mt-4 rounded-lg px-3 py-2 text-sm" :class="state.bank_update.status === 'failed' ? 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300' : 'bg-gray-50 text-gray-600 dark:bg-dark-800 dark:text-gray-300'" role="status">{{ state.bank_update.message }}</p>
     <div v-if="candidate && state?.bank_update?.status === 'ready'" class="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-primary-200 bg-primary-50 p-4 dark:border-primary-900 dark:bg-primary-950/20">

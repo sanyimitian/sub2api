@@ -638,10 +638,12 @@ log:
     max_size_mb: 100
     # Number of rotated files to keep (0 means unlimited)
     # 保留历史文件数量（0 表示不限制）
-    max_backups: 10
+    max_backups: 0
     # Number of days to keep old log files (0 means unlimited)
     # 历史日志保留天数（0 表示不限制）
-    max_age_days: 7
+    # Three months is defined as a rolling 90-day retention window.
+    # 三个月按最近 90 天计算；数量不限制，按时间淘汰历史文件。
+    max_age_days: 90
     # Compress rotated files
     # 是否压缩历史日志
     compress: true

@@ -33,6 +33,26 @@ beforeEach(() => {
 })
 
 describe('user model benchmarks', () => {
+  it.each([[59.9, 'text-red-600'], [60, 'text-yellow-600'], [70, 'text-emerald-600']] as const)('colors personal history at %s and never shows administrator tabs', async (score, color) => {
+    vi.mocked(userBenchmarks.list).mockResolvedValue({ items: [{ ...run, pass_rate: score }], total: 1, page_size: 20 })
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.get('[data-testid="pass-rate"]').classes()).toContain(color)
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(false)
+  })
+  it('shows resource protection while preserving results and blocking create and retest', async () => {
+    vi.mocked(userBenchmarks.state).mockResolvedValue({ ...initial, resources: { blocked: true, status: 'blocked', message: 'Waiting for resources' } })
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.get('[data-testid="resource-status"]').text()).toContain('Waiting for resources')
+    expect(wrapper.find('[data-testid="environment-status"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-shared-result]')).toHaveLength(2)
+    await wrapper.get('[name="base_url"]').setValue('https://example.com/v1')
+    await wrapper.get('[name="api_key"]').setValue('test-key')
+    await wrapper.get('[name="model"]').setValue('fixture')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('button').find(b => b.text() === 'modelBenchmark.rerun')!.attributes('disabled')).toBeDefined()
+    expect(userBenchmarks.create).not.toHaveBeenCalled()
+    expect(userBenchmarks.rerun).not.toHaveBeenCalled()
+  })
   it.each([false, undefined])('hides My tests unless the administrator explicitly enables it (%s)', async enabled => {
     vi.mocked(userBenchmarks.state).mockResolvedValue({ ...initial, execution: { ...initial.execution!, user_testing_enabled: enabled } })
     const wrapper = render()

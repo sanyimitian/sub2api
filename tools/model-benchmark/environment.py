@@ -12,11 +12,13 @@ from pathlib import Path
 from engine import Engine, Grader
 from store import Bank, DEFAULT_COUNTS, Store
 from transport import ResponsesClient
+from resources import ResourceGuard, ResourcePressure
 
 
 class Environment:
     def __init__(self, home, image, timezone_name, *, runner=None, activate=None, retry_seconds=30):
         self.home = Path(home)
+        self.resources = ResourceGuard(self.home)
         self.image = image
         self.timezone_name = timezone_name
         self.source = Path(__file__).resolve().parent
@@ -77,6 +79,11 @@ class Environment:
     def prepare(self):
         self.update("docker", 10, "正在检查 Docker 及执行权限")
         self.runner(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=20)
+        if self.engine is None:
+            # A killed worker may leave graders consuming the very memory that
+            # would otherwise prevent recovery. Only reclaim this worker's label.
+            Grader(self.home, self.image).cleanup_stale()
+        self.resources.require_capacity()
         self.update("questions", 35, "正在下载固定版本题库并准备评分源码，首次准备可能需要数分钟")
         # prepare.py preserves existing banks and verifies/restores absent source directories.
         self.runner([sys.executable, str(self.source / "prepare.py"), "--home", str(self.home)], timeout=1800)
@@ -86,6 +93,7 @@ class Environment:
         except Exception:
             if self.stop_event.is_set():
                 raise
+            self.resources.require_capacity()
             self.runner(["docker", "build", "--quiet", "-f", str(self.source / "Dockerfile.grader"), "-t", self.image, str(self.source)], timeout=1800)
             digest = self.runner(["docker", "image", "inspect", self.image, "--format", "{{.Id}}"], timeout=30)
         self.update("verifying", 90, "正在验证题库和评分器，完成后自动开放测试")
@@ -97,11 +105,11 @@ class Environment:
     def start_engine(self, digest):
         grader = Grader(self.home, digest)
         grader.check_ready()
+        self.resources.require_capacity()
         grader.check_sandbox()
         if self.engine is None:
-            grader.cleanup_stale()
             bank = Bank(self.home / "bank.sqlite3")
-            store = Store(self.home / "data", bank, self.timezone_name)
+            store = Store(self.home / "data", bank, self.timezone_name, resources=self.resources)
             client = ResponsesClient(os.getenv("MODEL_BENCHMARK_ALLOW_PRIVATE_TARGETS", "false").lower() == "true")
             engine = Engine(store, client, grader)
             from bank_updates import BankUpdates
@@ -132,6 +140,12 @@ class Environment:
                 while not self.stop_event.wait(30):
                     self.engine.grader.check_ready()
                 break
+            except ResourcePressure as exc:
+                # Resource pressure is recoverable and does not trigger reinstalls.
+                self.update('resources', self.snapshot()['progress'], str(exc), status='failed',
+                            next_retry_at=(datetime.now(timezone.utc)+timedelta(seconds=30)).isoformat())
+                self.wake.wait(30)
+                self.wake.clear()
             except Exception:
                 if self.stop_event.is_set():
                     break

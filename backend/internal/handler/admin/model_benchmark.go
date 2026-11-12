@@ -2,7 +2,9 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -24,6 +27,125 @@ type ModelBenchmarkHandler struct {
 	token       string
 	client      *http.Client
 	publicGuard *benchmarkPublicGuard
+	users       benchmarkUsers
+}
+
+type benchmarkUsers interface {
+	ListUsers(context.Context, int, int, service.UserListFilters, string, string) ([]service.User, int64, error)
+	GetUserIncludeDeleted(context.Context, int64) (*service.User, error)
+}
+
+// Account access is wired only for the administrator handler.
+func NewModelBenchmarkHandlerForAdmin(users *UserHandler) *ModelBenchmarkHandler {
+	h := NewModelBenchmarkHandler()
+	if users != nil {
+		h.users = users.adminService
+	}
+	return h
+}
+
+type benchmarkOwner struct {
+	ID       int64  `json:"id"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Deleted  bool   `json:"deleted"`
+	Missing  bool   `json:"missing"`
+}
+
+func (h *ModelBenchmarkHandler) UserOptions(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	keyword := strings.TrimSpace(c.Query("q"))
+	if len(keyword) > 200 {
+		response.BadRequest(c, "Account search is too long")
+		return
+	}
+	items := make([]benchmarkOwner, 0)
+	if keyword == "" {
+		response.Success(c, gin.H{"items": items, "has_more": false})
+		return
+	}
+	if h.users == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Account search is unavailable")
+		return
+	}
+	includeSubscriptions := false
+	users, total, err := h.users.ListUsers(c.Request.Context(), 1, 30, service.UserListFilters{
+		AccountSearch: keyword, IncludeDeleted: true, IncludeSubscriptions: &includeSubscriptions,
+	}, "email", "asc")
+	if err != nil {
+		response.Error(c, http.StatusServiceUnavailable, "Account search is unavailable")
+		return
+	}
+	for _, user := range users {
+		items = append(items, benchmarkOwner{ID: user.ID, Email: user.Email, Username: user.Username, Deleted: user.DeletedAt != nil})
+	}
+	response.Success(c, gin.H{"items": items, "has_more": total > int64(len(items))})
+}
+
+func (h *ModelBenchmarkHandler) UserRuns(c *gin.Context) {
+	query := url.Values{}
+	for key, values := range c.Request.URL.Query() {
+		if (key != "page" && key != "user_id" && key != "model") || len(values) != 1 {
+			response.BadRequest(c, "Invalid benchmark filters")
+			return
+		}
+	}
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil || page < 1 || page > 1000000 || len(c.Query("model")) > 800 {
+		response.BadRequest(c, "Invalid benchmark filters")
+		return
+	}
+	query.Set("page", strconv.Itoa(page))
+	if raw := c.Query("user_id"); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id <= 0 {
+			response.BadRequest(c, "Invalid user ID")
+			return
+		}
+		query.Set("user_id", strconv.FormatInt(id, 10))
+	}
+	query.Set("model", strings.TrimSpace(c.Query("model")))
+	h.forwardWith(c, "/user-runs?"+query.Encode(), func(data []byte) ([]byte, error) {
+		var list struct {
+			Items    []map[string]json.RawMessage `json:"items"`
+			Total    int                          `json:"total"`
+			Page     int                          `json:"page"`
+			PageSize int                          `json:"page_size"`
+		}
+		if err := json.Unmarshal(data, &list); err != nil {
+			return nil, err
+		}
+		if len(list.Items) > 20 {
+			return nil, errors.New("invalid page size")
+		}
+		owners := make(map[int64]benchmarkOwner)
+		for _, item := range list.Items {
+			var id int64
+			if err := json.Unmarshal(item["owner_user_id"], &id); err != nil || id <= 0 {
+				return nil, errors.New("invalid benchmark owner")
+			}
+			owner, ok := owners[id]
+			if !ok {
+				if h.users == nil {
+					return nil, errors.New("account lookup unavailable")
+				}
+				owner = benchmarkOwner{ID: id, Missing: true}
+				user, err := h.users.GetUserIncludeDeleted(c.Request.Context(), id)
+				if err != nil && !errors.Is(err, service.ErrUserNotFound) {
+					return nil, err
+				}
+				if user != nil {
+					owner = benchmarkOwner{ID: id, Email: user.Email, Username: user.Username, Deleted: user.DeletedAt != nil}
+				}
+				owners[id] = owner
+			}
+			item["owner"], _ = json.Marshal(owner)
+		}
+		if list.Items == nil {
+			list.Items = make([]map[string]json.RawMessage, 0)
+		}
+		return json.Marshal(list)
+	})
 }
 
 func NewModelBenchmarkHandler() *ModelBenchmarkHandler {
@@ -122,6 +244,10 @@ func (h *ModelBenchmarkHandler) runAction(c *gin.Context, suffix string) {
 }
 
 func (h *ModelBenchmarkHandler) forward(c *gin.Context, path string) {
+	h.forwardWith(c, path, nil)
+}
+
+func (h *ModelBenchmarkHandler) forwardWith(c *gin.Context, path string, transform func([]byte) ([]byte, error)) {
 	c.Header("Cache-Control", "no-store")
 	u, err := url.Parse(h.baseURL)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || h.token == "" {
@@ -155,6 +281,13 @@ func (h *ModelBenchmarkHandler) forward(c *gin.Context, path string) {
 		return
 	}
 	if res.StatusCode >= 200 && res.StatusCode < 300 {
+		if transform != nil {
+			data, err = transform(data)
+			if err != nil {
+				response.Error(c, http.StatusServiceUnavailable, "Cannot load benchmark user records")
+				return
+			}
+		}
 		c.JSON(res.StatusCode, response.Response{Code: 0, Message: "success", Data: json.RawMessage(data)})
 		return
 	}

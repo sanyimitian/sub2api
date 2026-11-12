@@ -18,6 +18,13 @@ services:
   sub2api:
     image: weishaw/sub2api:latest
     container_name: sub2api
+    # Recent docker logs copy; complete 90-day archives are in the data volume.
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "15"
+        compress: "true"
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -38,6 +45,11 @@ services:
       # in config.yaml.
       # - ./codex-instructions.md.tmpl:/app/data/codex-instructions.md.tmpl:ro
     environment:
+      - LOG_OUTPUT_TO_FILE=true
+      - LOG_ROTATION_MAX_SIZE_MB=100
+      - LOG_ROTATION_MAX_BACKUPS=0
+      - LOG_ROTATION_MAX_AGE_DAYS=90
+      - LOG_ROTATION_COMPRESS=true
       # =======================================================================
       # Auto Setup (REQUIRED for Docker deployment)
       # =======================================================================

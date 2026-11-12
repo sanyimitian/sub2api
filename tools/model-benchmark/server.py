@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import hmac
 import json
 import os
@@ -15,6 +14,14 @@ from store import Problem
 
 
 def make_handler(store, engine, token, environment=None):
+    def with_resources(state, current_store, owner_user_id):
+        guard = getattr(current_store, 'resources', None) or getattr(environment, 'resources', None)
+        if guard:
+            resource_state = guard.snapshot()
+            state['resources'] = resource_state if owner_user_id is None else {
+                key: resource_state[key] for key in ('blocked', 'status', 'message')}
+        return state
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "ModelBenchmark"
 
@@ -67,7 +74,7 @@ def make_handler(store, engine, token, environment=None):
                         state.update(ready=setup["status"] == "ready", message=setup["message"], environment=setup)
                         if owner_user_id is None and environment.bank_updates:
                             state["bank_update"] = environment.bank_updates.snapshot()
-                        self.send_json(200, state)
+                        self.send_json(200, with_resources(state, store, owner_user_id))
                         return
                     if path == "/environment/retry" and self.command == "POST" and owner_user_id is None:
                         if data:
@@ -75,7 +82,7 @@ def make_handler(store, engine, token, environment=None):
                         self.send_json(202, environment.retry())
                         return
                     if not store or not engine:
-                        if self.command == "GET" and path in ("/runs", "/schedules", "/displays", "/showcase"):
+                        if self.command == "GET" and path in ("/runs", "/user-runs", "/schedules", "/displays", "/showcase"):
                             self.send_json(200, {"items": [], "total": 0, "page": 1, "page_size": 20})
                             return
                         raise Problem(setup["message"], 503)
@@ -88,7 +95,7 @@ def make_handler(store, engine, token, environment=None):
                         state.update(ready=True, message="")
                     except Exception:
                         state.update(ready=False, message="评测环境尚未就绪，请完成题库和评分镜像安装")
-                    self.send_json(200, state)
+                    self.send_json(200, with_resources(state, store, owner_user_id))
                 elif path in ("/bank/update", "/bank/activate") and self.command == "POST" and owner_user_id is None:
                     if not environment or not environment.bank_updates:
                         raise Problem("题库服务尚未就绪", 503)
@@ -108,6 +115,13 @@ def make_handler(store, engine, token, environment=None):
                 elif self.command == "GET" and path == "/runs":
                     page = int(parse_qs(parsed.query).get("page", ["1"])[0])
                     self.send_json(200, store.list_runs(page, owner_user_id))
+                elif self.command == 'GET' and path == '/user-runs' and owner_user_id is None:
+                    query = parse_qs(parsed.query, keep_blank_values=True)
+                    if set(query) - {'page', 'user_id', 'model'} or any(len(v) != 1 for v in query.values()):
+                        raise Problem('查询条件不正确')
+                    page = int(query.get('page', ['1'])[0])
+                    user_id = int(query['user_id'][0]) if query.get('user_id', [''])[0] else None
+                    self.send_json(200, store.list_runs(page, user_id, users_only=True, model=query.get('model', [''])[0]))
                 elif self.command == "POST" and path == "/runs":
                     try:
                         engine.grader.check_ready()
@@ -191,6 +205,7 @@ def make_handler(store, engine, token, environment=None):
 
 
 def main():
+    import fcntl  # Linux process locking; HTTP handler tests are platform-independent.
     parser = argparse.ArgumentParser()
     parser.add_argument("--home", type=Path, default=Path(os.getenv("MODEL_BENCHMARK_HOME", "/opt/sub2api-model-benchmark")))
     parser.add_argument("--host", default=os.getenv("MODEL_BENCHMARK_LISTEN", "127.0.0.1"))

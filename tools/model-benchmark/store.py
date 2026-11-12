@@ -71,9 +71,10 @@ class Bank:
 
 
 class Store:
-    def __init__(self, directory: Path, bank: Bank, tz: str = "Asia/Shanghai", clock=None):
+    def __init__(self, directory: Path, bank: Bank, tz: str = "Asia/Shanghai", clock=None, resources=None):
         directory.mkdir(parents=True, exist_ok=True)
         self.directory, self.bank = directory, bank
+        self.resources = resources
         self.original_bank = bank
         self.banks = {bank.manifest["version"]: bank}
         self.timezone = ZoneInfo(tz)
@@ -357,6 +358,12 @@ class Store:
             raise Problem("你已有未结束的测试（含排队和正在停止），请等待结束后再发起", 409)
         if owner_user_id is not None and self._quota(db, owner_user_id)["remaining"] == 0:
             raise Problem("每小时最多测试 3 次（含重新测试），请等待额度恢复", 429)
+        if self.resources:
+            from resources import ResourcePressure
+            try:
+                self.resources.require_capacity()
+            except ResourcePressure as exc:
+                raise Problem(str(exc), 503) from exc
         run_id = uuid.uuid4().hex
         db.execute("INSERT INTO runs(id,suite_id,rerun_of,base_url,model,effort,credential,created_at,status,schedule_id,scheduled_for,owner_user_id,quota_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    (run_id, suite_id, rerun_of, base_url, model, effort, credential, now(), "queued", schedule_id, scheduled_for, owner_user_id, self.clock().timestamp()))
@@ -412,15 +419,32 @@ class Store:
             suite = db.execute("SELECT * FROM suites WHERE id=?", (row["suite_id"],)).fetchone()
             return self._queue_position(db, self._public_run(row, suite, True))
 
-    def list_runs(self, page=1, owner_user_id=None) -> dict:
+    def list_runs(self, page=1, owner_user_id=None, *, users_only=False, model='') -> dict:
         if type(page) is not int or not 1 <= page <= 1000000:
             raise Problem("页码不正确")
+        if not isinstance(model, str) or len(model) > 200 or any(ord(c) < 32 for c in model):
+            raise Problem("模型搜索条件不正确")
+        if owner_user_id is not None and (type(owner_user_id) is not int or not 0 < owner_user_id <= 9223372036854775807):
+            raise Problem("用户 ID 不正确")
         with self.transaction() as db:
-            where, params = (" WHERE owner_user_id=?", (owner_user_id,)) if owner_user_id is not None else ("", ())
+            conditions, params = [], []
+            if users_only:
+                conditions.append('owner_user_id IS NOT NULL')
+            if owner_user_id is not None:
+                conditions.append('owner_user_id=?')
+                params.append(owner_user_id)
+            if model.strip():
+                # Literal substring matching: %, _ and quotes are ordinary data.
+                conditions.append('instr(lower(model), lower(?)) > 0')
+                params.append(model.strip())
+            where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
             total = db.execute("SELECT COUNT(*) FROM runs" + where, params).fetchone()[0]
             page = min(page, max(1, (total + 19) // 20))
             rows = db.execute("SELECT * FROM runs" + where + " ORDER BY rowid DESC LIMIT 20 OFFSET ?", (*params, (page - 1) * 20)).fetchall()
             items = [self._queue_position(db, self._public_run(row, db.execute("SELECT * FROM suites WHERE id=?", (row["suite_id"],)).fetchone())) for row in rows]
+            if users_only:
+                for item, row in zip(items, rows):
+                    item['owner_user_id'] = row['owner_user_id']
         return {"items": items, "total": total, "page": page, "page_size": 20}
 
     def prune_history(self):
@@ -542,6 +566,8 @@ class Store:
     def enqueue_due_schedules(self):
         # Persist next occurrence and run together. Multiple scanners/restarts
         # cannot enqueue the same occurrence twice. At most one active run per plan.
+        if self.resources and self.resources.snapshot(force=True)['blocked']:
+            return 0
         current = self.clock().astimezone(timezone.utc)
         added = 0
         with self.transaction() as db:
@@ -569,6 +595,8 @@ class Store:
         return added
 
     def claim(self):
+        if self.resources and self.resources.snapshot(force=True)['blocked']:
+            return None
         with self.transaction() as db:
             limit = db.execute("SELECT max_concurrency FROM config WHERE id=1").fetchone()[0]
             if db.execute("SELECT COUNT(*) FROM runs WHERE status IN ('running','cancelling')").fetchone()[0] >= limit:

@@ -25,7 +25,7 @@ class InstallerTests(unittest.TestCase):
         self.envfile = self.root/'.env'
         self.envfile.write_text('DATABASE_PASSWORD=unchanged\nUNRELATED=$(touch '+str(self.root/'should-not-execute')+')\nMODEL_BENCHMARK_HOME='+str(self.root/'home')+'\n')
         docker = self.root/'bin/docker'
-        docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$INSTALLER_CALLS"\nexit 0\n')
+        docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$INSTALLER_CALLS"\nif [ "$1" = info ] && [ "${2:-}" = --format ]; then echo /var/lib/docker; fi\nexit 0\n')
         docker.chmod(0o755)
         self.env = {**os.environ, 'PATH': str(self.root/'bin')+':'+os.environ['PATH'], 'INSTALLER_CALLS': str(self.root/'calls')}
         self.command = ['bash', str(self.root/'deploy/install-model-benchmark.sh'), '--compose-file', str(self.compose), '--env-file', str(self.envfile), '--project-name', 'existing-project', '--worker-only']
@@ -39,6 +39,7 @@ class InstallerTests(unittest.TestCase):
             if first is None: first = content
             self.assertEqual(first, content)
         self.assertIn('DATABASE_PASSWORD=unchanged', first)
+        self.assertIn('MODEL_BENCHMARK_DOCKER_ROOT=/var/lib/docker', first)
         self.assertFalse((self.root/'should-not-execute').exists())
         calls = (self.root/'calls').read_text()
         self.assertIn('--project-name existing-project', calls)

@@ -75,10 +75,10 @@ func (o InitOptions) normalized() InitOptions {
 		out.Rotation.MaxSizeMB = 100
 	}
 	if out.Rotation.MaxBackups < 0 {
-		out.Rotation.MaxBackups = 10
+		out.Rotation.MaxBackups = 0
 	}
 	if out.Rotation.MaxAgeDays < 0 {
-		out.Rotation.MaxAgeDays = 7
+		out.Rotation.MaxAgeDays = 90
 	}
 	if out.Sampling.Enabled {
 		if out.Sampling.Initial <= 0 {
@@ -115,8 +115,8 @@ func bootstrapOptions() InitOptions {
 		},
 		Rotation: RotationOptions{
 			MaxSizeMB:  100,
-			MaxBackups: 10,
-			MaxAgeDays: 7,
+			MaxBackups: 0,
+			MaxAgeDays: 90,
 			Compress:   true,
 			LocalTime:  true,
 		},

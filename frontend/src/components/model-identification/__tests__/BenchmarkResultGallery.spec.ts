@@ -8,6 +8,13 @@ function groups(): SharedSchedule[] { return [{ id: 'first', name: 'First task',
 function render(items = groups()) { return mount(BenchmarkResultGallery, { props: { items, displayName: 'Selected source' }, global: { stubs: { BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' } } } }) }
 enableAutoUnmount(afterEach)
 describe('benchmark result gallery', () => {
+  it.each([[59.9, 'text-red-600'], [60, 'text-yellow-600'], [69.9, 'text-yellow-600'], [70, 'text-emerald-600']] as const)('colors cards and details consistently at %s', async (score, color) => {
+    const items = groups(); items[0].results = [{ ...result, pass_rate: score }]
+    const wrapper = render(items)
+    expect(wrapper.get('[data-shared-result="old"] [data-testid="shared-pass-rate"]').classes()).toContain(color)
+    await wrapper.get('[data-shared-result="old"]').trigger('click')
+    expect(wrapper.get('[data-testid="shared-detail-pass-rate"]').classes()).toContain(color)
+  })
   it('renders external HTML and script payloads as text', async () => {
     const items = groups()
     const payload = '<img src=x onerror="alert(1)"><script>alert(2)</script>'

@@ -8,16 +8,24 @@
       </header>
       <IdentificationTabs active="dilution" :admin="!userMode" />
       <p v-if="userMode" class="text-sm text-gray-500 dark:text-gray-400" data-testid="benchmark-reference-notice">{{ t('modelBenchmark.referenceTitle') }}</p>
-      <div v-if="!userMode" class="flex gap-2" role="tablist" :aria-label="t('modelBenchmark.title')">
+      <div v-if="!userMode" class="flex flex-wrap gap-2" role="tablist" :aria-label="t('modelBenchmark.title')">
         <button type="button" role="tab" :aria-selected="activeTab === 'tests'" class="btn" :class="activeTab === 'tests' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'tests'">{{ t('modelBenchmark.testManagement') }}</button>
         <button type="button" role="tab" :aria-selected="activeTab === 'display'" class="btn" :class="activeTab === 'display' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'display'">{{ t('modelBenchmark.displaySettings') }}</button>
+        <button type="button" role="tab" :aria-selected="activeTab === 'users'" class="btn" :class="activeTab === 'users' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'users'">{{ t('modelBenchmark.userRecords') }}</button>
       </div>
       <BenchmarkDisplaySettings v-if="!userMode && activeTab === 'display'" />
+      <BenchmarkUserRecords v-if="!userMode && activeTab === 'users'" />
       <div v-show="userMode || activeTab === 'tests'" class="space-y-6">
       <div v-if="loadError" role="alert" class="rounded-xl bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
         {{ loadError }} <button class="ml-3 underline" :disabled="loading" @click="reload()">{{ t('modelBenchmark.retry') }}</button>
       </div>
       <p v-if="loading && !state" role="status">{{ t('modelBenchmark.loading') }}</p>
+      <section v-if="state?.resources && (!userMode || state.resources.blocked)" role="status" class="space-y-1 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200" data-testid="resource-status">
+        <p class="font-semibold">{{ t(state.resources.blocked ? 'modelBenchmark.resourcePaused' : 'modelBenchmark.resourceProtection') }}</p>
+        <p v-if="state.resources.message">{{ state.resources.message }}</p>
+        <p v-if="!userMode && state.resources.memory_percent != null" class="text-xs">{{ t('modelBenchmark.resourceMetrics', { memory: state.resources.memory_percent, disk: state.resources.disk_free_gb }) }}</p>
+        <p v-if="state.resources.blocked" class="text-xs">{{ t('modelBenchmark.resourcePauseHint') }}</p>
+      </section>
       <section v-if="state && !state.ready" role="status" class="space-y-2 rounded-xl bg-amber-50 p-4 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200" data-testid="environment-status">
         <p class="font-semibold">{{ t('modelBenchmark.environmentPreparing') }}</p>
         <p>{{ state.message }}</p>
@@ -71,6 +79,7 @@
               <span>{{ t('modelBenchmark.apiKey') }}</span>
               <input v-model="form.api_key" name="api_key" type="password" required maxlength="4096" autocomplete="new-password" spellcheck="false" class="input w-full" placeholder="sk-…" @input="selectedKeyName = ''" />
               <span class="block text-xs text-gray-500">{{ t('modelBenchmark.keyHint') }}</span>
+              <span class="block text-xs text-amber-700 dark:text-amber-300">{{ t('modelBenchmark.keySafetyHint') }}</span>
             </label>
             <p v-if="selectedKeyName" class="text-xs text-primary-600" :class="{ 'md:col-span-2': userMode }">{{ t('modelBenchmark.selectedKey', { name: selectedKeyName }) }}</p>
             <div class="grid gap-4 sm:grid-cols-2" :class="{ 'md:col-span-2': userMode }">
@@ -166,7 +175,7 @@
                 <td class="whitespace-nowrap py-4 pr-4 text-xs">{{ schedule.next_run_at ? formatScheduledTime(schedule.next_run_at) : schedule.enabled && schedule.active_run_id && schedule.cron_expression.startsWith('@every') ? t('modelBenchmark.waitingInterval') : '—' }}</td>
                 <td class="max-w-xs py-4 pr-4 text-xs"><div>{{ schedule.last_attempt_at ? formatScheduledTime(schedule.last_attempt_at) : '—' }}</div><p v-if="schedule.last_error" class="mt-1 text-amber-700 dark:text-amber-300">{{ schedule.last_error }}</p><button v-if="schedule.last_run_id" class="mt-1 text-primary-600 hover:underline" :disabled="!!busy" @click="showDetail(schedule.last_run_id)">{{ t('modelBenchmark.details') }}</button></td>
                 <td class="py-4 pr-4"><button type="button" role="switch" :aria-checked="schedule.public_results" :aria-label="t('modelBenchmark.publicResults')" class="rounded-full px-3 py-1 text-xs font-medium" :class="schedule.public_results ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-600 dark:bg-dark-800 dark:text-gray-300'" :disabled="!!busy" @click="togglePublicResults(schedule)">{{ t(schedule.public_results ? 'modelBenchmark.publicYes' : 'modelBenchmark.publicNo') }}</button></td>
-                <td class="py-4"><div class="flex flex-wrap items-center gap-3"><button type="button" :data-testid="`run-schedule-${schedule.id}`" class="btn btn-primary whitespace-nowrap text-xs" :disabled="!!busy || !state?.ready || !!schedule.active_run_id" @click="runSchedule(schedule)">{{ t(schedule.active_run_id ? 'modelBenchmark.scheduleRunning' : 'modelBenchmark.runSchedule') }}</button><button class="text-primary-600 hover:underline" :disabled="!!busy" @click="toggleSchedule(schedule)">{{ t(schedule.enabled ? 'modelBenchmark.pauseSchedule' : 'modelBenchmark.resumeSchedule') }}</button><button class="text-primary-600 hover:underline" :disabled="!!busy" @click="editSchedule(schedule)">{{ t('modelBenchmark.editSchedule') }}</button><button class="text-red-600 hover:underline" :disabled="!!busy" @click="deletingSchedule = schedule">{{ t('modelBenchmark.deleteSchedule') }}</button></div></td>
+                <td class="py-4"><div class="flex flex-wrap items-center gap-3"><button type="button" :data-testid="`run-schedule-${schedule.id}`" class="btn btn-primary whitespace-nowrap text-xs" :disabled="!!busy || !state?.ready || state?.resources?.blocked || !!schedule.active_run_id" @click="runSchedule(schedule)">{{ t(schedule.active_run_id ? 'modelBenchmark.scheduleRunning' : 'modelBenchmark.runSchedule') }}</button><button class="text-primary-600 hover:underline" :disabled="!!busy" @click="toggleSchedule(schedule)">{{ t(schedule.enabled ? 'modelBenchmark.pauseSchedule' : 'modelBenchmark.resumeSchedule') }}</button><button class="text-primary-600 hover:underline" :disabled="!!busy" @click="editSchedule(schedule)">{{ t('modelBenchmark.editSchedule') }}</button><button class="text-red-600 hover:underline" :disabled="!!busy" @click="deletingSchedule = schedule">{{ t('modelBenchmark.deleteSchedule') }}</button></div></td>
               </tr>
             </tbody>
           </table>
@@ -209,16 +218,16 @@
                   <progress v-if="isActive(run)" :value="run.completed" :max="run.total" class="mt-2 h-1.5 w-full" :aria-label="t('modelBenchmark.status')" />
                 </td>
                 <td class="min-w-36 py-4 pr-4">
-                  <strong class="text-xl" data-testid="pass-rate">{{ run.pass_rate === null ? '—' : `${run.pass_rate.toFixed(1)}%` }}</strong>
+                  <strong class="text-xl" :class="benchmarkScoreClass(run.pass_rate, run.status)" data-testid="pass-rate">{{ run.status === 'completed' && run.pass_rate !== null ? `${run.pass_rate.toFixed(1)}%` : '—' }}</strong>
                   <div class="mt-1 text-xs text-gray-500">{{ t('modelBenchmark.passed', { passed: run.passed, total: run.total }) }}</div>
-                  <div v-for="category in categories" :key="category" class="text-xs text-gray-500">{{ t(`modelBenchmark.categories.${category}`) }} {{ run.categories[category].passed }}/{{ run.categories[category].total }}</div>
-                  <template v-if="run.coding_difficulties"><div v-for="difficulty in codingDifficulties" :key="difficulty" class="text-xs text-gray-500">{{ t(`modelBenchmark.difficulties.${difficulty}`) }} {{ run.coding_difficulties[difficulty].passed }}/{{ run.coding_difficulties[difficulty].total }}</div></template>
+                  <div v-for="category in categories" :key="category" class="text-xs" :class="benchmarkScoreClass(benchmarkCategoryScore(run.categories[category].passed, run.categories[category].total), run.status)">{{ t(`modelBenchmark.categories.${category}`) }} {{ run.categories[category].passed }}/{{ run.categories[category].total }}</div>
+                  <template v-if="run.coding_difficulties"><div v-for="difficulty in codingDifficulties" :key="difficulty" class="text-xs" :class="benchmarkScoreClass(benchmarkCategoryScore(run.coding_difficulties[difficulty].passed, run.coding_difficulties[difficulty].total), run.status)">{{ t(`modelBenchmark.difficulties.${difficulty}`) }} {{ run.coding_difficulties[difficulty].passed }}/{{ run.coding_difficulties[difficulty].total }}</div></template>
                 </td>
                 <td class="whitespace-nowrap py-4 pr-4 text-xs">{{ t('modelBenchmark.seconds', { count: Math.round(run.elapsed_seconds) }) }}</td>
                 <td class="py-4">
                   <div class="flex min-w-24 flex-col items-start gap-2">
                     <button class="text-primary-600 hover:underline dark:text-primary-400" :disabled="!!busy" @click="showDetail(run.id)">{{ t('modelBenchmark.details') }}</button>
-                    <button v-if="!isActive(run)" class="text-primary-600 hover:underline disabled:opacity-40 dark:text-primary-400" :disabled="!!busy || !state?.ready || !hasQuota || userHasActive || hasActiveRerun(run.id)" @click="rerun(run.id)">{{ t('modelBenchmark.rerun') }}</button>
+                    <button v-if="!isActive(run)" class="text-primary-600 hover:underline disabled:opacity-40 dark:text-primary-400" :disabled="!!busy || !state?.ready || state?.resources?.blocked || !hasQuota || userHasActive || hasActiveRerun(run.id)" @click="rerun(run.id)">{{ t('modelBenchmark.rerun') }}</button>
                     <button v-else class="text-red-600 hover:underline disabled:opacity-40 dark:text-red-400" :disabled="!!busy || run.status === 'cancelling'" @click="cancel(run.id)">{{ t('modelBenchmark.cancel') }}</button>
                   </div>
                 </td>
@@ -235,6 +244,7 @@
           <button class="btn btn-secondary" @click="closeDetail">{{ t('modelBenchmark.close') }}</button>
         </div>
         <p class="text-sm">{{ t(`modelBenchmark.statuses.${detail.status}`) }} · {{ detail.suite_day }} v{{ detail.suite_revision }} · {{ t('modelBenchmark.tokens', { count: detail.usage.total_tokens }) }}</p>
+        <p class="text-sm">{{ t('modelBenchmark.passRate') }}: <strong class="text-2xl" :class="benchmarkScoreClass(detail.pass_rate, detail.status)" data-testid="detail-pass-rate">{{ detail.status === 'completed' && detail.pass_rate !== null ? detail.pass_rate.toFixed(1) + '%' : '—' }}</strong></p>
         <p v-if="detail.error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ detail.error }}</p>
         <p v-if="detail.api_errors || detail.grading_errors" class="text-sm text-red-600 dark:text-red-400">{{ t('modelBenchmark.errors', { api: detail.api_errors, grading: detail.grading_errors }) }}</p>
         <p v-if="!detail.results?.length" class="text-sm text-gray-500">{{ t('modelBenchmark.noResults') }}</p>
@@ -276,6 +286,8 @@ import BenchmarkScheduleFields from '@/components/model-identification/Benchmark
 import BenchmarkDisplaySettings from '@/components/model-identification/BenchmarkDisplaySettings.vue'
 import BenchmarkBankSettings from '@/components/model-identification/BenchmarkBankSettings.vue'
 import BenchmarkResultGallery from '@/components/model-identification/BenchmarkResultGallery.vue'
+import BenchmarkUserRecords from '@/components/model-identification/BenchmarkUserRecords.vue'
+import { benchmarkScoreClass, benchmarkCategoryScore } from '@/utils/benchmarkScore'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -288,7 +300,7 @@ import { userBenchmarks, type SharedDisplay } from '@/api/model-benchmarks'
 const { userMode = false } = defineProps<{ userMode?: boolean }>()
 const benchmarks = userMode ? userBenchmarks : adminBenchmarks
 const sharedDisplays = ref<SharedDisplay[]>([])
-const activeTab = ref<'tests' | 'display'>('tests')
+const activeTab = ref<'tests' | 'display' | 'users'>('tests')
 const maxConcurrency = ref(5)
 const { t } = useI18n()
 const app = useAppStore()
@@ -328,7 +340,7 @@ const validCounts = computed(() => countTotal.value >= 1 && countTotal.value <= 
 const hasQuota = computed(() => !userMode || (state.value?.quota?.remaining ?? 0) > 0)
 const canUsePersonalTests = computed(() => !userMode || state.value?.execution?.user_testing_enabled === true)
 const userHasActive = computed(() => userMode && (!!state.value?.active_run || runs.value.some(isActive)))
-const canStart = computed(() => canUsePersonalTests.value && !userHasActive.value && hasQuota.value && state.value?.ready && !busy.value && !dirtyCounts.value && !!form.base_url && !!form.api_key.trim() && !!form.model)
+const canStart = computed(() => canUsePersonalTests.value && !userHasActive.value && hasQuota.value && state.value?.ready && !state.value?.resources?.blocked && !busy.value && !dirtyCounts.value && !!form.base_url && !!form.api_key.trim() && !!form.model)
 const isActive = (run: BenchmarkRun) => ['queued', 'running', 'cancelling'].includes(run.status)
 const hasActiveRerun = (id: string) => runs.value.some(run => run.rerun_of === id && isActive(run))
 const statusColor = (status: string) => status === 'completed' ? 'text-emerald-600 dark:text-emerald-400' : ['failed', 'interrupted'].includes(status) ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-300'

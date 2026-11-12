@@ -18,6 +18,16 @@ export interface Suite {
   questions: { id: string; category: Category; title: string; difficulty: string }[]
 }
 export interface BenchmarkState {
+  resources?: {
+    blocked: boolean
+    status: 'ok' | 'warning' | 'blocked' | 'unavailable'
+    message: string
+    host_memory_percent?: number
+    worker_memory_percent?: number | null
+    memory_percent?: number
+    disk_free_gb?: number
+    thresholds?: { memory_stop_percent: number; memory_resume_percent: number; disk_stop_gb: number; disk_resume_gb: number; disk_warn_gb: number }
+  }
   bank_version?: string
   bank_update?: BankUpdate
   coding_counts?: CodingCounts
@@ -57,6 +67,8 @@ export interface QuestionResult {
   test_count?: number
 }
 export interface BenchmarkRun {
+  owner_user_id?: number
+  owner?: BenchmarkOwner
   coding_difficulties?: Record<CodingDifficulty, { total: number; passed: number; completed: number }>
   queue_position?: number | null
   finished_at?: string | null
@@ -137,7 +149,14 @@ export interface DisplayConfig extends DisplayInput {
   last_error: string
 }
 const root = '/admin/model-benchmarks'
+export interface BenchmarkOwner { id: number; email: string; username: string; deleted: boolean; missing?: boolean }
 export const benchmarks = {
+  async userRuns(page: number, filters: { user_id?: number; model?: string }, signal?: AbortSignal) {
+    return (await apiClient.get<{ items: BenchmarkRun[]; total: number; page: number; page_size: number }>(root + '/user-runs', { params: { page, ...filters }, signal })).data
+  },
+  async userOptions(q: string, signal?: AbortSignal) {
+    return (await apiClient.get<{ items: BenchmarkOwner[]; has_more: boolean }>(root + '/user-options', { params: { q }, signal })).data
+  },
   async updateBank(signal?: AbortSignal) {
     return (await apiClient.post<BankUpdate>(root + '/bank/update', {}, { signal })).data
   },

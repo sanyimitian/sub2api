@@ -59,9 +59,10 @@ docker info >/dev/null
 docker compose version >/dev/null
 
 # Parse benchmark values as data. Never source a deployment .env.
-python3 - "$ENV_FILE" <<'PY'
+python3 - "$ENV_FILE" "$(docker info --format '{{.DockerRootDir}}')" <<'PY'
 import os,pathlib,re,secrets,sys,tempfile
 p=pathlib.Path(sys.argv[1]); content=p.read_text()
+if content and not content.endswith('\n'): content+='\n'
 def value(key):
     values=re.findall(r'^[ \t]*(?:export[ \t]+)?'+re.escape(key)+r'[ \t]*=[ \t]*([^\r\n]*)$',content,re.M)
     if len(values)>1: raise SystemExit('Duplicate benchmark environment setting: '+key)
@@ -80,6 +81,12 @@ if home is None:
     home='/opt/sub2api-model-benchmark'; content+='MODEL_BENCHMARK_HOME='+home+'\n'
 if not home.startswith('/') or home=='/' or any(c in home for c in '\r\n:$'):
     raise SystemExit('MODEL_BENCHMARK_HOME must be a dedicated absolute Linux path')
+docker_root=value('MODEL_BENCHMARK_DOCKER_ROOT')
+if docker_root is None:
+    docker_root=sys.argv[2].strip()
+    content+='MODEL_BENCHMARK_DOCKER_ROOT='+docker_root+'\n'
+if not docker_root.startswith('/') or docker_root=='/' or any(c in docker_root for c in '\r\n:$'):
+    raise SystemExit('MODEL_BENCHMARK_DOCKER_ROOT must be the absolute Docker data directory')
 directory=pathlib.Path(home).resolve()
 if str(directory) in ('/','/opt','/etc','/usr','/var','/home','/root','/run','/tmp'):
     raise SystemExit('MODEL_BENCHMARK_HOME must not be a system directory')
