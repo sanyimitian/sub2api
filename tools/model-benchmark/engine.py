@@ -189,6 +189,12 @@ class Engine:
             run.pop("api_key", None)
             self.wake.set()
 
+    def wait_for_resources(self, run_id):
+        while self.store.resources and self.store.resources.snapshot(force=True)['blocked']:
+            if self.store.cancelled(run_id) or self.stopping.wait(2):
+                return False
+        return not self.store.cancelled(run_id) and not self.stopping.is_set()
+
     def execute(self, run):
         self.grader.check_ready()
         results = []
@@ -196,7 +202,8 @@ class Engine:
         # site-wide task limit across manual and scheduled work.
         fatal = False
         for index, question_id in enumerate(run["question_ids"], 1):
-            if self.store.cancelled(run["id"]) or self.stopping.is_set():
+            # Keep the run and completed answers; no new request/grade under pressure.
+            if not self.wait_for_resources(run['id']):
                 break
             result = self.one(run, index, question_id)
             self.store.append(run["id"], result)
@@ -223,6 +230,9 @@ class Engine:
                    "reasoning": {"effort": run["effort"]}, "max_output_tokens": 16384, "store": False}
         data = None
         for attempt in range(3):
+            if not self.wait_for_resources(run['id']):
+                result.update(status='api_error', message='测试已停止')
+                break
             result["attempts"] += 1
             try:
                 data = self.client.generate(run["base_url"], run["api_key"], payload)
@@ -234,6 +244,11 @@ class Engine:
                 result.update(status="api_error", message=str(exc), fatal=exc.status in (400, 401, 403, 404, 405))
                 break
         if data is not None:
+            # A response may arrive after resource pressure changed. Keep it in
+            # memory until it is safe to persist and launch a grading container.
+            if not self.wait_for_resources(run['id']):
+                result.update(status='api_error', message='测试已停止', elapsed_seconds=round(time.monotonic() - started, 2))
+                return result
             # Persist the sanitized response for reproducible audits; no headers
             # or credentials are stored with these artifacts.
             artifacts = self.store.directory / "artifacts" / run["id"]
@@ -255,7 +270,10 @@ class Engine:
                 result.update(status="api_error", message="模型响应未完成、被截断或没有返回答案")
             else:
                 try:
-                    result.update(self.grader.grade(question, answer))
+                    if self.wait_for_resources(run['id']):
+                        result.update(self.grader.grade(question, answer))
+                    else:
+                        result.update(status='api_error', message='测试已停止')
                 except Exception:
                     result.update(status="grading_error", message="评分器执行异常")
         result["elapsed_seconds"] = round(time.monotonic() - started, 2)

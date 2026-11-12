@@ -14,15 +14,18 @@ from pathlib import Path
 
 from prepare import DATASETS, REPOS, questions
 from store import Bank
+from resources import ResourceGuard
 
 MAX_DOWNLOAD = 1536 * 1024 * 1024
 
 
-def download(url, path, limit=MAX_DOWNLOAD):
+def download(url, path, limit=MAX_DOWNLOAD, guard=None):
     digest = hashlib.sha256()
     size = 0
     with urllib.request.urlopen(url, timeout=90) as response, path.open("wb") as target:
         while block := response.read(1024 * 1024):
+            if guard:
+                guard.require_capacity()
             size += len(block)
             if size > limit:
                 raise ValueError("Dataset exceeds download limit")
@@ -82,7 +85,7 @@ def validate_question(question):
     return raw
 
 
-def build_bank(home, staging, resolved, hashes):
+def build_bank(home, staging, resolved, hashes, guard=None):
     partial = staging / "bank.sqlite3"
     with sqlite3.connect(partial) as db:
         db.executescript("CREATE TABLE questions(id TEXT PRIMARY KEY,category TEXT,difficulty TEXT,title TEXT,payload BLOB); CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT);")
@@ -91,6 +94,8 @@ def build_bank(home, staging, resolved, hashes):
                                                   release=datetime.now(timezone.utc).date().isoformat(), expanded=True, skipped=skipped)):
             if index >= 10000:
                 raise ValueError("Too many questions")
+            if guard:
+                guard.require_capacity()
             try:
                 raw = validate_question(question)
             except ValueError:
@@ -124,6 +129,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--home", type=Path, required=True)
     args = parser.parse_args()
+    guard = ResourceGuard(args.home)
+    guard.require_capacity(update=True)
     resolved = resolve_datasets()
     # Repeated checks of the same official revisions reuse a verified archive.
     for path in sorted((args.home / "banks").glob("public-v2-*.sqlite3")):
@@ -140,11 +147,12 @@ def main():
             for file in source["files"]:
                 filename = file if category == "coding" else category + ".parquet"
                 hashes[category + "/" + file] = download(
-                    f'https://huggingface.co/datasets/{source["repo"]}/resolve/{source["revision"]}/{file}', staging / filename)
+                    f'https://huggingface.co/datasets/{source["repo"]}/resolve/{source["revision"]}/{file}', staging / filename,
+                    limit=min(MAX_DOWNLOAD, 6 * 1024 ** 3 - total_size), guard=guard)
                 total_size += (staging / filename).stat().st_size
                 if total_size > 6 * 1024 * 1024 * 1024:
                     raise ValueError("Dataset collection exceeds download limit")
-        version = build_bank(args.home, staging, resolved, hashes)
+        version = build_bank(args.home, staging, resolved, hashes, guard=guard)
     print(json.dumps({"version": version}))
 
 

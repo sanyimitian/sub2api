@@ -46,6 +46,41 @@ beforeEach(() => {
 })
 
 describe('administrator model benchmarks', () => {
+  it('opens the administrator user-record tab independently of test configuration', async () => {
+    const wrapper = mount(ModelBenchmarksView, { global: { stubs: { AppLayout: { template: '<main><slot /></main>' }, IdentificationTabs: true, BenchmarkKeyPicker: true, BenchmarkUserRecords: true, BaseDialog: true, ConfirmDialog: true } } })
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'BenchmarkUserRecords' }).exists()).toBe(false)
+    const tab = wrapper.findAll('[role="tab"]').find(b => b.text() === 'modelBenchmark.userRecords')!
+    await tab.trigger('click'); await flushPromises()
+    expect(tab.attributes('aria-selected')).toBe('true')
+    expect(wrapper.findComponent({ name: 'BenchmarkUserRecords' }).exists()).toBe(true)
+    expect(benchmarks.configure).not.toHaveBeenCalled()
+  })
+  it.each([[59.9, 'text-red-600'], [60, 'text-yellow-600'], [70, 'text-emerald-600']] as const)('colors administrator history at %s', async (score, color) => {
+    vi.mocked(benchmarks.list).mockResolvedValue({ items: [run({ pass_rate: score })], total: 1, page_size: 20 })
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.get('[data-testid="pass-rate"]').classes()).toContain(color)
+  })
+  it('blocks new tests, reruns, schedule execution and bank updates during resource pressure, then recovers', async () => {
+    vi.mocked(benchmarks.state).mockResolvedValue({ ...initial, resources: { blocked: true, status: 'blocked', message: 'Memory at 90%', memory_percent: 90, disk_free_gb: 12 } })
+    vi.mocked(benchmarks.list).mockResolvedValue({ items: [run()], total: 1, page_size: 20 })
+    vi.mocked(benchmarks.schedules).mockResolvedValue({ items: [schedule()] })
+    const wrapper = render(); await flushPromises()
+    await wrapper.get('[name="base_url"]').setValue('https://example.com/v1')
+    await wrapper.get('[name="api_key"]').setValue('fixture-secret')
+    await wrapper.get('[name="model"]').setValue('fixture-model')
+    expect(wrapper.get('[data-testid="resource-status"]').text()).toContain('Memory at 90%')
+    expect(wrapper.find('[data-testid="environment-status"]').exists()).toBe(false)
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="bank-update"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="run-schedule-schedule-one"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('button').find(b => b.text() === 'modelBenchmark.rerun')!.attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="user-testing-toggle"]').attributes('disabled')).toBeUndefined()
+    vi.mocked(benchmarks.state).mockResolvedValue({ ...initial, resources: { blocked: false, status: 'ok', message: '' } })
+    await wrapper.findAll('button').find(b => b.text() === 'modelBenchmark.refreshResults')!.trigger('click'); await flushPromises()
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="run-schedule-schedule-one"]').attributes('disabled')).toBeUndefined()
+  })
   it('saves the user testing switch without overwriting concurrency or suite settings', async () => {
     const wrapper = render(); await flushPromises()
     const toggle = wrapper.get('[data-testid="user-testing-toggle"]')

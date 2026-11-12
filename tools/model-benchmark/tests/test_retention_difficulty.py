@@ -1,4 +1,6 @@
 from datetime import timedelta, timezone
+import os
+import unittest
 from store import Bank, Problem, Store
 from test_worker import Fixture
 
@@ -61,14 +63,11 @@ class RetentionTests(Fixture):
         outside = self.root / "unrelated"
         outside.mkdir()
         (outside / "keep.txt").write_text("keep")
-        link = artifacts / ("a" * 32)
-        link.symlink_to(outside, target_is_directory=True)
         self.assertEqual(self.store.prune_history(), 1)
         self.assertFalse((artifacts / expired["id"]).exists())
         self.assertTrue((artifacts / boundary["id"]).is_dir())
         self.assertTrue((artifacts / active["id"]).is_dir())
         self.assertTrue((outside / "keep.txt").is_file())
-        self.assertTrue(link.is_symlink())
         with self.assertRaises(Problem): self.store.detail(expired["id"])
         self.assertEqual(self.store.detail(active["id"])["status"], "queued")
         plans = self.store.list_schedules()["items"]
@@ -80,6 +79,19 @@ class RetentionTests(Fixture):
         orphan.mkdir()
         self.store.prune_history()
         self.assertFalse(orphan.exists())
+
+    @unittest.skipUnless(os.name == 'posix', 'requires POSIX symlink support')
+    def test_artifact_cleanup_does_not_follow_directory_symlinks(self):
+        outside = self.root / 'unrelated'
+        outside.mkdir()
+        (outside / 'keep.txt').write_text('keep')
+        artifacts = self.store.directory / 'artifacts'
+        artifacts.mkdir()
+        link = artifacts / ('a' * 32)
+        link.symlink_to(outside, target_is_directory=True)
+        self.store.prune_history()
+        self.assertTrue(link.is_symlink())
+        self.assertTrue((outside / 'keep.txt').is_file())
 
     def test_pagination_is_bounded_and_keeps_users_separate(self):
         owned = []

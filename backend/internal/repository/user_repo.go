@@ -548,6 +548,9 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 			),
 		)
 	}
+	if filters.AccountSearch != "" {
+		q = q.Where(dbuser.Or(dbuser.EmailContainsFold(filters.AccountSearch), dbuser.UsernameContainsFold(filters.AccountSearch)))
+	}
 
 	if filters.GroupName != "" {
 		q = q.Where(dbuser.HasAllowedGroupsWith(

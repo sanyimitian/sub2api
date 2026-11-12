@@ -9,14 +9,14 @@
           </div>
           <p v-if="item.schedule.name" class="truncate text-xs text-gray-600 dark:text-gray-300" :title="item.schedule.name">{{ item.schedule.name }}</p>
           <div class="flex items-end justify-between gap-2">
-            <div><span class="text-xs text-gray-600 dark:text-gray-300">{{ t('modelBenchmark.passRate') }}</span><strong class="block text-2xl font-bold tabular-nums text-gray-900 dark:text-white">{{ rate(item.result) }}</strong></div>
+            <div><span class="text-xs text-gray-600 dark:text-gray-300">{{ t('modelBenchmark.passRate') }}</span><strong class="block text-2xl font-bold tabular-nums" :class="benchmarkScoreClass(item.result.pass_rate, item.result.status)" data-testid="shared-pass-rate">{{ formatBenchmarkPassRate(item.result.pass_rate, item.result.status) }}</strong></div>
             <div class="text-right text-xs leading-5 text-gray-600 dark:text-gray-300"><p>{{ t('modelBenchmark.passed', { passed: item.result.passed, total: item.result.total }) }}</p><p>{{ item.result.completed }}/{{ item.result.total }} {{ t('modelBenchmark.questionsDone') }}</p></div>
           </div>
           <div class="grid grid-cols-3 gap-3">
             <div v-for="category in categories" :key="category" class="min-w-0 space-y-1">
               <p class="text-xs text-gray-600 dark:text-gray-300">{{ t(`modelBenchmark.categories.${category}`) }}</p>
-              <p class="text-xs tabular-nums text-gray-700 dark:text-gray-200">{{ item.result.categories[category].passed }}/{{ item.result.categories[category].total }}</p>
-              <div class="h-1 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600"><div class="h-full rounded-full" :class="categoryColors[category]" :style="{ width: `${categoryPercent(item.result, category)}%` }" /></div>
+              <p class="text-xs tabular-nums" :class="benchmarkScoreClass(benchmarkCategoryScore(item.result.categories[category].passed, item.result.categories[category].total), item.result.status)">{{ item.result.categories[category].passed }}/{{ item.result.categories[category].total }}</p>
+              <div class="h-1 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600"><div class="h-full rounded-full" :class="benchmarkScoreBarClass(benchmarkCategoryScore(item.result.categories[category].passed, item.result.categories[category].total), item.result.status)" :style="{ width: `${categoryPercent(item.result, category)}%` }" /></div>
             </div>
           </div>
         </div>
@@ -36,8 +36,8 @@
       <div v-if="selected" class="space-y-5" data-testid="shared-result-detail">
         <div class="space-y-1"><p class="text-sm font-medium text-gray-700 dark:text-gray-200" data-testid="detail-test-source">{{ t(testSource === 'admin' ? 'modelBenchmark.adminTest' : 'modelBenchmark.userTest') }}</p><p class="text-xs text-gray-500">{{ displayName }}<template v-if="selected.schedule.name"> · {{ selected.schedule.name }}</template></p><h3 class="break-all text-lg font-semibold">{{ selected.result.model }}</h3><p class="text-sm text-gray-500">{{ t(`modelBenchmark.statuses.${selected.result.status}`) }} · {{ t('modelBenchmark.effort') }}: {{ t(`modelBenchmark.efforts.${selected.result.effort}`) }}</p></div>
         <div class="space-y-1"><p class="text-xs text-gray-600 dark:text-gray-300">{{ t('modelBenchmark.url') }}</p><p class="break-all text-sm" data-testid="detail-url">{{ selected.result.base_url || t('modelBenchmark.urlUnavailable') }}</p><p v-if="selected.result.url_masked" class="text-xs text-gray-600 dark:text-gray-300">{{ t('modelBenchmark.urlMasked') }}</p></div>
-        <div class="rounded-xl bg-primary-50 p-4 dark:bg-primary-900/20"><p class="text-xs text-gray-500">{{ t('modelBenchmark.passRate') }}</p><strong class="text-4xl tabular-nums">{{ rate(selected.result) }}</strong><p class="mt-2 text-sm">{{ t('modelBenchmark.passed', { passed: selected.result.passed, total: selected.result.total }) }} · {{ t('modelBenchmark.completed', { completed: selected.result.completed, total: selected.result.total }) }}</p></div>
-        <div class="grid grid-cols-3 gap-3"><div v-for="category in categories" :key="category" class="rounded-lg bg-gray-50 p-3 dark:bg-dark-800"><p class="text-xs text-gray-500">{{ t(`modelBenchmark.categories.${category}`) }}</p><strong class="mt-1 block text-lg">{{ selected.result.categories[category].passed }}/{{ selected.result.categories[category].total }}</strong></div></div>
+        <div class="rounded-xl bg-primary-50 p-4 dark:bg-primary-900/20"><p class="text-xs text-gray-500">{{ t('modelBenchmark.passRate') }}</p><strong class="text-4xl tabular-nums" :class="benchmarkScoreClass(selected.result.pass_rate, selected.result.status)" data-testid="shared-detail-pass-rate">{{ formatBenchmarkPassRate(selected.result.pass_rate, selected.result.status) }}</strong><p class="mt-2 text-sm">{{ t('modelBenchmark.passed', { passed: selected.result.passed, total: selected.result.total }) }} · {{ t('modelBenchmark.completed', { completed: selected.result.completed, total: selected.result.total }) }}</p></div>
+        <div class="grid grid-cols-3 gap-3"><div v-for="category in categories" :key="category" class="rounded-lg bg-gray-50 p-3 dark:bg-dark-800"><p class="text-xs text-gray-500">{{ t(`modelBenchmark.categories.${category}`) }}</p><strong class="mt-1 block text-lg" :class="benchmarkScoreClass(benchmarkCategoryScore(selected.result.categories[category].passed, selected.result.categories[category].total), selected.result.status)">{{ selected.result.categories[category].passed }}/{{ selected.result.categories[category].total }}</strong></div></div>
         <dl class="grid gap-3 text-sm sm:grid-cols-2"><div><dt class="text-xs text-gray-500">{{ t('modelBenchmark.finishedAt') }}</dt><dd>{{ formatDate(selected.result.finished_at || selected.result.created_at) }}</dd></div><div><dt class="text-xs text-gray-500">{{ t('modelBenchmark.elapsed') }}</dt><dd>{{ t('modelBenchmark.seconds', { count: selected.result.elapsed_seconds }) }}</dd></div><div><dt class="text-xs text-gray-500">{{ t('modelBenchmark.suiteVersion') }}</dt><dd>{{ selected.result.suite_day }} · v{{ selected.result.suite_revision }}</dd></div><div><dt class="text-xs text-gray-500">{{ t('modelBenchmark.tokenBreakdown') }}</dt><dd>{{ selected.result.usage ? `${selected.result.usage.input_tokens.toLocaleString()} / ${selected.result.usage.output_tokens.toLocaleString()} / ${selected.result.usage.total_tokens.toLocaleString()}` : '—' }}</dd></div><div class="sm:col-span-2"><dt class="text-xs text-gray-500">{{ t('modelBenchmark.suiteFingerprint') }}</dt><dd class="break-all font-mono text-xs">{{ selected.result.suite_fingerprint }}</dd></div></dl>
         <p v-if="selected.result.api_errors || selected.result.grading_errors" class="text-sm text-amber-700 dark:text-amber-300">{{ t('modelBenchmark.errors', { api: selected.result.api_errors || 0, grading: selected.result.grading_errors || 0 }) }}</p>
         <p class="text-xs leading-5 text-gray-500">{{ t('modelBenchmark.passRateHint') }}</p>
@@ -51,11 +51,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import type { Category } from '@/api/admin/model-benchmarks'
+import { formatBenchmarkPassRate, benchmarkScoreClass, benchmarkCategoryScore, benchmarkScoreBarClass } from '@/utils/benchmarkScore'
 import type { SharedResult, SharedSchedule } from '@/api/model-benchmarks'
 const props = defineProps<{ items: SharedSchedule[]; displayName: string; testSource: 'admin' | 'user' }>()
 const { t } = useI18n()
 const categories: Category[] = ['coding', 'math', 'reasoning']
-const categoryColors: Record<Category, string> = { coding: 'bg-primary-500', math: 'bg-emerald-500', reasoning: 'bg-violet-500' }
 const track = ref<HTMLElement | null>(null)
 const scrollLeft = ref(0)
 const viewportWidth = ref(0)
@@ -69,7 +69,6 @@ const stride = computed(() => cardWidth.value + 12)
 const visibleStart = computed(() => Math.min(cards.value.length, Math.floor(scrollLeft.value / stride.value) + 1))
 const visibleEnd = computed(() => Math.min(cards.value.length, Math.ceil((scrollLeft.value + viewportWidth.value) / stride.value)))
 const formatDate = (value: string) => new Date(value).toLocaleString()
-const rate = (result: SharedResult) => result.status === 'completed' && result.pass_rate !== null ? `${result.pass_rate.toFixed(1)}%` : '—'
 const categoryPercent = (result: SharedResult, category: Category) => result.categories[category].total ? result.categories[category].passed / result.categories[category].total * 100 : 0
 function syncScroll() {
   if (!track.value) return

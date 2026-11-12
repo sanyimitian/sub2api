@@ -1,4 +1,5 @@
 import concurrent.futures
+import gc
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -27,6 +28,9 @@ class Fixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        # sqlite connection contexts commit but do not close; collect fixture
+        # connections before removing temporary files (required on Windows).
+        self.addCleanup(gc.collect)
         self.root = Path(self.temp.name)
         bank_path = self.root / "bank.sqlite3"
         with sqlite3.connect(bank_path) as db:

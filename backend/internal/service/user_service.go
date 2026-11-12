@@ -65,10 +65,11 @@ var (
 
 // UserListFilters contains all filter options for listing users
 type UserListFilters struct {
-	Status    string // User status filter
-	Role      string // User role filter
-	Search    string // Search in email, username
-	GroupName string // Filter by allowed group name (fuzzy match)
+	Status        string // User status filter
+	Role          string // User role filter
+	Search        string // Search in email, username
+	AccountSearch string // Account-only lookup; excludes notes and API keys.
+	GroupName     string // Filter by allowed group name (fuzzy match)
 	// APIKeyGroupID filters users who own at least one non-soft-deleted API key
 	// bound to this group (api_keys.group_id). 0 = no filter. Covers all three
 	// group types since it matches the key's group directly, not allowed_groups.
@@ -79,7 +80,7 @@ type UserListFilters struct {
 	// nil means not specified (default: load subscriptions for backward compatibility).
 	IncludeSubscriptions *bool
 	// IncludeDeleted 为 true 时绕过软删除过滤，返回含已删除（deleted_at 非空）的用户。
-	// 仅供 /admin/usage 的 SearchUsers 端点使用，其他列表调用方不要设置。
+	// 仅供管理员 usage 搜索和评测历史账号查询使用，其他列表调用方不要设置。
 	IncludeDeleted bool
 }
 

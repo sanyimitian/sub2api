@@ -71,10 +71,10 @@ func TestNormalizedOptions_InvalidFallback(t *testing.T) {
 	if out.Rotation.MaxSizeMB != 100 {
 		t.Fatalf("normalized max_size_mb = %d", out.Rotation.MaxSizeMB)
 	}
-	if out.Rotation.MaxBackups != 10 {
+	if out.Rotation.MaxBackups != 0 {
 		t.Fatalf("normalized max_backups = %d", out.Rotation.MaxBackups)
 	}
-	if out.Rotation.MaxAgeDays != 7 {
+	if out.Rotation.MaxAgeDays != 90 {
 		t.Fatalf("normalized max_age_days = %d", out.Rotation.MaxAgeDays)
 	}
 	if out.Sampling.Initial != 100 || out.Sampling.Thereafter != 100 {

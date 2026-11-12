@@ -46,6 +46,7 @@ func TestModelBenchmarkAdminAuthentication(t *testing.T) {
 	for _, endpoint := range []struct{ method, path string }{
 		{"POST", "/environment/retry"},
 		{"GET", "/results"}, {"GET", "/showcase"}, {"GET", "/state"}, {"PUT", "/config"}, {"POST", "/suites/refresh"}, {"GET", "/runs"}, {"POST", "/runs"},
+		{"GET", "/user-runs"}, {"GET", "/user-options"},
 		{"GET", "/runs/" + strings.Repeat("a", 32)}, {"POST", "/runs/" + strings.Repeat("a", 32) + "/rerun"}, {"POST", "/runs/" + strings.Repeat("a", 32) + "/cancel"},
 		{"GET", "/schedules"}, {"POST", "/schedules"}, {"PUT", "/schedules/" + strings.Repeat("a", 32)}, {"DELETE", "/schedules/" + strings.Repeat("a", 32)},
 		{"POST", "/bank/update"}, {"POST", "/bank/activate"},

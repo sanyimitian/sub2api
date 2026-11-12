@@ -50,6 +50,12 @@ class BankUpdates:
         with self.lock:
             if self.thread and self.thread.is_alive():
                 raise Problem("总题库正在更新，请等待完成", 409)
+            if self.store.resources:
+                from resources import ResourcePressure
+                try:
+                    self.store.resources.require_capacity(update=True)
+                except ResourcePressure as exc:
+                    raise Problem(str(exc), 503) from exc
             self.save(status="checking", message="正在检查官方数据、下载并验证题目", candidate=None)
             self.thread = threading.Thread(target=self.prepare, name="benchmark-bank-update", daemon=True)
             self.thread.start()

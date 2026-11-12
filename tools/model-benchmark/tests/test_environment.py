@@ -11,6 +11,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from resources import GIB
 
 from environment import Environment
 from prepare import main as prepare_main, make_grader_sources_readable
@@ -18,6 +19,7 @@ from server import make_handler
 
 
 class EnvironmentTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'posix', 'requires POSIX permissions and symlinks')
     def test_sandbox_permissions_repair_only_public_sources_without_following_links(self):
         source = self.home / 'sources/LiveCodeBench'
         module = source / 'lcb_runner/evaluation/testing_util.py'
@@ -36,9 +38,26 @@ class EnvironmentTests(unittest.TestCase):
         self.assertTrue((source / 'link').is_symlink())
 
     def setUp(self):
+        stale = patch('environment.Grader.cleanup_stale')
+        self.cleanup_stale = stale.start()
+        self.addCleanup(stale.stop)
+        probe = patch('resources.ResourceGuard.read_metrics', return_value={
+            'host_memory_percent': 40, 'worker_memory_percent': 10, 'disk_free_bytes': 30 * GIB})
+        probe.start()
+        self.addCleanup(probe.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.home = Path(self.temp.name)
+
+    def test_resource_pressure_blocks_environment_downloads_and_builds(self):
+        from resources import ResourcePressure
+        commands = []
+        env = Environment(self.home, 'fixture', 'UTC', runner=lambda args, **kw: commands.append(args))
+        env.resources.sample = lambda: {'host_memory_percent': 90, 'worker_memory_percent': 10, 'disk_free_bytes': 30 * GIB}
+        with self.assertRaises(ResourcePressure): env.prepare()
+        self.cleanup_stale.assert_called_once()
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0][:2], ['docker', 'info'])
 
     def wait_for(self, condition):
         deadline = time.monotonic() + 3
@@ -128,7 +147,7 @@ class EnvironmentTests(unittest.TestCase):
         bank = self.home/'bank.sqlite3'; bank.write_bytes(b'existing-frozen-bank')
         with patch('sys.argv', ['prepare.py', '--home', str(self.home)]), patch('prepare.sources') as sources:
             prepare_main()
-        sources.assert_called_once_with(self.home, None, download_datasets=False)
+        sources.assert_called_once_with(self.home.resolve(), None, download_datasets=False)
         self.assertEqual(bank.read_bytes(), b'existing-frozen-bank')
 
 

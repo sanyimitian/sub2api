@@ -4,13 +4,31 @@
 # Build/deploy a sub2api image containing this feature before enabling the page.
 services:
   sub2api:
+    # Recent docker logs copy only. Complete 90-day archives live in /app/data/logs.
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "15"
+        compress: "true"
     environment:
+      LOG_OUTPUT_TO_FILE: "true"
+      LOG_ROTATION_MAX_SIZE_MB: "100"
+      LOG_ROTATION_MAX_BACKUPS: "0"
+      LOG_ROTATION_MAX_AGE_DAYS: "90"
+      LOG_ROTATION_COMPRESS: "true"
       MODEL_BENCHMARK_WORKER_URL: http://model-benchmark:8124
       MODEL_BENCHMARK_WORKER_TOKEN: ${MODEL_BENCHMARK_WORKER_TOKEN:?Set a random token of at least 32 characters}
     networks:
       - benchmark-network
 
   model-benchmark:
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "20"
+        compress: "true"
     build:
       context: ../tools/model-benchmark
       dockerfile: Dockerfile
@@ -23,10 +41,29 @@ services:
       MODEL_BENCHMARK_WORKER_TOKEN: ${MODEL_BENCHMARK_WORKER_TOKEN:?Set a random token of at least 32 characters}
       MODEL_BENCHMARK_TIMEZONE: ${MODEL_BENCHMARK_TIMEZONE:-Asia/Shanghai}
       MODEL_BENCHMARK_GRADER_IMAGE: sub2api-model-benchmark-grader:v1
+      MODEL_BENCHMARK_MEMINFO: /host/meminfo
+      MODEL_BENCHMARK_DOCKER_DISK_PATH: /host/docker
+      MODEL_BENCHMARK_MEMORY_STOP_PERCENT: ${MODEL_BENCHMARK_MEMORY_STOP_PERCENT:-85}
+      MODEL_BENCHMARK_MEMORY_RESUME_PERCENT: ${MODEL_BENCHMARK_MEMORY_RESUME_PERCENT:-80}
+      MODEL_BENCHMARK_DISK_WARN_GB: ${MODEL_BENCHMARK_DISK_WARN_GB:-10}
+      MODEL_BENCHMARK_DISK_STOP_GB: ${MODEL_BENCHMARK_DISK_STOP_GB:-5}
+      MODEL_BENCHMARK_DISK_RESUME_GB: ${MODEL_BENCHMARK_DISK_RESUME_GB:-8}
     volumes:
       # The same absolute path is essential: Docker bind mounts resolve on the host.
       - ${MODEL_BENCHMARK_HOME:-/opt/sub2api-model-benchmark}:${MODEL_BENCHMARK_HOME:-/opt/sub2api-model-benchmark}
       - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: /proc/meminfo
+        target: /host/meminfo
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MODEL_BENCHMARK_DOCKER_ROOT:-/var/lib/docker}
+        target: /host/docker
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       - benchmark-network
     # No published port. Only the authenticated app proxy reaches the worker.
