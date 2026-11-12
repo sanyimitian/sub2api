@@ -196,6 +196,10 @@ def make_handler(store, engine, token, environment=None):
                     run_id, action = match.groups()
                     if self.command == "GET" and not action:
                         self.send_json(200, store.detail(run_id, owner_user_id, owner_site_id))
+                    elif self.command == "DELETE" and not action:
+                        if owner_user_id is not None or owner_site_id:
+                            raise Problem("仅主站管理员可以删除测试结果", 403)
+                        self.send_json(200, store.delete_run(run_id))
                     elif self.command == "POST" and action == "rerun":
                         try:
                             engine.grader.check_ready()

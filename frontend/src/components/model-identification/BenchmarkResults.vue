@@ -52,8 +52,10 @@ interface Row {
   loading: boolean
   error: boolean
   failedMore: boolean
+  revision: number
 }
-const rows = reactive<Row[]>(['site', 'users'].map(kind => ({ kind: kind as Row['kind'], title: kind === 'site' ? 'modelBenchmark.showcase' : 'modelBenchmark.userResults', items: [], sources: [], cursor: null, pages: 1, loading: false, error: false, failedMore: false })))
+const rows = reactive<Row[]>(['site', 'users'].map(kind => ({ kind: kind as Row['kind'], title: kind === 'site' ? 'modelBenchmark.showcase' : 'modelBenchmark.userResults', items: [], sources: [], cursor: null, pages: 1, loading: false, error: false, failedMore: false, revision: 0 })))
+const isCurrent = (row: Row, revision: number) => !controller.signal.aborted && row.revision === revision
 
 async function fetchPage(row: Row, cursor?: string) {
   const api = props.userMode ? userBenchmarks : benchmarks
@@ -81,11 +83,12 @@ function mergeItems(items: SharedSchedule[]): SharedSchedule[] {
 
 async function refreshRow(row: Row) {
   if (row.loading) return
+  const revision = ++row.revision
   row.loading = true
   try {
     // 重取已展开的页，保留浏览深度，并及时移除撤销公开的来源。
     let page = await fetchPage(row)
-    if (controller.signal.aborted) return
+    if (!isCurrent(row, revision)) return
     let items = page.items
     const sources = page.sources
     if (row.kind === 'site') {
@@ -97,32 +100,45 @@ async function refreshRow(row: Row) {
     let pages = 1
     while (page.cursor && pages < row.pages) {
       page = await fetchPage(row, page.cursor)
+      if (!isCurrent(row, revision)) return
       items = items.concat(page.items)
       pages++
     }
-    if (controller.signal.aborted) return
+    if (!isCurrent(row, revision)) return
     Object.assign(row, { items: mergeItems(items), sources, cursor: page.cursor, pages, error: false, failedMore: false })
   } catch {
-    if (!controller.signal.aborted) { row.error = true; row.failedMore = false }
-  } finally { row.loading = false }
+    if (isCurrent(row, revision)) { row.error = true; row.failedMore = false }
+  } finally { if (isCurrent(row, revision)) row.loading = false }
 }
 
 async function loadMore(row: Row) {
   if (row.loading || !row.cursor) return
+  const revision = ++row.revision
   row.loading = true
   try {
     const page = await fetchPage(row, row.cursor)
-    if (controller.signal.aborted) return
+    if (!isCurrent(row, revision)) return
     row.items = mergeItems([...row.items, ...page.items])
     row.cursor = page.cursor
     row.pages++
     row.error = false
   } catch {
-    if (!controller.signal.aborted) { row.error = true; row.failedMore = true }
-  } finally { row.loading = false }
+    if (isCurrent(row, revision)) { row.error = true; row.failedMore = true }
+  } finally { if (isCurrent(row, revision)) row.loading = false }
 }
 
+function removeResult(id: string) {
+  for (const row of rows) {
+    // Deletion invalidates both refreshes and pagination requests already in flight.
+    // Keep expanded page depth; external feeds own their independent result IDs.
+    ++row.revision
+    row.loading = false
+    const localSources = new Set(row.sources.filter(source => source.source_type === 'local').map(source => source.id))
+    row.items = row.items.map(item => row.kind === 'users' || localSources.has(item.id.split(':', 1)[0])
+      ? { ...item, results: item.results.filter(result => result.id !== id) } : item).filter(item => item.results.length)
+  }
+}
 async function refresh() { await Promise.allSettled(rows.map(refreshRow)) }
-defineExpose({ refresh })
+defineExpose({ refresh, removeResult })
 onBeforeUnmount(() => controller.abort())
 </script>

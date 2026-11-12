@@ -313,7 +313,7 @@ class Displays:
                     schedule = db.execute("SELECT * FROM schedules WHERE id=? AND public_results=1 AND deleted=0", (row["schedule_id"],)).fetchone()
                     if schedule is None:
                         continue
-                    query = "SELECT *,julianday(finished_at) AS sort_time FROM runs WHERE schedule_id=? AND finished_at IS NOT NULL"
+                    query = "SELECT *,julianday(finished_at) AS sort_time FROM runs WHERE deleted_at IS NULL AND schedule_id=? AND finished_at IS NOT NULL"
                     params = (schedule["id"],)
                     if before:
                         query += " AND (julianday(finished_at),id,?,?) < (?,?,?,?)"

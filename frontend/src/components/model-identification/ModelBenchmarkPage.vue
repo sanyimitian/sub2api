@@ -17,7 +17,7 @@
       <BenchmarkSourceSettings v-if="!userMode && activeTab === 'source'" @saved="sourceSaved" />
       <p v-if="!userMode && remoteMode" class="text-sm text-gray-600 dark:text-gray-300" data-testid="remote-benchmark-hint">{{ t('modelBenchmark.remoteModeHint') }}</p>
       <BenchmarkDisplaySettings v-if="!userMode && !remoteMode && activeTab === 'display'" />
-      <BenchmarkUserRecords v-if="!userMode && activeTab === 'users'" :key="resultGeneration" />
+      <BenchmarkUserRecords v-if="!userMode && activeTab === 'users'" :key="resultGeneration" :can-delete="!!source && !remoteMode" @deleted="resultDeleted" />
       <div v-show="userMode || activeTab === 'tests'" class="space-y-6">
       <div v-if="loadError" role="alert" class="rounded-xl bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
         {{ loadError }} <button class="ml-3 underline" :disabled="loading" @click="reload()">{{ t('modelBenchmark.retry') }}</button>
@@ -221,6 +221,7 @@
                     <button class="text-primary-600 hover:underline dark:text-primary-400" :disabled="!!busy" @click="showDetail(run.id)">{{ t('modelBenchmark.details') }}</button>
                     <button v-if="!isActive(run)" class="text-primary-600 hover:underline disabled:opacity-40 dark:text-primary-400" :disabled="!!busy || !state?.ready || state?.resources?.blocked || !hasQuota || userHasActive || hasActiveRerun(run.id)" @click="rerun(run.id)">{{ t('modelBenchmark.rerun') }}</button>
                     <button v-else class="text-red-600 hover:underline disabled:opacity-40 dark:text-red-400" :disabled="!!busy || run.status === 'cancelling'" @click="cancel(run.id)">{{ t('modelBenchmark.cancel') }}</button>
+                    <button v-if="!userMode && !remoteMode && !isActive(run)" type="button" class="text-red-600 hover:underline disabled:opacity-40 dark:text-red-400" :disabled="!!busy" :data-delete-run="run.id" @click="deletingRun = run">{{ t('modelBenchmark.deleteResult') }}</button>
                   </div>
                 </td>
               </tr>
@@ -264,6 +265,7 @@
         </form>
       </BaseDialog>
       <ConfirmDialog :show="!!deletingSchedule" :title="t('modelBenchmark.deleteSchedule')" :message="t('modelBenchmark.deleteScheduleHint')" danger @cancel="deletingSchedule = null" @confirm="removeSchedule" />
+      <BenchmarkDeleteDialog v-if="!userMode && !remoteMode" :run="deletingRun" @close="deletingRun = null" @deleted="resultDeleted" />
     </div>
   </AppLayout>
 </template>
@@ -279,6 +281,7 @@ import BenchmarkDisplaySettings from '@/components/model-identification/Benchmar
 import BenchmarkBankSettings from '@/components/model-identification/BenchmarkBankSettings.vue'
 import BenchmarkResults from '@/components/model-identification/BenchmarkResults.vue'
 import BenchmarkUserRecords from '@/components/model-identification/BenchmarkUserRecords.vue'
+import BenchmarkDeleteDialog from '@/components/model-identification/BenchmarkDeleteDialog.vue'
 import BenchmarkSourceSettings from '@/components/model-identification/BenchmarkSourceSettings.vue'
 import { formatBenchmarkPassRate, benchmarkScoreClass, benchmarkCategoryScore } from '@/utils/benchmarkScore'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -312,6 +315,7 @@ const scheduleForm = ref<ScheduleSettings>({ name: '', cron_expression: '@every 
 const schedules = ref<BenchmarkSchedule[]>([])
 const editingSchedule = ref<BenchmarkSchedule | null>(null)
 const deletingSchedule = ref<BenchmarkSchedule | null>(null)
+const deletingRun = ref<BenchmarkRun | null>(null)
 const editForm = ref<ScheduleSettings>({ name: '', cron_expression: '0 9 * * *', enabled: true, public_results: false })
 const counts = reactive<Counts>({ coding: 20, math: 5, reasoning: 5 })
 const state = ref<BenchmarkState | null>(null)
@@ -369,6 +373,7 @@ function applySource(value: BenchmarkSource) {
   totalRuns.value = 0
   form.api_key = ''; selectedKeyName.value = ''; showKeyPicker.value = false
   scheduledMode.value = false; editingSchedule.value = null; deletingSchedule.value = null
+  deletingRun.value = null
   // 新来源不能复用旧分页或旧请求；卸载结果组件会中止旧来源读取。
   ++resultGeneration.value
   ++detailRevision
@@ -407,6 +412,7 @@ async function reload() {
   ])
   if (controller.signal.aborted || current !== revision) return
   const [suite, history, selectedRun, plans] = results
+  const selectedMissing = selectedRun.status === 'rejected' && selectedRun.reason?.response?.status === 404
   if (suite.status === 'fulfilled') {
     const preserve = dirtyCounts.value
     const preserveConcurrency = !!state.value?.execution && concurrencyDirty.value
@@ -416,6 +422,13 @@ async function reload() {
   }
   if (history.status === 'fulfilled') { runs.value = history.value.items; totalRuns.value = history.value.total; page.value = history.value.page ?? page.value }
   if (selectedRun.status === 'fulfilled' && detailRevision === selectedRevision) detail.value = selectedRun.value
+  if (selectedMissing && detailRevision === selectedRevision) {
+    closeDetail()
+    if (selected) {
+      runs.value = runs.value.filter(run => run.id !== selected)
+      resultSection.value?.removeResult(selected)
+    }
+  }
   if (!canUsePersonalTests.value) {
     detail.value = null
     showKeyPicker.value = false
@@ -423,7 +436,7 @@ async function reload() {
     selectedKeyName.value = ''
   }
   if (plans.status === 'fulfilled') schedules.value = plans.value.items
-  loadError.value = results.some(r => r.status === 'rejected') ? t('modelBenchmark.loadError') : ''
+  loadError.value = results.some((r, index) => r.status === 'rejected' && !(index === 2 && selectedMissing)) ? t('modelBenchmark.loadError') : ''
   loading.value = false
 }
 async function action(name: string, work: () => Promise<void>) {
@@ -549,6 +562,14 @@ async function showDetail(id: string) {
   })
 }
 function closeDetail() { detail.value = null; ++detailRevision }
+async function resultDeleted(id: string) {
+  ++revision
+  resultSection.value?.removeResult(id)
+  runs.value = runs.value.filter(run => run.id !== id)
+  if (detail.value?.id === id) closeDetail()
+  app.showSuccess(t('modelBenchmark.resultDeleted'))
+  await reload()
+}
 async function changePage(next: number) {
   if (loading.value || busy.value || next < 1 || next > Math.ceil(totalRuns.value / 20)) return
   page.value = next

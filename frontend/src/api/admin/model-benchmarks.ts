@@ -157,6 +157,9 @@ export interface BenchmarkOwner { id: number; email: string; username: string; d
 export interface BenchmarkSource { source_url: string; site_id: string; has_token: boolean }
 export interface BenchmarkSite { id: string; name: string; created_at: string }
 export const benchmarks = {
+  async deleteRun(id: string, signal?: AbortSignal) {
+    return (await apiClient.delete<{ deleted: boolean }>(`${root}/runs/${id}`, { signal })).data
+  },
   async source(signal?: AbortSignal) { return (await apiClient.get<BenchmarkSource>(root + '/source', { signal })).data },
   async saveSource(source_url: string, token: string, signal?: AbortSignal) { return (await apiClient.put<BenchmarkSource>(root + '/source', { source_url, token }, { signal })).data },
   async sites(signal?: AbortSignal) { return (await apiClient.get<{ items: BenchmarkSite[] }>(root + '/sites', { signal })).data },

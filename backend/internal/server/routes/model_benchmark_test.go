@@ -48,6 +48,7 @@ func TestModelBenchmarkAdminAuthentication(t *testing.T) {
 		{"GET", "/results"}, {"GET", "/showcase"}, {"GET", "/state"}, {"PUT", "/config"}, {"POST", "/suites/refresh"}, {"GET", "/runs"}, {"POST", "/runs"},
 		{"GET", "/user-runs"}, {"GET", "/user-runs?page=1&timezone=Asia%2FShanghai"}, {"GET", "/user-options"},
 		{"GET", "/runs/" + strings.Repeat("a", 32)}, {"POST", "/runs/" + strings.Repeat("a", 32) + "/rerun"}, {"POST", "/runs/" + strings.Repeat("a", 32) + "/cancel"},
+		{"DELETE", "/runs/" + strings.Repeat("a", 32)},
 		{"GET", "/schedules"}, {"POST", "/schedules"}, {"PUT", "/schedules/" + strings.Repeat("a", 32)}, {"DELETE", "/schedules/" + strings.Repeat("a", 32)},
 		{"POST", "/bank/update"}, {"POST", "/bank/activate"},
 		{"POST", "/schedules/" + strings.Repeat("a", 32) + "/run"},
@@ -159,6 +160,11 @@ func TestModelBenchmarkUserAuthenticationAndScope(t *testing.T) {
 		router.ServeHTTP(w, req)
 		require.Equal(t, 404, w.Code)
 	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("DELETE", "/api/v1/model-benchmarks/runs/"+id, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	router.ServeHTTP(w, req)
+	require.Equal(t, 404, w.Code)
 }
 
 func TestModelBenchmarkPublicFeedAllowsAnonymousCrossOriginReadOnly(t *testing.T) {

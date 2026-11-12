@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import BenchmarkUserRecords from '../BenchmarkUserRecords.vue'
+import BenchmarkDeleteDialog from '../BenchmarkDeleteDialog.vue'
 import { benchmarks, type BenchmarkRun } from '@/api/admin/model-benchmarks'
 vi.mock('vue-i18n', async importOriginal => ({ ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/api/admin/model-benchmarks', () => ({ benchmarks: { userRuns: vi.fn(), userOptions: vi.fn(), detail: vi.fn() } }))
 const run: BenchmarkRun = { id: 'user-run', owner_user_id: 7, owner: { id: 7, email: 'user@example.com', username: 'tester', deleted: false },
   suite_id: 'suite', suite_day: '2026-11-12', suite_revision: 1, suite_fingerprint: 'a'.repeat(64), rerun_of: null, base_url: 'https://example.com/v1', model: '6.1sol', effort: 'medium', status: 'completed', created_at: '2026-11-12T01:00:00Z', elapsed_seconds: 10, total: 30, completed: 30, passed: 18, pass_rate: 60,
   categories: { coding: { total: 20, completed: 20, passed: 10 }, math: { total: 5, completed: 5, passed: 4 }, reasoning: { total: 5, completed: 5, passed: 4 } }, usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 }, error: '', api_errors: 0, grading_errors: 0 }
-function render() { return mount(BenchmarkUserRecords, { global: { stubs: { BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' } } } }) }
+function render(canDelete = false) { return mount(BenchmarkUserRecords, { props: { canDelete }, global: { stubs: { BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' } } } }) }
 enableAutoUnmount(afterEach)
 beforeEach(() => {
   vi.clearAllMocks()
@@ -17,6 +18,24 @@ beforeEach(() => {
 })
 afterEach(() => vi.useRealTimers())
 describe('administrator user benchmark records', () => {
+  it('allows main-site deletion, closes details and reloads the page', async () => {
+    const wrapper = render(true); await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === 'modelBenchmark.details')!.trigger('click'); await flushPromises()
+    await wrapper.get('[data-delete-run="user-run"]').trigger('click')
+    expect(wrapper.getComponent(BenchmarkDeleteDialog).props('run')?.id).toBe('user-run')
+    vi.mocked(benchmarks.userRuns).mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 })
+    wrapper.getComponent(BenchmarkDeleteDialog).vm.$emit('deleted', 'user-run'); await flushPromises()
+    expect(wrapper.emitted('deleted')).toEqual([['user-run']])
+    expect(wrapper.find('[data-user-run="user-run"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="user-record-detail"]').exists()).toBe(false)
+  })
+  it('does not expose deletion in read-only mode or for active tests', async () => {
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.find('[data-delete-run]').exists()).toBe(false)
+    vi.mocked(benchmarks.userRuns).mockResolvedValue({ items: [{ ...run, status: 'running' }], total: 1, page: 1, page_size: 20 })
+    const active = render(true); await flushPromises()
+    expect(active.find('[data-delete-run]').exists()).toBe(false)
+  })
   it('loads all user records, displays owners and requests pagination from the server', async () => {
     const wrapper = render(); await flushPromises()
     expect(benchmarks.userRuns).toHaveBeenCalledWith(1, {}, expect.any(AbortSignal))

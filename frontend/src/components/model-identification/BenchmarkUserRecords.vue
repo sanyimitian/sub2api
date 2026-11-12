@@ -28,7 +28,7 @@
           <td class="p-3"><span>{{ t(`modelBenchmark.statuses.${run.status}`) }}</span><div class="text-xs text-gray-500">{{ run.completed }}/{{ run.total }}</div></td>
           <td class="p-3"><strong class="text-xl tabular-nums" :class="benchmarkScoreClass(run.pass_rate, run.status)" data-testid="user-pass-rate">{{ formatBenchmarkPassRate(run.pass_rate, run.status) }}</strong><div v-for="category in categories" :key="category" class="whitespace-nowrap text-xs" :class="benchmarkScoreClass(benchmarkCategoryScore(run.categories[category].passed, run.categories[category].total), run.status)">{{ t(`modelBenchmark.categories.${category}`) }} {{ run.categories[category].passed }}/{{ run.categories[category].total }}</div></td>
           <td class="whitespace-nowrap p-3 text-xs">{{ formatDate(run.created_at) }}<div class="text-gray-500">{{ t('modelBenchmark.seconds', { count: Math.round(run.elapsed_seconds) }) }}</div></td>
-          <td class="p-3"><button class="text-primary-600 hover:underline" @click="openDetail(run)">{{ t('modelBenchmark.details') }}</button></td>
+          <td class="p-3"><div class="flex flex-wrap gap-3"><button class="text-primary-600 hover:underline" @click="openDetail(run)">{{ t('modelBenchmark.details') }}</button><button v-if="canDelete && !['queued', 'running', 'cancelling'].includes(run.status)" type="button" class="text-red-600 hover:underline dark:text-red-400" :data-delete-run="run.id" @click="deletingRun = run">{{ t('modelBenchmark.deleteResult') }}</button></div></td>
         </tr></tbody>
       </table>
     </div>
@@ -42,6 +42,7 @@
         <div v-for="result in selected.results" :key="result.id" class="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-dark-700"><p class="text-sm font-medium">{{ result.index }}. {{ result.title }} <span :class="result.passed ? 'text-emerald-600' : 'text-red-600'">{{ t(`modelBenchmark.resultStatuses.${result.status}`) }}</span></p><p class="text-xs text-gray-500">{{ result.message }}</p><details v-if="result.answer"><summary class="cursor-pointer text-sm text-primary-600">{{ t('modelBenchmark.answer') }}</summary><p v-if="result.answer_truncated" class="text-xs text-gray-500">{{ t('modelBenchmark.truncated') }}</p><pre class="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs">{{ result.answer }}</pre></details></div>
       </div>
     </BaseDialog>
+    <BenchmarkDeleteDialog v-if="canDelete" :run="deletingRun" @close="deletingRun = null" @deleted="resultDeleted" />
   </section>
 </template>
 
@@ -52,6 +53,9 @@ import { benchmarks, type BenchmarkRun, type BenchmarkOwner, type Category } fro
 import { formatBenchmarkPassRate, benchmarkScoreClass, benchmarkCategoryScore } from '@/utils/benchmarkScore'
 import Pagination from '@/components/common/Pagination.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import BenchmarkDeleteDialog from './BenchmarkDeleteDialog.vue'
+defineProps<{ canDelete?: boolean }>()
+const emit = defineEmits<{ deleted: [id: string] }>()
 const { t } = useI18n()
 const categories: Category[] = ['coding', 'math', 'reasoning']
 const items = ref<BenchmarkRun[]>([])
@@ -59,6 +63,7 @@ const total = ref(0), page = ref(1), loading = ref(false), error = ref('')
 const accountQuery = ref(''), selectedAccount = ref(''), modelQuery = ref('')
 const accounts = ref<BenchmarkOwner[]>([]), accountsLoading = ref(false), accountsError = ref(''), moreAccounts = ref(false)
 const selected = ref<BenchmarkRun | null>(null), detailLoading = ref(false), detailError = ref('')
+const deletingRun = ref<BenchmarkRun | null>(null)
 let filters: { user_id?: number; model?: string } = {}
 let listController: AbortController | undefined, accountController: AbortController | undefined, detailController: AbortController | undefined
 let accountTimer: ReturnType<typeof setTimeout> | undefined
@@ -106,6 +111,12 @@ async function openDetail(run: BenchmarkRun) {
   finally { if (!request.signal.aborted) detailLoading.value = false }
 }
 function closeDetail() { detailController?.abort(); selected.value = null; detailError.value = ''; detailLoading.value = false }
+async function resultDeleted(id: string) {
+  items.value = items.value.filter(run => run.id !== id)
+  if (selected.value?.id === id) closeDetail()
+  emit('deleted', id)
+  await loadPage(page.value)
+}
 onMounted(() => { void loadPage(1) })
 onBeforeUnmount(() => { clearTimeout(accountTimer); listController?.abort(); accountController?.abort(); detailController?.abort() })
 </script>

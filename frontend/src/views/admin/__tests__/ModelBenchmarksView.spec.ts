@@ -5,6 +5,7 @@ import { benchmarks, type BenchmarkRun, type BenchmarkState, type BenchmarkSched
 import BenchmarkKeyPicker from '@/components/model-identification/BenchmarkKeyPicker.vue'
 import BenchmarkSourceSettings from '@/components/model-identification/BenchmarkSourceSettings.vue'
 import BenchmarkResults from '@/components/model-identification/BenchmarkResults.vue'
+import BenchmarkDeleteDialog from '@/components/model-identification/BenchmarkDeleteDialog.vue'
 
 const app = vi.hoisted(() => ({ showError: vi.fn(), showSuccess: vi.fn(), apiBaseUrl: 'https://gateway.example.com' }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => app }))
@@ -49,6 +50,72 @@ beforeEach(() => {
 })
 
 describe('administrator model benchmarks', () => {
+  it('does not restore a deleted shared result from an older in-flight refresh', async () => {
+    const feed = { items: [{ id: 'group', name: '', model: 'fixture-model', effort: 'medium', results: [run()] }] }
+    vi.mocked(benchmarks.list).mockResolvedValue({ items: [run()], total: 1, page_size: 20 })
+    vi.mocked(benchmarks.results).mockResolvedValue(feed)
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.find('[data-shared-result="run-one"]').exists()).toBe(true)
+    let resolveOld!: (value: typeof feed) => void
+    vi.mocked(benchmarks.results).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+    wrapper.getComponent(BenchmarkResults).vm.$emit('refresh'); await flushPromises()
+    vi.mocked(benchmarks.results).mockResolvedValue({ items: [] })
+    vi.mocked(benchmarks.list).mockResolvedValue({ items: [], total: 0, page_size: 20 })
+    wrapper.getComponent(BenchmarkDeleteDialog).vm.$emit('deleted', 'run-one'); await flushPromises()
+    resolveOld(feed); await flushPromises()
+    expect(wrapper.find('[data-shared-result="run-one"]').exists()).toBe(false)
+  })
+  it('closes deleted details when another administrator removes the result', async () => {
+    vi.mocked(benchmarks.list).mockResolvedValue({ items: [run()], total: 1, page_size: 20 })
+    const wrapper = render(); await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === 'modelBenchmark.details')!.trigger('click'); await flushPromises()
+    expect(wrapper.find('section[aria-label="modelBenchmark.questionResults"]').exists()).toBe(true)
+    vi.mocked(benchmarks.detail).mockRejectedValue({ response: { status: 404 } })
+    vi.mocked(benchmarks.list).mockResolvedValue({ items: [], total: 0, page_size: 20 })
+    wrapper.getComponent(BenchmarkResults).vm.$emit('refresh'); await flushPromises()
+    expect(wrapper.find('section[aria-label="modelBenchmark.questionResults"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('modelBenchmark.loadError')
+  })
+  it('removes only local shared results even if refresh fails after deletion', async () => {
+    const record = run()
+    const source = (id: string, source_type: 'local' | 'remote') => ({ id, name: id, source_type, last_success_at: null, stale: false, pending: false,
+      items: [{ id: 'plan', name: '', model: record.model, effort: record.effort, results: [record] }] })
+    vi.mocked(benchmarks.showcase).mockResolvedValue({ items: [source('local', 'local'), source('remote', 'remote')] })
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.findAll('[data-shared-result="run-one"]')).toHaveLength(2)
+    vi.mocked(benchmarks.source).mockRejectedValue(new Error('offline'))
+    wrapper.getComponent(BenchmarkDeleteDialog).vm.$emit('deleted', 'run-one'); await flushPromises()
+    expect(wrapper.find('[data-shared-schedule="local:plan"]').exists()).toBe(false)
+    expect(wrapper.find('[data-shared-schedule="remote:plan"]').exists()).toBe(true)
+  })
+  it('ignores a stale load-more failure after deletion and keeps the next refresh usable', async () => {
+    const feed = { items: [{ id: 'group', name: '', model: 'fixture-model', effort: 'medium', results: [run()] }], next_cursor: 'page-two' }
+    vi.mocked(benchmarks.results).mockResolvedValue(feed)
+    const wrapper = render(); await flushPromises()
+    let rejectOld!: (reason: Error) => void
+    vi.mocked(benchmarks.results).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectOld = reject }))
+    await wrapper.get('[data-testid="users-load-more"]').trigger('click'); await flushPromises()
+    const fresh = { ...run(), id: 'fresh' }
+    vi.mocked(benchmarks.results).mockResolvedValue({ items: [{ ...feed.items[0], results: [fresh] }] })
+    wrapper.getComponent(BenchmarkDeleteDialog).vm.$emit('deleted', 'run-one'); await flushPromises()
+    rejectOld(new Error('stale request failed')); await flushPromises()
+    expect(wrapper.find('[data-shared-result="run-one"]').exists()).toBe(false)
+    expect(wrapper.find('[data-shared-result="fresh"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="users-result-row"]').text()).not.toContain('modelBenchmark.loadError')
+  })
+  it('offers deletion only for ended results and refreshes after deletion', async () => {
+    vi.mocked(benchmarks.list).mockResolvedValue({ items: [run(), run({ id: 'running', status: 'running' }), run({ id: 'queued', status: 'queued' }), run({ id: 'stopping', status: 'cancelling' })], total: 4, page_size: 20 })
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.findAll('[data-delete-run]')).toHaveLength(1)
+    await wrapper.findAll('button').find(button => button.text() === 'modelBenchmark.details')!.trigger('click'); await flushPromises()
+    await wrapper.get('[data-delete-run="run-one"]').trigger('click')
+    expect(wrapper.getComponent(BenchmarkDeleteDialog).props('run')?.id).toBe('run-one')
+    vi.mocked(benchmarks.list).mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 })
+    wrapper.getComponent(BenchmarkDeleteDialog).vm.$emit('deleted', 'run-one'); await flushPromises()
+    expect(wrapper.find('[data-delete-run="run-one"]').exists()).toBe(false)
+    expect(wrapper.find('section[aria-label="modelBenchmark.questionResults"]').exists()).toBe(false)
+    expect(app.showSuccess).toHaveBeenCalledWith('modelBenchmark.resultDeleted')
+  })
   it('用户记录页在来源变化后清空旧记录并中止旧请求', async () => {
     const records = { items: [run({ model: 'old-user-model', owner_user_id: 7 })], total: 1, page: 1, page_size: 20 }
     vi.mocked(benchmarks.userRuns).mockResolvedValueOnce(records)

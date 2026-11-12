@@ -84,6 +84,9 @@ func TestModelBenchmarkFederationAuthenticatesSiteAndRestrictsWorkerPaths(t *tes
 	require.Equal(t, 200, response.Code)
 	require.Equal(t, "/sites/"+a.ID+"/users/7/runs", paths[len(paths)-1])
 	before := len(paths)
+	for _, path := range []string{"/runs/" + strings.Repeat("a", 32), "/users/7/runs/" + strings.Repeat("a", 32)} {
+		require.Equal(t, 403, request("DELETE", path, tokenA).Code)
+	}
 	for _, endpoint := range []struct{ method, path string }{{"PUT", "/execution"}, {"POST", "/runs"}, {"POST", "/bank/update"}, {"GET", "/sites/" + b.ID + "/state"}, {"GET", "/users/7/config"}, {"POST", "/runs/" + strings.Repeat("a", 32) + "/cancel"}, {"GET", "/users/7/runs/" + strings.Repeat("a", 32) + "/cancel"}} {
 		require.Equal(t, 403, request(endpoint.method, endpoint.path, tokenA).Code, endpoint.path)
 	}

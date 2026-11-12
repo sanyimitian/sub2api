@@ -158,6 +158,8 @@ class Store:
                     db.execute(f"ALTER TABLE runs ADD COLUMN {column} {kind}")
             if "owner_site_id" not in columns:
                 db.execute("ALTER TABLE runs ADD COLUMN owner_site_id TEXT NOT NULL DEFAULT ''")
+            if "deleted_at" not in columns:
+                db.execute("ALTER TABLE runs ADD COLUMN deleted_at TEXT")
             schedule_columns = {row["name"] for row in db.execute("PRAGMA table_info(schedules)")}
             if "public_results" not in schedule_columns:
                 db.execute("ALTER TABLE schedules ADD COLUMN public_results INTEGER NOT NULL DEFAULT 0")
@@ -344,7 +346,7 @@ class Store:
                 "next_available_at": datetime.fromtimestamp(timestamps[0] + 3600, timezone.utc).isoformat() if timestamps else None}
 
     def _owned_run(self, db, run_id, owner_user_id, owner_site_id=""):
-        row = db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+        row = db.execute("SELECT * FROM runs WHERE id=? AND deleted_at IS NULL", (run_id,)).fetchone()
         if row is None or (owner_user_id is not None and (row["owner_user_id"] != owner_user_id or row["owner_site_id"] != owner_site_id)) or (owner_site_id and row["owner_site_id"] != owner_site_id):
             raise Problem("测试记录不存在", 404)
         return row
@@ -474,7 +476,7 @@ class Store:
         if owner_user_id is not None and (type(owner_user_id) is not int or not 0 < owner_user_id <= 9223372036854775807):
             raise Problem("用户 ID 不正确")
         with self.transaction() as db:
-            conditions, params = [], []
+            conditions, params = ['deleted_at IS NULL'], []
             if users_only:
                 conditions.append('owner_user_id IS NOT NULL')
             if owner_user_id is not None:
@@ -498,6 +500,40 @@ class Store:
                     item['owner_site_id'] = row['owner_site_id']
         return {"items": items, "total": total, "page": page, "page_size": 20}
 
+    def delete_run(self, run_id):
+        """Erase a finished result; retain only metadata needed for quota and scheduling."""
+        if not re.fullmatch(r"[a-f0-9]{32}", run_id):
+            raise Problem("测试记录不存在", 404)
+        with self.transaction() as db:
+            row = db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            if row is None:
+                raise Problem("测试记录不存在", 404)
+            if row["status"] in ACTIVE:
+                raise Problem("测试尚未结束，请先停止测试，结束后再删除", 409)
+            # The tombstone preserves the rolling quota and scheduled occurrence
+            # uniqueness. Deleted results can never be read or retested.
+            db.execute("""UPDATE runs SET deleted_at=COALESCE(deleted_at,?),results='[]',credential=X'',
+                          base_url='',model='',effort='',error='' WHERE id=?""", (now(), run_id))
+            db.execute("UPDATE schedules SET last_run_id=NULL WHERE last_run_id=?", (run_id,))
+        # If cleanup fails the result is already inaccessible. Retrying DELETE
+        # or periodic history cleanup retries the same artifact removal.
+        try:
+            self._remove_artifacts(run_id)
+        except OSError as exc:
+            raise Problem("测试结果已移除，但答案文件清理失败；请重试删除，后台也会继续清理", 500) from exc
+        return {"deleted": True}
+
+    def _remove_artifacts(self, run_id):
+        with self.lock:
+            artifacts = self.directory / "artifacts"
+            path = artifacts / run_id
+            if artifacts.is_symlink():
+                raise Problem("答案文件目录异常，无法清理", 500)
+            if path.is_symlink():
+                path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path)
+
     def prune_history(self):
         """Expire finished runs and their artifacts, never queued/running work."""
         cutoff = (self.clock().astimezone(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat()
@@ -514,9 +550,9 @@ class Store:
                 if not re.fullmatch(r"[a-f0-9]{32}", path.name) or path.is_symlink() or not path.is_dir():
                     continue
                 with self.transaction() as db:
-                    exists = db.execute("SELECT 1 FROM runs WHERE id=?", (path.name,)).fetchone()
+                    exists = db.execute("SELECT 1 FROM runs WHERE id=? AND deleted_at IS NULL", (path.name,)).fetchone()
                     if not exists:
-                        shutil.rmtree(path)
+                        self._remove_artifacts(path.name)
         return removed
 
     def recover(self):
@@ -709,7 +745,7 @@ class Store:
     def user_results(self, viewer_user_id=None, cursor="", viewer_site_id=""):
         before = result_cursor(cursor, "users")
         with self.transaction() as db:
-            query = "SELECT *,julianday(finished_at) AS sort_time FROM runs WHERE owner_user_id IS NOT NULL AND finished_at IS NOT NULL"
+            query = "SELECT *,julianday(finished_at) AS sort_time FROM runs WHERE deleted_at IS NULL AND owner_user_id IS NOT NULL AND finished_at IS NOT NULL"
             params = ()
             if before:
                 query += " AND (julianday(finished_at),id) < (?,?)"
@@ -727,7 +763,7 @@ class Store:
         # 对外订阅协议保留原来的全局条数限制，页面历史另行分页。
         with self.transaction() as db:
             rows = db.execute("""SELECT r.*,s.name AS schedule_name FROM runs r JOIN schedules s ON s.id=r.schedule_id
-                WHERE s.public_results=1 AND s.deleted=0 AND r.finished_at IS NOT NULL
+                WHERE s.public_results=1 AND s.deleted=0 AND r.deleted_at IS NULL AND r.finished_at IS NOT NULL
                 ORDER BY julianday(r.finished_at) DESC,r.rowid DESC LIMIT 20""").fetchall()
             items = [{**self._shared_result(db, row), "base_url": row["base_url"], "schedule_id": row["schedule_id"], "schedule_name": row["schedule_name"]} for row in rows]
             return {"version": 2, "generated_at": now(), "limit": 20, "items": items}

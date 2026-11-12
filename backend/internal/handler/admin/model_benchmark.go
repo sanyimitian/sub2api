@@ -263,6 +263,7 @@ func (h *ModelBenchmarkHandler) List(c *gin.Context) {
 	h.forward(c, "/runs?"+query.Encode())
 }
 func (h *ModelBenchmarkHandler) Detail(c *gin.Context)    { h.runAction(c, "") }
+func (h *ModelBenchmarkHandler) Delete(c *gin.Context)    { h.runAction(c, "") }
 func (h *ModelBenchmarkHandler) Rerun(c *gin.Context)     { h.runAction(c, "/rerun") }
 func (h *ModelBenchmarkHandler) Cancel(c *gin.Context)    { h.runAction(c, "/cancel") }
 func (h *ModelBenchmarkHandler) Schedules(c *gin.Context) { h.forward(c, "/schedules") }

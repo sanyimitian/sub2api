@@ -165,6 +165,7 @@ func registerModelBenchmarkRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	benchmarks.GET("/user-options", h.Admin.ModelBenchmark.UserOptions)
 	benchmarks.POST("/runs", h.Admin.ModelBenchmark.Create)
 	benchmarks.GET("/runs/:id", h.Admin.ModelBenchmark.Detail)
+	benchmarks.DELETE("/runs/:id", h.Admin.ModelBenchmark.Delete)
 	benchmarks.POST("/runs/:id/rerun", h.Admin.ModelBenchmark.Rerun)
 	benchmarks.POST("/runs/:id/cancel", h.Admin.ModelBenchmark.Cancel)
 	benchmarks.GET("/schedules", h.Admin.ModelBenchmark.Schedules)
