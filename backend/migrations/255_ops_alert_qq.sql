@@ -1,0 +1,1 @@
+ALTER TABLE ops_alert_rules ADD COLUMN IF NOT EXISTS notify_qq BOOLEAN NOT NULL DEFAULT false;

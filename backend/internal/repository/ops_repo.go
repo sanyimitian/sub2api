@@ -1053,6 +1053,10 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	if filter.ExcludeCountTokens {
 		clauses = append(clauses, "COALESCE(e.is_count_tokens, false) = false")
 	}
+	if len(filter.ExcludedModels) > 0 {
+		args = append(args, pq.Array(filter.ExcludedModels))
+		clauses = append(clauses, "NOT (COALESCE(NULLIF(e.requested_model, ''), e.model, '') = ANY($"+itoa(len(args))+"))")
+	}
 	if len(filter.ErrorPhasesAny) > 0 {
 		args = append(args, pq.Array(filter.ErrorPhasesAny))
 		clauses = append(clauses, "e.error_phase = ANY($"+itoa(len(args))+")")

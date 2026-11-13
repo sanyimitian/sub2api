@@ -30,6 +30,7 @@ type OpsAlertRule struct {
 	CooldownMinutes  int `json:"cooldown_minutes"`
 
 	NotifyEmail bool `json:"notify_email"`
+	NotifyQQ    bool `json:"notify_qq"`
 
 	Filters map[string]any `json:"filters,omitempty"`
 
@@ -76,6 +77,8 @@ type OpsAlertSilence struct {
 
 type OpsAlertEventFilter struct {
 	Limit int
+	// Internal retry queue, including alerts that have already recovered.
+	PendingNotifications bool
 
 	// Cursor pagination (descending by fired_at, then id).
 	BeforeFiredAt *time.Time

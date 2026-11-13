@@ -654,6 +654,16 @@ const empty = computed(() => events.value.length === 0 && !loading.value)
           </div>
 
 
+        <div v-if="selected.dimensions?.notifications" class="rounded-xl border border-gray-200 p-4 dark:border-dark-700">
+          <h4 class="text-sm font-bold">{{ t('admin.ops.alertDelivery.title') }}</h4>
+          <p class="mt-1 text-xs text-gray-500">{{ t('admin.ops.alertDelivery.retryHint') }}</p>
+          <div v-for="(delivery, key) in selected.dimensions.notifications" :key="key" class="mt-2 text-xs">
+            <span class="font-medium">{{ delivery.channel === 'qq' ? 'QQ' : 'Email' }} · {{ delivery.recipient }}</span>
+            <span class="ml-2">{{ t('admin.ops.alertDelivery.' + delivery.status) }} · {{ t('admin.ops.alertDelivery.attempts', { count: delivery.attempts }) }}</span>
+            <p v-if="delivery.last_error" class="mt-1 text-red-500">{{ delivery.last_error }}</p>
+          </div>
+        </div>
+
         <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800">
           <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>

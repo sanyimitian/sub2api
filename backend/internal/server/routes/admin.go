@@ -253,6 +253,9 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 		// Email notification config (DB-backed)
 		ops.GET("/email-notification/config", h.Admin.Ops.GetEmailNotificationConfig)
+		ops.GET("/qq-notification/config", h.Admin.Ops.GetQQNotificationConfig)
+		ops.PUT("/qq-notification/config", h.Admin.Ops.UpdateQQNotificationConfig)
+		ops.POST("/qq-notification/test", h.Admin.Ops.TestQQNotification)
 		ops.PUT("/email-notification/config", h.Admin.Ops.UpdateEmailNotificationConfig)
 
 		// Runtime settings (DB-backed)

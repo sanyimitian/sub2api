@@ -1,5 +1,48 @@
 export default {
     ops: {
+      errorCountAlert: {
+        metric: 'Upstream error count',
+        description: 'Count matching error log records, including streaming and non-streaming requests. Each record counts once.',
+        create: 'Add 502/503 alert',
+        ruleName: 'Too many upstream 502/503 errors',
+        codes: 'Status codes (comma separated)',
+        platform: 'Platform (empty for all)',
+        excludedModels: 'Excluded models',
+        modelPlaceholder: 'Search or enter model names, separated by commas',
+        modelHint: 'Exact, case-sensitive match against the requested model. Excluded models are omitted from counts and summaries.',
+        removeModel: 'Remove {model}',
+        immediateHint: 'Set to 0 to alert on the first check above the threshold. For example, > 20 triggers at 21.',
+        notificationHint: 'Configure email recipients, QQ bot and evaluation interval in Ops settings. A continuing breach alerts once; another incident is subject to cooldown.',
+        invalidThreshold: 'Count threshold must be an integer from 0 to 1000000000',
+        invalidCodes: 'Enter 1 to 100 HTTP error codes (400-599)',
+        invalidModels: 'Exclude up to 200 models, with names up to 256 bytes each',
+        windowRange: 'Window must be a whole number from 1 to 1440 minutes'
+      },
+      qq: {
+        title: 'QQ group notifications',
+        description: 'Supports the OneBot v11 HTTP API (such as NapCat). Configure the bot URL and group, then enable QQ notifications on an alert rule.',
+        notify: 'Send QQ group notification',
+        enabled: 'Enable QQ notifications',
+        apiURL: 'Bot HTTP API base URL',
+        groupID: 'QQ group ID',
+        token: 'Access token',
+        tokenConfigured: 'Configured; leave empty to keep the existing token',
+        clearToken: 'Clear the saved token',
+        save: 'Save QQ settings separately',
+        test: 'Save and send test message',
+        testSuccess: 'Test message sent to the QQ group',
+        saveSuccess: 'QQ notification settings saved',
+        loadFailed: 'Failed to load QQ notification settings',
+        saveFailed: 'Failed to save or test QQ notifications'
+      },
+      alertDelivery: {
+        title: 'Notification delivery results',
+        sent: 'Sent',
+        pending: 'Pending',
+        failed: 'Failed',
+        attempts: '{count}/3 attempts',
+        retryHint: 'Failed deliveries are retried up to twice. Successful channels and recipients are not sent again.'
+      },
       title: 'Ops Monitoring',
       description: 'Operational monitoring and troubleshooting',
       switchRecords: {

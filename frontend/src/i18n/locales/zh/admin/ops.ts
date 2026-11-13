@@ -1,5 +1,48 @@
 export default {
     ops: {
+      errorCountAlert: {
+        metric: '上游错误条数',
+        description: '按错误列表口径统计指定状态码，同步与流式均计入，每条记录计一次。',
+        create: '添加 502/503 告警',
+        ruleName: '上游 502/503 错误过多',
+        codes: '统计状态码（逗号分隔）',
+        platform: '限定平台（留空为全部）',
+        excludedModels: '排除模型',
+        modelPlaceholder: '搜索或输入模型名称，支持逗号分隔多个名称',
+        modelHint: '按用户请求的模型名精确匹配，区分大小写。排除的模型不参与计数和错误汇总。',
+        removeModel: '移除 {model}',
+        immediateHint: '设为 0，首次检查超过阈值即告警；例如 > 20 在第 21 条触发。',
+        notificationHint: '收件邮箱、QQ 机器人及检查间隔在运维设置中配置。持续超限只告警一次，恢复后再次触发受冷却时间限制。',
+        invalidThreshold: '条数阈值必须为 0～1000000000 的整数',
+        invalidCodes: '请填写 1～100 个有效 HTTP 错误码（400～599）',
+        invalidModels: '最多排除 200 个模型，每个名称不超过 256 字节',
+        windowRange: '统计窗口必须为 1～1440 的整数（分钟）'
+      },
+      qq: {
+        title: 'QQ群机器人通知',
+        description: '支持 OneBot v11 HTTP 接口（如 NapCat）。填写机器人接口地址和群号，并在告警规则中开启 QQ 通知。',
+        notify: '发送QQ群通知',
+        enabled: '启用QQ群通知',
+        apiURL: '机器人 HTTP 接口地址',
+        groupID: '目标QQ群号',
+        token: '访问令牌',
+        tokenConfigured: '已配置；留空保留原令牌',
+        clearToken: '清除已保存的令牌',
+        save: '单独保存 QQ 配置',
+        test: '保存并发送测试通知',
+        testSuccess: '测试消息已发送到QQ群',
+        saveSuccess: 'QQ 通知配置已保存',
+        loadFailed: '读取 QQ 通知配置失败',
+        saveFailed: '保存或测试 QQ 通知失败'
+      },
+      alertDelivery: {
+        title: '通知发送结果',
+        sent: '已发送',
+        pending: '等待发送',
+        failed: '发送失败',
+        attempts: '已尝试 {count}/3 次',
+        retryHint: '失败后最多重试 2 次，成功的渠道和收件人不会重复发送。'
+      },
       title: '运维监控',
       description: '运维监控与排障',
       switchRecords: {

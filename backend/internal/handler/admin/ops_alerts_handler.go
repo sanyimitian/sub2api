@@ -17,6 +17,7 @@ import (
 )
 
 var validOpsAlertMetricTypes = []string{
+	service.OpsMetricUpstreamErrorCount,
 	"success_rate",
 	"error_rate",
 	"upstream_error_rate",
@@ -152,6 +153,20 @@ func validateOpsAlertRulePayload(raw map[string]json.RawMessage) (*opsAlertRuleV
 	} else if threshold < 0 {
 		return nil, fmt.Errorf("threshold must be >= 0")
 	}
+	if metricType == service.OpsMetricUpstreamErrorCount {
+		if math.Trunc(threshold) != threshold || threshold > 1e9 {
+			return nil, fmt.Errorf("error count threshold must be an integer between 0 and 1000000000")
+		}
+		var filters map[string]any
+		if v, ok := raw["filters"]; ok {
+			if err := json.Unmarshal(v, &filters); err != nil {
+				return nil, fmt.Errorf("filters must be an object")
+			}
+		}
+		if _, err := service.ParseOpsErrorCountFilters(filters); err != nil {
+			return nil, err
+		}
+	}
 
 	validated := &opsAlertRuleValidatedInput{
 		Name:       name,
@@ -204,7 +219,9 @@ func validateOpsAlertRulePayload(raw map[string]json.RawMessage) (*opsAlertRuleV
 		switch validated.WindowMinutes {
 		case 1, 5, 60:
 		default:
-			return nil, fmt.Errorf("window_minutes must be one of: 1, 5, 60")
+			if metricType != service.OpsMetricUpstreamErrorCount || validated.WindowMinutes < 1 || validated.WindowMinutes > 1440 {
+				return nil, fmt.Errorf("window_minutes must be 1, 5, 60, or between 1 and 1440 for error counts")
+			}
 		}
 	} else {
 		validated.WindowMinutes = 1
@@ -215,8 +232,12 @@ func validateOpsAlertRulePayload(raw map[string]json.RawMessage) (*opsAlertRuleV
 		if err := json.Unmarshal(v, &validated.SustainedMinutes); err != nil {
 			return nil, fmt.Errorf("sustained_minutes must be an integer")
 		}
-		if validated.SustainedMinutes < 1 || validated.SustainedMinutes > 1440 {
-			return nil, fmt.Errorf("sustained_minutes must be between 1 and 1440")
+		minSustained := 1
+		if metricType == service.OpsMetricUpstreamErrorCount {
+			minSustained = 0
+		}
+		if validated.SustainedMinutes < minSustained || validated.SustainedMinutes > 1440 {
+			return nil, fmt.Errorf("sustained_minutes must be between %d and 1440", minSustained)
 		}
 	} else {
 		validated.SustainedMinutes = 1

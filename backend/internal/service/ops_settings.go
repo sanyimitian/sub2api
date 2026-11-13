@@ -200,7 +200,7 @@ func validateOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) error {
 
 func defaultOpsAlertRuntimeSettings() *OpsAlertRuntimeSettings {
 	return &OpsAlertRuntimeSettings{
-		EvaluationIntervalSeconds: 60,
+		EvaluationIntervalSeconds: 30,
 		DistributedLock: OpsDistributedLockSettings{
 			Enabled:    true,
 			Key:        opsAlertEvaluatorLeaderLockKeyDefault,

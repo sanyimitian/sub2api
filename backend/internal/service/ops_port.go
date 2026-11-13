@@ -6,6 +6,8 @@ import (
 )
 
 type OpsRepository interface {
+	CountErrorsByStatus(ctx context.Context, filter *OpsErrorLogFilter) (map[int]int64, error)
+	UpdateAlertDeliveries(ctx context.Context, eventID int64, deliveries map[string]*OpsAlertDelivery) error
 	InsertErrorLog(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error)
 	BatchInsertErrorLogs(ctx context.Context, inputs []*OpsInsertErrorLogInput) (int64, error)
 	ListErrorLogs(ctx context.Context, filter *OpsErrorLogFilter) (*OpsErrorLogList, error)
@@ -62,7 +64,7 @@ type OpsRepository interface {
 }
 
 type OpsInsertErrorLogInput struct {
-	RequestTimings *RequestTimingSnapshot
+	RequestTimings  *RequestTimingSnapshot
 	RequestID       string
 	ClientRequestID string
 

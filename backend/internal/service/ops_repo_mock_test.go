@@ -194,3 +194,10 @@ func (m *opsRepoMock) GetLatestDailyBucketDate(ctx context.Context) (time.Time, 
 }
 
 var _ OpsRepository = (*opsRepoMock)(nil)
+
+func (m *opsRepoMock) CountErrorsByStatus(ctx context.Context, filter *OpsErrorLogFilter) (map[int]int64, error) {
+	return map[int]int64{}, nil
+}
+func (m *opsRepoMock) UpdateAlertDeliveries(ctx context.Context, eventID int64, deliveries map[string]*OpsAlertDelivery) error {
+	return nil
+}

@@ -132,6 +132,8 @@ type OpsErrorLogFilter struct {
 	Model string
 	// ModelFuzzy 为 true 时 Model 走 ILIKE 模糊匹配（仅用户端启用）；false（默认）保持精确 =，管理端语义不变。
 	ModelFuzzy bool
+	// ExcludedModels matches the requested model exactly, before upstream mapping.
+	ExcludedModels []string
 
 	// ExcludeCountTokens drops count_tokens probe errors (is_count_tokens=true).
 	ExcludeCountTokens bool

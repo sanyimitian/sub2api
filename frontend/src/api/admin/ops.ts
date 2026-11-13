@@ -683,6 +683,7 @@ export type OpsPhase = string
 export type AlertSeverity = 'critical' | 'warning' | 'info'
 export type ThresholdMode = 'count' | 'percentage' | 'both'
 export type MetricType =
+  | 'upstream_error_count'
   | 'success_rate'
   | 'error_rate'
   | 'upstream_error_rate'
@@ -712,6 +713,7 @@ export interface AlertRule {
   severity: OpsSeverity
   cooldown_minutes: number
   notify_email: boolean
+  notify_qq?: boolean
   filters?: Record<string, any>
   created_at?: string
   updated_at?: string
@@ -757,6 +759,35 @@ export interface EmailNotificationConfig {
     account_health_schedule: string
     account_health_error_rate_threshold: number
   }
+}
+
+export interface QQNotificationConfig {
+  enabled: boolean
+  api_url: string
+  group_id: string
+  access_token_configured: boolean
+}
+
+export interface QQNotificationUpdate {
+  enabled: boolean
+  api_url: string
+  group_id: string
+  access_token?: string
+  clear_access_token?: boolean
+}
+
+export async function getQQNotificationConfig(): Promise<QQNotificationConfig> {
+  const { data } = await apiClient.get<QQNotificationConfig>('/admin/ops/qq-notification/config')
+  return data
+}
+
+export async function updateQQNotificationConfig(config: QQNotificationUpdate): Promise<QQNotificationConfig> {
+  const { data } = await apiClient.put<QQNotificationConfig>('/admin/ops/qq-notification/config', config)
+  return data
+}
+
+export async function testQQNotification(): Promise<void> {
+  await apiClient.post('/admin/ops/qq-notification/test')
 }
 
 export interface OpsMetricThresholds {
@@ -1401,6 +1432,9 @@ export const opsAPI = {
   updateAlertEventStatus,
   createAlertSilence,
   getEmailNotificationConfig,
+  getQQNotificationConfig,
+  updateQQNotificationConfig,
+  testQQNotification,
   updateEmailNotificationConfig,
   getAlertRuntimeSettings,
   updateAlertRuntimeSettings,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -47,6 +47,65 @@ const showEditor = ref(false)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
 const draft = ref<AlertRule | null>(null)
+
+const isErrorCount = computed(() => draft.value?.metric_type === 'upstream_error_count')
+const modelInput = ref('')
+const modelSuggestions = ref<string[]>([])
+const excludedModels = computed<string[]>(() => draft.value?.filters?.excluded_models ?? [])
+const statusCodesInput = ref('502, 503')
+watch(statusCodesInput, (value) => {
+    if (!draft.value) return
+    draft.value.filters ??= {}
+    draft.value.filters.status_codes = value.split(/[,，\s]+/).filter(Boolean).map(Number)
+})
+const platformInput = computed({
+  get: () => String(draft.value?.filters?.platform ?? ''),
+  set: (value: string) => {
+    if (!draft.value) return
+    draft.value.filters ??= {}
+    draft.value.filters.platform = value.trim()
+  }
+})
+
+async function loadModelSuggestions() {
+  try {
+    const stats = await adminAPI.dashboard?.getModelStats?.({ model_source: 'requested' })
+    modelSuggestions.value = [...new Set(stats?.models.map(m => m.model) ?? [])]
+  } catch {
+    // Manual entry remains available when there is no usage history.
+    modelSuggestions.value = []
+  }
+}
+
+function addExcludedModels() {
+  if (!draft.value) return
+  const models = modelInput.value.split(/[,，\n]+/).map(m => m.trim()).filter(Boolean)
+  draft.value.filters ??= {}
+  draft.value.filters.excluded_models = [...new Set([...excludedModels.value, ...models])]
+  modelInput.value = ''
+}
+
+function removeExcludedModel(model: string) {
+  if (draft.value?.filters) draft.value.filters.excluded_models = excludedModels.value.filter(m => m !== model)
+}
+
+function selectMetric() {
+  if (!draft.value || !isErrorCount.value) return
+  draft.value.operator = '>'
+  draft.value.threshold = 20
+  draft.value.window_minutes = 5
+  draft.value.sustained_minutes = 0
+  statusCodesInput.value = '502, 503'
+  draft.value.filters = { ...draft.value.filters, status_codes: [502, 503], excluded_models: excludedModels.value }
+  void loadModelSuggestions()
+}
+
+function openErrorCountCreate() {
+  openCreate()
+  draft.value!.name = t('admin.ops.errorCountAlert.ruleName')
+  draft.value!.metric_type = 'upstream_error_count'
+  selectMetric()
+}
 
 type MetricGroup = 'system' | 'group' | 'account'
 
@@ -117,6 +176,14 @@ const groupOptions = computed<SelectOption[]>(() => {
 const metricDefinitions = computed(() => {
   return [
     // System-level metrics
+    {
+      type: 'upstream_error_count',
+      group: 'system',
+      label: t('admin.ops.errorCountAlert.metric'),
+      description: t('admin.ops.errorCountAlert.description'),
+      recommendedOperator: '>',
+      recommendedThreshold: 20
+    },
     {
       type: 'success_rate',
       group: 'system',
@@ -301,14 +368,18 @@ function newRuleDraft(): AlertRule {
 }
 
 function openCreate() {
+  modelInput.value = ''
   editingId.value = null
   draft.value = newRuleDraft()
   showEditor.value = true
 }
 
 function openEdit(rule: AlertRule) {
+  modelInput.value = ''
   editingId.value = rule.id ?? null
   draft.value = JSON.parse(JSON.stringify(rule))
+  statusCodesInput.value = (draft.value?.filters?.status_codes ?? [502, 503]).join(', ')
+  if (isErrorCount.value) void loadModelSuggestions()
   showEditor.value = true
 }
 
@@ -324,20 +395,27 @@ const editorValidation = computed(() => {
   if (!r.operator) errors.push(t('admin.ops.alertRules.validation.operatorRequired'))
   if (!(typeof r.threshold === 'number' && Number.isFinite(r.threshold)))
     errors.push(t('admin.ops.alertRules.validation.thresholdRequired'))
-  if (!(typeof r.window_minutes === 'number' && Number.isFinite(r.window_minutes) && [1, 5, 60].includes(r.window_minutes))) {
-    errors.push(t('admin.ops.alertRules.validation.windowRange'))
+  if (!(Number.isInteger(r.window_minutes) && (isErrorCount.value ? r.window_minutes >= 1 && r.window_minutes <= 1440 : [1, 5, 60].includes(r.window_minutes)))) {
+    errors.push(t(isErrorCount.value ? 'admin.ops.errorCountAlert.windowRange' : 'admin.ops.alertRules.validation.windowRange'))
   }
-  if (!(typeof r.sustained_minutes === 'number' && Number.isInteger(r.sustained_minutes) && r.sustained_minutes >= 1 && r.sustained_minutes <= 1440)) {
+  if (!(typeof r.sustained_minutes === 'number' && Number.isInteger(r.sustained_minutes) && r.sustained_minutes >= (isErrorCount.value ? 0 : 1) && r.sustained_minutes <= 1440)) {
     errors.push(t('admin.ops.alertRules.validation.sustainedRange'))
   }
   if (!(typeof r.cooldown_minutes === 'number' && Number.isInteger(r.cooldown_minutes) && r.cooldown_minutes >= 0 && r.cooldown_minutes <= 1440)) {
     errors.push(t('admin.ops.alertRules.validation.cooldownRange'))
+  }
+  if (isErrorCount.value) {
+    if (!Number.isInteger(r.threshold) || r.threshold < 0 || r.threshold > 1000000000) errors.push(t('admin.ops.errorCountAlert.invalidThreshold'))
+    const codes: number[] = r.filters?.status_codes ?? [502, 503]
+    if (!codes.length || codes.length > 100 || codes.some(c => !Number.isInteger(c) || c < 400 || c > 599)) errors.push(t('admin.ops.errorCountAlert.invalidCodes'))
+    if (excludedModels.value.length > 200 || excludedModels.value.some(m => !m.trim() || new TextEncoder().encode(m).length > 256)) errors.push(t('admin.ops.errorCountAlert.invalidModels'))
   }
   return { valid: errors.length === 0, errors }
 })
 
 async function save() {
   if (!draft.value) return
+  if (isErrorCount.value && modelInput.value.trim()) addExcludedModels()
   if (!editorValidation.value.valid) {
     appStore.showError(editorValidation.value.errors[0] || t('admin.ops.alertRules.validation.invalid'))
     return
@@ -399,6 +477,9 @@ function cancelDelete() {
       </div>
 
       <div class="flex items-center gap-2">
+        <button class="btn btn-sm btn-secondary" :disabled="loading" @click="openErrorCountCreate">
+          {{ t('admin.ops.errorCountAlert.create') }}
+        </button>
         <button class="btn btn-sm btn-primary" :disabled="loading" @click="openCreate">
           {{ t('admin.ops.alertRules.create') }}
         </button>
@@ -534,7 +615,7 @@ function cancelDelete() {
 
           <div>
             <label class="input-label">{{ t('admin.ops.alertRules.form.metric') }}</label>
-            <Select v-model="draft!.metric_type" :options="metricOptions" />
+            <Select v-model="draft!.metric_type" :options="metricOptions" @change="selectMetric" />
             <div v-if="selectedMetricDefinition" class="mt-1 space-y-0.5 text-xs text-gray-500 dark:text-gray-400">
               <p>{{ selectedMetricDefinition.description }}</p>
               <p>
@@ -573,8 +654,31 @@ function cancelDelete() {
 
           <div>
             <label class="input-label">{{ t('admin.ops.alertRules.form.threshold') }}</label>
-            <input v-model.number="draft!.threshold" class="input" type="number" />
+            <input v-model.number="draft!.threshold" class="input" type="number" data-testid="alert-threshold" />
           </div>
+
+          <template v-if="isErrorCount">
+            <div>
+              <label class="input-label">{{ t('admin.ops.errorCountAlert.codes') }}</label>
+              <input v-model="statusCodesInput" class="input" type="text" data-testid="alert-status-codes" placeholder="502, 503" />
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.ops.errorCountAlert.platform') }}</label>
+              <input v-model="platformInput" class="input" type="text" placeholder="openai / anthropic / gemini" />
+            </div>
+            <div class="md:col-span-2">
+              <label class="input-label">{{ t('admin.ops.errorCountAlert.excludedModels') }}</label>
+              <div class="flex gap-2">
+                <input v-model="modelInput" class="input" type="text" list="ops-alert-models" data-testid="alert-excluded-model" :placeholder="t('admin.ops.errorCountAlert.modelPlaceholder')" @keydown.enter.prevent="addExcludedModels" />
+                <datalist id="ops-alert-models"><option v-for="model in modelSuggestions" :key="model" :value="model" /></datalist>
+                <button type="button" class="btn btn-secondary whitespace-nowrap" @click="addExcludedModels">{{ t('common.add') }}</button>
+              </div>
+              <div class="mt-2 flex flex-wrap gap-2">
+                <button v-for="model in excludedModels" :key="model" type="button" class="rounded-full bg-gray-100 px-3 py-1 text-xs dark:bg-dark-700" :aria-label="t('admin.ops.errorCountAlert.removeModel', { model })" @click="removeExcludedModel(model)">{{ model }} ×</button>
+              </div>
+              <p class="mt-1 text-xs text-gray-500">{{ t('admin.ops.errorCountAlert.modelHint') }}</p>
+            </div>
+          </template>
 
           <div>
             <label class="input-label">{{ t('admin.ops.alertRules.form.severity') }}</label>
@@ -583,12 +687,14 @@ function cancelDelete() {
 
           <div>
             <label class="input-label">{{ t('admin.ops.alertRules.form.window') }}</label>
-            <Select v-model="draft!.window_minutes" :options="windowOptions" />
+            <input v-if="isErrorCount" v-model.number="draft!.window_minutes" class="input" type="number" min="1" max="1440" data-testid="alert-count-window" />
+            <Select v-else v-model="draft!.window_minutes" :options="windowOptions" />
           </div>
 
           <div>
             <label class="input-label">{{ t('admin.ops.alertRules.form.sustained') }}</label>
-            <input v-model.number="draft!.sustained_minutes" class="input" type="number" min="1" max="1440" />
+            <input v-model.number="draft!.sustained_minutes" class="input" type="number" :min="isErrorCount ? 0 : 1" max="1440" />
+            <p v-if="isErrorCount" class="mt-1 text-xs text-gray-500">{{ t('admin.ops.errorCountAlert.immediateHint') }}</p>
           </div>
 
           <div>
@@ -605,6 +711,11 @@ function cancelDelete() {
             <span class="text-xs font-bold text-gray-700 dark:text-gray-200">{{ t('admin.ops.alertRules.form.notifyEmail') }}</span>
             <input v-model="draft!.notify_email" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
           </div>
+          <div class="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-dark-800/50 md:col-span-2">
+            <span class="text-xs font-bold text-gray-700 dark:text-gray-200">{{ t('admin.ops.qq.notify') }}</span>
+            <input v-model="draft!.notify_qq" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600" />
+          </div>
+          <p class="text-xs text-gray-500 md:col-span-2">{{ t('admin.ops.errorCountAlert.notificationHint') }}</p>
         </div>
       </div>
 

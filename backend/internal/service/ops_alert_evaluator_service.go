@@ -129,7 +129,7 @@ func (s *OpsAlertEvaluatorService) run() {
 
 func (s *OpsAlertEvaluatorService) getInterval() time.Duration {
 	// Default.
-	interval := 60 * time.Second
+	interval := 30 * time.Second
 
 	if s == nil || s.opsService == nil {
 		return interval
@@ -193,6 +193,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 		return
 	}
 
+	s.retryAlertNotifications(ctx, runtimeCfg, rules)
 	rulesTotal := len(rules)
 	rulesEnabled := 0
 	rulesEvaluated := 0
@@ -223,10 +224,28 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 		if windowMinutes <= 0 {
 			windowMinutes = 1
 		}
-		windowStart := safeEnd.Add(-time.Duration(windowMinutes) * time.Minute)
 		windowEnd := safeEnd
+		if rule.MetricType == OpsMetricUpstreamErrorCount {
+			windowEnd = now
+		}
+		windowStart := windowEnd.Add(-time.Duration(windowMinutes) * time.Minute)
 
-		metricValue, ok := s.computeRuleMetric(ctx, rule, systemMetrics, windowStart, windowEnd, scopePlatform, scopeGroupID)
+		var metricValue float64
+		var ok bool
+		var statusCounts map[int]int64
+		if rule.MetricType == OpsMetricUpstreamErrorCount {
+			filter, filterErr := opsErrorCountFilter(rule, windowStart, windowEnd, scopePlatform, scopeGroupID)
+			if filterErr == nil {
+				var countErr error
+				statusCounts, countErr = s.opsRepo.CountErrorsByStatus(ctx, filter)
+				ok = countErr == nil
+				for _, count := range statusCounts {
+					metricValue += float64(count)
+				}
+			}
+		} else {
+			metricValue, ok = s.computeRuleMetric(ctx, rule, systemMetrics, windowStart, windowEnd, scopePlatform, scopeGroupID)
+		}
 		if !ok {
 			s.resetRuleState(rule.ID, now)
 			continue
@@ -284,6 +303,11 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				CreatedAt:      now,
 			}
 
+			if rule.MetricType == OpsMetricUpstreamErrorCount {
+				firedEvent.Description += opsErrorCountDescription(rule, statusCounts)
+				firedEvent.Dimensions["status_counts"] = statusCounts
+				firedEvent.Dimensions["excluded_models"] = rule.Filters["excluded_models"]
+			}
 			created, err := s.opsRepo.CreateAlertEvent(ctx, firedEvent)
 			if err != nil {
 				logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] create event failed (rule=%d): %v", rule.ID, err)
@@ -292,6 +316,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 
 			eventsCreated++
 			if created != nil && created.ID > 0 {
+				s.maybeSendAlertQQ(ctx, runtimeCfg, rule, created)
 				if s.maybeSendAlertEmail(ctx, runtimeCfg, rule, created) {
 					emailsSent++
 				}
@@ -679,7 +704,8 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertEmail(ctx context.Context, runt
 	if s == nil || s.emailService == nil || s.opsService == nil || event == nil || rule == nil {
 		return false
 	}
-	if event.EmailSent {
+	// Legacy events did not track individual recipients.
+	if event.EmailSent && len(opsAlertDeliveries(event)) == 0 {
 		return false
 	}
 	if !rule.NotifyEmail {
@@ -707,38 +733,23 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertEmail(ctx context.Context, runt
 	// Apply/update rate limiter.
 	s.emailLimiter.SetLimit(emailCfg.Alert.RateLimitPerHour)
 
-	subject := fmt.Sprintf("[Ops Alert][%s] %s", strings.TrimSpace(rule.Severity), strings.TrimSpace(rule.Name))
-	body := buildOpsAlertEmailBody(rule, event)
-
 	anySent := false
 	for _, to := range emailCfg.Alert.Recipients {
 		addr := strings.TrimSpace(to)
 		if addr == "" {
 			continue
 		}
+		delivery := opsAlertDeliveries(event)["email:"+addr]
+		if delivery != nil && (delivery.Status == "sent" || delivery.Attempts >= 3 || time.Now().UTC().Before(delivery.NextAttemptAt)) {
+			continue
+		}
 		if !s.emailLimiter.Allow(time.Now().UTC()) {
+			s.deferAlertEmail(ctx, event, addr)
 			continue
 		}
-		if s.emailService.notificationEmailService != nil {
-			if err := s.emailService.notificationEmailService.Send(ctx, NotificationEmailSendInput{
-				Event:          NotificationEmailEventOpsAlert,
-				RecipientEmail: addr,
-				RecipientName:  emailRecipientName(addr),
-				SourceType:     "ops_alert",
-				SourceID:       fmt.Sprintf("%d", event.ID),
-				Variables:      opsAlertEmailVariables(rule, event),
-			}); err == nil {
-				anySent = true
-				continue
-			} else if !shouldFallbackNotificationEmail(err) {
-				continue
-			}
+		if s.deliverAlert(ctx, event, "email", addr, func() error { return s.sendAlertEmailTo(ctx, rule, event, addr) }) {
+			anySent = true
 		}
-		if err := s.emailService.SendEmail(ctx, addr, subject, body); err != nil {
-			// Ignore per-recipient failures; continue best-effort.
-			continue
-		}
-		anySent = true
 	}
 
 	if anySent {
@@ -918,7 +929,7 @@ func (s *OpsAlertEvaluatorService) tryAcquireLeaderLock(ctx context.Context, loc
 		key = opsAlertEvaluatorLeaderLockKey
 	}
 	ttl := time.Duration(lock.TTLSeconds) * time.Second
-	if ttl <= 0 {
+	if ttl < opsAlertEvaluatorTimeout+10*time.Second {
 		ttl = opsAlertEvaluatorLeaderLockTTL
 	}
 
