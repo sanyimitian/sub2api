@@ -220,7 +220,7 @@
                   <div v-for="category in categories" :key="category" class="text-xs" :class="benchmarkScoreClass(benchmarkCategoryScore(run.categories[category].passed, run.categories[category].total), run.status)">{{ t(`modelBenchmark.categories.${category}`) }} {{ run.categories[category].passed }}/{{ run.categories[category].total }}</div>
                   <template v-if="run.coding_difficulties"><div v-for="difficulty in codingDifficulties" :key="difficulty" class="text-xs" :class="benchmarkScoreClass(benchmarkCategoryScore(run.coding_difficulties[difficulty].passed, run.coding_difficulties[difficulty].total), run.status)">{{ t(`modelBenchmark.difficulties.${difficulty}`) }} {{ run.coding_difficulties[difficulty].passed }}/{{ run.coding_difficulties[difficulty].total }}</div></template>
                 </td>
-                <td class="whitespace-nowrap py-4 pr-4 text-xs">{{ t('modelBenchmark.seconds', { count: Math.round(run.elapsed_seconds) }) }}</td>
+                <td class="whitespace-nowrap py-4 pr-4 text-xs font-medium tabular-nums transition-colors" :class="benchmarkDurationClass(run.elapsed_seconds)">{{ t('modelBenchmark.seconds', { count: Math.round(run.elapsed_seconds) }) }}</td>
                 <td class="py-4">
                   <div class="flex min-w-24 flex-col items-start gap-2">
                     <button class="text-primary-600 hover:underline dark:text-primary-400" :disabled="!!busy" @click="showDetail(run.id)">{{ t('modelBenchmark.details') }}</button>
@@ -294,6 +294,7 @@ import BenchmarkUserRecords from '@/components/model-identification/BenchmarkUse
 import BenchmarkDeleteDialog from '@/components/model-identification/BenchmarkDeleteDialog.vue'
 import BenchmarkSourceSettings from '@/components/model-identification/BenchmarkSourceSettings.vue'
 import { formatBenchmarkPassRate, benchmarkScoreClass, benchmarkCategoryScore } from '@/utils/benchmarkScore'
+import { benchmarkDurationClass } from '@/utils/benchmarkDuration'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'

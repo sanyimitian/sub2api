@@ -35,7 +35,7 @@
           <td class="whitespace-nowrap p-3 text-xs">{{ run.suite_day }} · v{{ run.suite_revision }}<code class="block text-gray-500" :title="run.suite_fingerprint">{{ run.suite_fingerprint.slice(0, 12) }}</code></td>
           <td class="p-3"><span>{{ t(`modelBenchmark.statuses.${run.status}`) }}</span><div class="text-xs text-gray-500">{{ run.completed }}/{{ run.total }}</div><BenchmarkErrorSummary :result="run" class="mt-2 max-w-xs" /></td>
           <td class="p-3"><strong class="text-xl tabular-nums" :class="benchmarkScoreClass(run.pass_rate, run.status)" data-testid="user-pass-rate">{{ formatBenchmarkPassRate(run.pass_rate, run.status) }}</strong><div v-for="category in categories" :key="category" class="whitespace-nowrap text-xs" :class="benchmarkScoreClass(benchmarkCategoryScore(run.categories[category].passed, run.categories[category].total), run.status)">{{ t(`modelBenchmark.categories.${category}`) }} {{ run.categories[category].passed }}/{{ run.categories[category].total }}</div></td>
-          <td class="whitespace-nowrap p-3 text-xs">{{ formatDate(run.created_at) }}<div class="text-gray-500">{{ t('modelBenchmark.seconds', { count: Math.round(run.elapsed_seconds) }) }}</div></td>
+          <td class="whitespace-nowrap p-3 text-xs">{{ formatDate(run.created_at) }}<div class="font-medium tabular-nums transition-colors" :class="benchmarkDurationClass(run.elapsed_seconds)">{{ t('modelBenchmark.seconds', { count: Math.round(run.elapsed_seconds) }) }}</div></td>
           <td class="p-3"><div class="flex flex-wrap gap-3"><button class="text-primary-600 hover:underline" @click="openDetail(run)">{{ t('modelBenchmark.details') }}</button><button v-if="canDelete && !['queued', 'running', 'cancelling'].includes(run.status)" type="button" class="text-red-600 hover:underline dark:text-red-400" :data-delete-run="run.id" @click="deletingRun = run">{{ t('modelBenchmark.deleteResult') }}</button></div></td>
         </tr></tbody>
       </table>
@@ -62,6 +62,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { benchmarks, type BenchmarkRun, type BenchmarkOwner, type BenchmarkSiteOption, type Category } from '@/api/admin/model-benchmarks'
 import { formatBenchmarkPassRate, benchmarkScoreClass, benchmarkCategoryScore } from '@/utils/benchmarkScore'
+import { benchmarkDurationClass } from '@/utils/benchmarkDuration'
 import Pagination from '@/components/common/Pagination.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import BenchmarkDeleteDialog from './BenchmarkDeleteDialog.vue'
