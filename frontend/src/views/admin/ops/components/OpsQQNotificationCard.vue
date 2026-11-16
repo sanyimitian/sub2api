@@ -6,6 +6,8 @@ import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import Toggle from '@/components/common/Toggle.vue'
 
+defineProps<{ disabled?: boolean }>()
+
 const { t } = useI18n()
 const appStore = useAppStore()
 const config = ref<QQNotificationConfig | null>(null)
@@ -18,6 +20,7 @@ const errorMessage = ref('')
 const loading = ref(false)
 const webhook = ref<QQWebhookStatus | null>(null)
 const webhookLoading = ref(false)
+const canSave = computed(() => !!config.value && !loading.value && !busy.value)
 const callbackURL = computed(() => window.location.origin + '/api/v1/ops/qq-bot/webhook')
 const currentWebhook = computed(() => webhook.value?.app_id === config.value?.app_id ? webhook.value : null)
 
@@ -48,8 +51,8 @@ async function load() {
 }
 onMounted(load)
 
-async function save(test = false) {
-  if (!config.value) return
+async function save(test = false, notify = true): Promise<boolean> {
+  if (!config.value || !canSave.value) return false
   busy.value = true
   errorMessage.value = ''
   try {
@@ -67,16 +70,20 @@ async function save(test = false) {
     appSecret.value = ''
     clearAppSecret.value = false
     if (test) await opsAPI.testQQNotification()
-    appStore.showSuccess(t(test ? 'admin.ops.qq.testSuccess' : 'admin.ops.qq.saveSuccess'))
+    if (notify) appStore.showSuccess(t(test ? 'admin.ops.qq.testSuccess' : 'admin.ops.qq.saveSuccess'))
     if (config.value.provider === 'qq_official') await refreshWebhook()
+    return true
   } catch (err: unknown) {
     const message = extractApiErrorMessage(err, t('admin.ops.qq.saveFailed'))
     errorMessage.value = message.startsWith('QQ official bot returned ') && message.includes('(code 40034105)')
       ? t('admin.ops.qq.officialPermissionDenied')
       : message
     appStore.showError(errorMessage.value)
+    return false
   } finally { busy.value = false }
 }
+
+defineExpose({ save, canSave })
 </script>
 
 <template>
@@ -86,7 +93,7 @@ async function save(test = false) {
     <p v-if="errorMessage" role="alert" class="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{{ errorMessage }}</p>
     <div v-if="loading" class="text-sm text-gray-500">{{ t('common.loading') }}</div>
     <button v-else-if="!config" class="btn btn-secondary" type="button" @click="load">{{ t('common.refresh') }}</button>
-    <fieldset v-else class="space-y-4" :disabled="busy">
+    <fieldset v-else class="space-y-4" :disabled="busy || disabled">
       <div class="flex items-center justify-between">
         <label>{{ t('admin.ops.qq.enabled') }}</label>
         <Toggle v-model="config.enabled" />

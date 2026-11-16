@@ -24,6 +24,8 @@ const emit = defineEmits<{
 const loading = ref(false)
 const settingsLoaded = ref(false)
 const saving = ref(false)
+const qqNotificationCard = ref<InstanceType<typeof OpsQQNotificationCard> | null>(null)
+const qqReady = computed(() => qqNotificationCard.value?.canSave === true)
 
 // 运行时设置
 const runtimeSettings = ref<OpsAlertRuntimeSettings | null>(null)
@@ -201,7 +203,7 @@ const validation = computed(() => {
 
 // 保存所有配置
 async function saveAllSettings() {
-  if (loading.value || !settingsLoaded.value || saving.value) return
+  if (loading.value || !settingsLoaded.value || saving.value || !qqReady.value) return
   if (!validation.value.valid) {
     appStore.showError(validation.value.errors[0])
     return
@@ -209,6 +211,8 @@ async function saveAllSettings() {
 
   saving.value = true
   try {
+    // QQ settings belong to this dialog too; do not close if they fail to save.
+    if (!await qqNotificationCard.value!.save(false, false)) return
     // 无收件人时自动禁用邮件通知
     if (emailConfig.value) {
       if (emailConfig.value.alert.enabled && emailConfig.value.alert.recipients.length === 0) {
@@ -268,7 +272,7 @@ async function saveAllSettings() {
       </div>
 
       <!-- 预警配置 -->
-      <OpsQQNotificationCard v-if="show" />
+      <OpsQQNotificationCard v-if="show" ref="qqNotificationCard" :disabled="saving" />
 
       <div class="rounded-2xl bg-gray-50 p-4 dark:bg-dark-700/50">
         <h4 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.ops.settings.alertConfig') }}</h4>
@@ -648,7 +652,7 @@ async function saveAllSettings() {
     <template #footer>
       <div class="flex justify-end gap-2">
         <button class="btn btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</button>
-        <button class="btn btn-primary" :disabled="loading || !settingsLoaded || saving || !validation.valid" @click="saveAllSettings">
+        <button class="btn btn-primary" :disabled="loading || !settingsLoaded || saving || !qqReady || !validation.valid" @click="saveAllSettings">
           {{ saving ? t('common.saving') : t('common.save') }}
         </button>
       </div>

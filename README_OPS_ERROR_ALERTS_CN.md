@@ -44,7 +44,7 @@ QQ群：在「运维设置 → QQ群机器人通知」选择机器人类型，�
 
 接口参考：[鉴权与令牌](https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/interface-framework/api-use.html)、[发送群聊消息](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages.post.html)。
 
-邮件和 QQ 可以分别开启，也可以同时开启。QQ 配置在自己的卡片中单独保存。
+邮件和 QQ 可以分别开启，也可以同时开启。弹窗底部“保存”会一并保存 QQ 配置；也可使用 QQ 卡片中的“单独保存 QQ 配置”。普通保存不会发送测试消息。
 
 ## 检查与防重复
 
