@@ -101,6 +101,33 @@ func TestOpsErrorCountAlertLifecycle(t *testing.T) {
 	require.Len(t, repo.events, 2)
 }
 
+func TestOpsErrorCountAlertWithoutScope(t *testing.T) {
+	for name, filters := range map[string]map[string]any{
+		"default filters":          nil,
+		"status and model filters": {"status_codes": []int{502, 503}, "excluded_models": []string{"excluded-model"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rule := &OpsAlertRule{ID: 1, Name: "All upstream errors", Enabled: true,
+				MetricType: OpsMetricUpstreamErrorCount, Operator: ">", Threshold: 20,
+				WindowMinutes: 1, Filters: filters}
+			repo := &errorCountAlertRepo{rule: rule, counts: map[int]int64{502: 12, 503: 9}}
+			svc := NewOpsAlertEvaluatorService(nil, repo, nil, nil, nil, nil)
+			require.NotPanics(t, func() { svc.evaluateOnce(30 * time.Second) })
+			require.Len(t, repo.events, 1)
+			require.Equal(t, float64(21), *repo.events[0].MetricValue)
+			require.Equal(t, repo.counts, repo.events[0].Dimensions["status_counts"])
+			require.Equal(t, filters["excluded_models"], repo.events[0].Dimensions["excluded_models"])
+			require.Empty(t, repo.filter.Platform)
+			require.Nil(t, repo.filter.GroupID)
+			svc.evaluateOnce(30 * time.Second)
+			require.Len(t, repo.events, 1, "ongoing breach must not create duplicate alerts")
+			repo.counts = map[int]int64{502: 2}
+			svc.evaluateOnce(30 * time.Second)
+			require.Equal(t, OpsAlertStatusResolved, repo.events[0].Status)
+		})
+	}
+}
+
 func TestOpsErrorCountFilters(t *testing.T) {
 	filters, err := ParseOpsErrorCountFilters(map[string]any{"excluded_models": []any{" model-A ", "model-A", "model-a"}})
 	require.NoError(t, err)

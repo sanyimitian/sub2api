@@ -305,6 +305,9 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 
 			if rule.MetricType == OpsMetricUpstreamErrorCount {
 				firedEvent.Description += opsErrorCountDescription(rule, statusCounts)
+				if firedEvent.Dimensions == nil {
+					firedEvent.Dimensions = make(map[string]any)
+				}
 				firedEvent.Dimensions["status_counts"] = statusCounts
 				firedEvent.Dimensions["excluded_models"] = rule.Filters["excluded_models"]
 			}
