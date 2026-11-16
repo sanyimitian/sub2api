@@ -761,19 +761,30 @@ export interface EmailNotificationConfig {
   }
 }
 
+export type QQNotificationProvider = 'onebot' | 'qq_official'
+
 export interface QQNotificationConfig {
   enabled: boolean
+  provider: QQNotificationProvider
   api_url: string
   group_id: string
   access_token_configured: boolean
+  app_id: string
+  app_secret_configured: boolean
+  group_openid: string
 }
 
 export interface QQNotificationUpdate {
   enabled: boolean
+  provider: QQNotificationProvider
   api_url: string
   group_id: string
   access_token?: string
   clear_access_token?: boolean
+  app_id: string
+  app_secret?: string
+  clear_app_secret?: boolean
+  group_openid: string
 }
 
 export async function getQQNotificationConfig(): Promise<QQNotificationConfig> {
@@ -788,6 +799,19 @@ export async function updateQQNotificationConfig(config: QQNotificationUpdate): 
 
 export async function testQQNotification(): Promise<void> {
   await apiClient.post('/admin/ops/qq-notification/test')
+}
+
+export interface QQWebhookStatus {
+  callback_path: string
+  app_id: string
+  ready: boolean
+  last_event_at?: string
+  groups: { group_openid: string; last_seen_at: string; event_type: string }[]
+}
+
+export async function getQQWebhookStatus(): Promise<QQWebhookStatus> {
+  const { data } = await apiClient.get<QQWebhookStatus>('/admin/ops/qq-notification/webhook')
+  return data
 }
 
 export interface OpsMetricThresholds {
@@ -1435,6 +1459,7 @@ export const opsAPI = {
   getQQNotificationConfig,
   updateQQNotificationConfig,
   testQQNotification,
+  getQQWebhookStatus,
   updateEmailNotificationConfig,
   getAlertRuntimeSettings,
   updateAlertRuntimeSettings,

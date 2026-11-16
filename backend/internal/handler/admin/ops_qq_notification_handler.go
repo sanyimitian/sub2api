@@ -1,11 +1,64 @@
 package admin
 
 import (
+	"context"
+	"errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"io"
 	"net/http"
+	"time"
 )
+
+// ReceiveQQWebhook is public. QQ uses Ed25519 authentication rather than an
+// administrator session; replies must use QQ's protocol without our API envelope.
+func (h *OpsHandler) ReceiveQQWebhook(c *gin.Context) {
+	if h.opsService == nil {
+		c.Status(http.StatusServiceUnavailable)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, service.OpsQQWebhookBodyLimit)
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			c.Status(http.StatusRequestEntityTooLarge)
+		} else {
+			c.Status(http.StatusBadRequest)
+		}
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+	result, err := h.opsService.HandleQQWebhook(ctx, c.GetHeader("X-Bot-Appid"), c.GetHeader("X-Signature-Timestamp"), c.GetHeader("X-Signature-Ed25519"), body)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, service.ErrOpsQQWebhookUnavailable):
+			status = http.StatusServiceUnavailable
+		case errors.Is(err, service.ErrOpsQQWebhookUnauthorized):
+			status = http.StatusUnauthorized
+		case errors.Is(err, service.ErrOpsQQWebhookPayload):
+			status = http.StatusBadRequest
+		}
+		c.Status(status)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *OpsHandler) GetQQWebhookStatus(c *gin.Context) {
+	if !h.requireQQMonitoring(c) {
+		return
+	}
+	status, err := h.opsService.GetQQWebhookStatus(c.Request.Context())
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to load QQ callback status")
+		return
+	}
+	response.Success(c, status)
+}
 
 func (h *OpsHandler) requireQQMonitoring(c *gin.Context) bool {
 	if h.opsService == nil {

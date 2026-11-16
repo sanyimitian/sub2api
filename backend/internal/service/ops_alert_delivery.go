@@ -105,9 +105,9 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertQQ(ctx context.Context, runtime
 	if err != nil || !cfg.Enabled {
 		return
 	}
-	s.deliverAlert(ctx, event, "qq", cfg.GroupID, func() error {
+	s.deliverAlert(ctx, event, "qq", cfg.recipient(), func() error {
 		message := fmt.Sprintf("【Sub2API 告警】%s\n级别：%s\n%s\n时间：%s", rule.Name, rule.Severity, event.Description, event.FiredAt.Format(time.RFC3339))
-		return sendOpsQQMessage(ctx, cfg, message)
+		return s.opsService.sendQQNotification(ctx, cfg, message)
 	})
 }
 

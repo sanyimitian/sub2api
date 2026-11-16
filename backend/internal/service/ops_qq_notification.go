@@ -14,27 +14,55 @@ import (
 	"time"
 )
 
-const opsQQConfigKey = "ops_qq_notification_config"
+const (
+	opsQQConfigKey        = "ops_qq_notification_config"
+	opsQQProviderOneBot   = "onebot"
+	opsQQProviderOfficial = "qq_official"
+)
 
 type OpsQQNotificationConfig struct {
 	Enabled               bool   `json:"enabled"`
+	Provider              string `json:"provider"`
 	APIURL                string `json:"api_url"`
 	GroupID               string `json:"group_id"`
 	AccessToken           string `json:"access_token,omitempty"`
 	AccessTokenConfigured bool   `json:"access_token_configured"`
+	AppID                 string `json:"app_id"`
+	AppSecret             string `json:"app_secret,omitempty"`
+	AppSecretConfigured   bool   `json:"app_secret_configured"`
+	GroupOpenID           string `json:"group_openid"`
 }
 
 type OpsQQNotificationUpdate struct {
-	Enabled bool   `json:"enabled"`
-	APIURL  string `json:"api_url"`
-	GroupID string `json:"group_id"`
+	Enabled  bool   `json:"enabled"`
+	Provider string `json:"provider"`
+	APIURL   string `json:"api_url"`
+	GroupID  string `json:"group_id"`
 	// Omitted/empty preserves the existing token. Clearing is explicit.
 	AccessToken      string `json:"access_token"`
 	ClearAccessToken bool   `json:"clear_access_token"`
+	AppID            string `json:"app_id"`
+	AppSecret        string `json:"app_secret"`
+	ClearAppSecret   bool   `json:"clear_app_secret"`
+	GroupOpenID      string `json:"group_openid"`
+}
+
+func (cfg *OpsQQNotificationConfig) provider() string {
+	if cfg.Provider == "" {
+		return opsQQProviderOneBot
+	}
+	return cfg.Provider
+}
+
+func (cfg *OpsQQNotificationConfig) recipient() string {
+	if cfg.provider() == opsQQProviderOfficial {
+		return "qq_official:" + cfg.AppID + ":" + cfg.GroupOpenID
+	}
+	return cfg.GroupID
 }
 
 func (s *OpsService) getQQNotificationConfig(ctx context.Context) (*OpsQQNotificationConfig, error) {
-	cfg := &OpsQQNotificationConfig{}
+	cfg := &OpsQQNotificationConfig{Provider: opsQQProviderOneBot}
 	if s == nil || s.settingRepo == nil {
 		return cfg, nil
 	}
@@ -48,6 +76,7 @@ func (s *OpsService) getQQNotificationConfig(ctx context.Context) (*OpsQQNotific
 	if err := json.Unmarshal([]byte(raw), cfg); err != nil {
 		return nil, errors.New("invalid QQ notification settings")
 	}
+	cfg.Provider = cfg.provider()
 	return cfg, nil
 }
 
@@ -55,6 +84,8 @@ func redactOpsQQConfig(cfg *OpsQQNotificationConfig) *OpsQQNotificationConfig {
 	copy := *cfg
 	copy.AccessTokenConfigured = copy.AccessToken != ""
 	copy.AccessToken = ""
+	copy.AppSecretConfigured = copy.AppSecret != ""
+	copy.AppSecret = ""
 	return &copy
 }
 
@@ -67,6 +98,22 @@ func (s *OpsService) GetQQNotificationConfig(ctx context.Context) (*OpsQQNotific
 }
 
 func validateOpsQQConfig(cfg *OpsQQNotificationConfig) error {
+	if cfg == nil {
+		return errors.New("QQ notification is not configured")
+	}
+	if len(cfg.AccessToken) > 4096 || strings.ContainsAny(cfg.AccessToken, "\r\n") {
+		return errors.New("invalid QQ access token")
+	}
+	if len(cfg.AppSecret) > 4096 || strings.ContainsAny(cfg.AppSecret, "\r\n") {
+		return errors.New("invalid QQ AppSecret")
+	}
+	switch cfg.provider() {
+	case opsQQProviderOfficial:
+		return validateOpsQQOfficialConfig(cfg)
+	case opsQQProviderOneBot:
+	default:
+		return errors.New("unsupported QQ notification provider")
+	}
 	if cfg.APIURL != "" || cfg.Enabled {
 		u, err := url.Parse(cfg.APIURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
@@ -78,9 +125,6 @@ func validateOpsQQConfig(cfg *OpsQQNotificationConfig) error {
 		if err != nil || id <= 0 {
 			return errors.New("QQ group ID must be a positive integer")
 		}
-	}
-	if len(cfg.AccessToken) > 4096 || strings.ContainsAny(cfg.AccessToken, "\r\n") {
-		return errors.New("invalid QQ access token")
 	}
 	return nil
 }
@@ -94,13 +138,24 @@ func (s *OpsService) UpdateQQNotificationConfig(ctx context.Context, req *OpsQQN
 		return nil, err
 	}
 	cfg.Enabled = req.Enabled
+	if req.Provider != "" {
+		cfg.Provider = strings.TrimSpace(req.Provider)
+	}
 	cfg.APIURL = strings.TrimRight(strings.TrimSpace(req.APIURL), "/")
 	cfg.GroupID = strings.TrimSpace(req.GroupID)
+	cfg.AppID = strings.TrimSpace(req.AppID)
+	cfg.GroupOpenID = strings.TrimSpace(req.GroupOpenID)
 	if req.ClearAccessToken {
 		cfg.AccessToken = ""
 	}
-	if req.AccessToken != "" {
-		cfg.AccessToken = strings.TrimSpace(req.AccessToken)
+	if token := strings.TrimSpace(req.AccessToken); token != "" {
+		cfg.AccessToken = token
+	}
+	if req.ClearAppSecret {
+		cfg.AppSecret = ""
+	}
+	if secret := strings.TrimSpace(req.AppSecret); secret != "" {
+		cfg.AppSecret = secret
 	}
 	if err := validateOpsQQConfig(cfg); err != nil {
 		return nil, err
@@ -113,6 +168,16 @@ func (s *OpsService) UpdateQQNotificationConfig(ctx context.Context, req *OpsQQN
 		return nil, err
 	}
 	return redactOpsQQConfig(cfg), nil
+}
+
+func (s *OpsService) sendQQNotification(ctx context.Context, cfg *OpsQQNotificationConfig, message string) error {
+	if err := validateOpsQQConfig(cfg); err != nil {
+		return err
+	}
+	if cfg.provider() == opsQQProviderOfficial {
+		return s.qqOfficialSender.send(ctx, cfg, message)
+	}
+	return sendOpsQQMessage(ctx, cfg, message)
 }
 
 // OneBot v11 HTTP API. Private addresses are intentional: administrators commonly
@@ -174,5 +239,5 @@ func (s *OpsService) TestQQNotification(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return sendOpsQQMessage(ctx, cfg, "【Sub2API 测试通知】QQ群告警连接成功。")
+	return s.sendQQNotification(ctx, cfg, "【Sub2API 测试通知】QQ群告警连接成功。")
 }
