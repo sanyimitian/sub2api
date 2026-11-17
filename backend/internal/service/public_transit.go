@@ -394,6 +394,11 @@ func (s *PublicTransitService) Snapshot(ctx context.Context, baseURL string) (*P
 	}
 
 	groups := buildPublicTransitGroups(configuredGroups, channels, cacheUsageByGroupID, publicPricingService(s.channelService))
+	publicCatalog, err := s.settingService.GetPublicTransitModelCatalog(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load public model catalog: %w", err)
+	}
+	supplementPublicTransitModelCatalog(groups, configuredGroups, channels, publicCatalog, publicPricingService(s.channelService))
 	if err := s.persistPublicGroupCacheUsage(ctx, groups, cachePolicy); err != nil {
 		return nil, err
 	}
