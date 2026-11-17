@@ -64,7 +64,7 @@ func TestPublicTransitModelCatalog_OnlySupplementsExplicitEligibleGroups(t *test
 func TestPublicTransitModelCatalog_PricesAreIdentifiedAndGroupOverridesAreMerged(t *testing.T) {
 	pricing := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
 		"claude-opus-5-5": {InputCostPerToken: 4e-6, OutputCostPerToken: 20e-6, CacheReadInputTokenCost: 0.2e-6},
-		"image-only": {TokenPricingAbsent: true, Mode: "image_generation", OutputCostPerImage: 0.04},
+		"image-only":      {TokenPricingAbsent: true, Mode: "image_generation", OutputCostPerImage: 0.04},
 	}}
 	group := Group{Platform: PlatformAnthropic, ModelPricing: []ChannelModelPricing{
 		{Models: []string{"claude-opus-5-5"}, InputPrice: testPtrFloat64(3e-6), CacheReadPrice: testPtrFloat64(0)},
@@ -102,9 +102,9 @@ func TestPublicTransitModelCatalog_DeepseekPublishedRatesMatchActualBilling(t *t
 			}}
 		}
 		for _, now := range []time.Time{
-			time.Date(2026, 11, 17, 2, 0, 0, 0, time.UTC), // Tuesday peak
+			time.Date(2026, 11, 17, 2, 0, 0, 0, time.UTC),  // Tuesday peak
 			time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC), // Tuesday off-peak
-			time.Date(2026, 11, 21, 2, 0, 0, 0, time.UTC), // Beijing weekend
+			time.Date(2026, 11, 21, 2, 0, 0, 0, time.UTC),  // Beijing weekend
 		} {
 			model, ok := publicCatalogModelAt(group, "deepseek-v4.1-flash", nil, now)
 			require.True(t, ok)
@@ -130,7 +130,7 @@ func TestPublicTransitModelCatalog_DeepseekPublishedRatesMatchActualBilling(t *t
 func TestPublicTransitModelCatalog_SnapshotModesUseSameOptInCatalog(t *testing.T) {
 	repo := &settingPublicRepoStub{values: map[string]string{
 		SettingKeyPublicTransitModelCatalog: `[{"group_id":95,"models":["claude-opus-5-5"]}]`,
-		SettingKeyChannelMonitorEnabled: "true",
+		SettingKeyChannelMonitorEnabled:     "true",
 	}}
 	settings := NewSettingService(repo, &config.Config{})
 	groups := &stubGroupRepoForAvailable{activeGroups: []Group{{
@@ -151,7 +151,9 @@ func TestPublicTransitModelCatalog_SnapshotModesUseSameOptInCatalog(t *testing.T
 			require.NoError(t, err)
 			encoded, err := json.Marshal(payload)
 			require.NoError(t, err)
-			var snapshot struct { Groups []PublicTransitGroup `json:"groups"` }
+			var snapshot struct {
+				Groups []PublicTransitGroup `json:"groups"`
+			}
 			require.NoError(t, json.Unmarshal(encoded, &snapshot))
 			require.Len(t, snapshot.Groups, 1)
 			require.Len(t, snapshot.Groups[0].Models, 1)
