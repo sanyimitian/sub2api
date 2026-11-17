@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/lib/pq"
 )
 
 func (r *opsRepository) ListAlertRules(ctx context.Context) ([]*service.OpsAlertRule, error) {
@@ -31,6 +32,7 @@ SELECT
   cooldown_minutes,
   COALESCE(notify_email, true),
   notify_qq,
+  qq_group_openids,
   filters,
   last_triggered_at,
   created_at,
@@ -63,6 +65,7 @@ ORDER BY id DESC`
 			&rule.CooldownMinutes,
 			&rule.NotifyEmail,
 			&rule.NotifyQQ,
+			pq.Array(&rule.QQGroupOpenIDs),
 			&filtersRaw,
 			&lastTriggeredAt,
 			&rule.CreatedAt,
@@ -115,11 +118,12 @@ INSERT INTO ops_alert_rules (
   cooldown_minutes,
   notify_email,
   notify_qq,
+  qq_group_openids,
   filters,
   created_at,
   updated_at
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW()
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,COALESCE($13, '{}'::text[]),$14,NOW(),NOW()
 )
 RETURNING
   id,
@@ -135,6 +139,7 @@ RETURNING
   cooldown_minutes,
   COALESCE(notify_email, true),
   notify_qq,
+  qq_group_openids,
   filters,
   last_triggered_at,
   created_at,
@@ -159,6 +164,7 @@ RETURNING
 		input.CooldownMinutes,
 		input.NotifyEmail,
 		input.NotifyQQ,
+		pq.Array(input.QQGroupOpenIDs),
 		filtersArg,
 	).Scan(
 		&out.ID,
@@ -174,6 +180,7 @@ RETURNING
 		&out.CooldownMinutes,
 		&out.NotifyEmail,
 		&out.NotifyQQ,
+		pq.Array(&out.QQGroupOpenIDs),
 		&filtersRaw,
 		&lastTriggeredAt,
 		&out.CreatedAt,
@@ -226,7 +233,8 @@ SET
   cooldown_minutes = $11,
   notify_email = $12,
   notify_qq = $13,
-  filters = $14,
+  qq_group_openids = COALESCE($14, '{}'::text[]),
+  filters = $15,
   updated_at = NOW()
 WHERE id = $1
 RETURNING
@@ -243,6 +251,7 @@ RETURNING
   cooldown_minutes,
   COALESCE(notify_email, true),
   notify_qq,
+  qq_group_openids,
   filters,
   last_triggered_at,
   created_at,
@@ -268,6 +277,7 @@ RETURNING
 		input.CooldownMinutes,
 		input.NotifyEmail,
 		input.NotifyQQ,
+		pq.Array(input.QQGroupOpenIDs),
 		filtersArg,
 	).Scan(
 		&out.ID,
@@ -283,6 +293,7 @@ RETURNING
 		&out.CooldownMinutes,
 		&out.NotifyEmail,
 		&out.NotifyQQ,
+		pq.Array(&out.QQGroupOpenIDs),
 		&filtersRaw,
 		&lastTriggeredAt,
 		&out.CreatedAt,

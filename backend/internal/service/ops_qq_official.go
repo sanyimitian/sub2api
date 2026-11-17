@@ -33,13 +33,37 @@ func validateOpsQQOfficialConfig(cfg *OpsQQNotificationConfig) error {
 		}
 	}
 	if cfg.GroupOpenID != "" || cfg.Enabled {
-		if len(cfg.GroupOpenID) == 0 || len(cfg.GroupOpenID) > 128 || strings.Trim(cfg.GroupOpenID, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != "" {
+		if !validOpsQQGroupOpenID(cfg.GroupOpenID) {
 			return errors.New("invalid QQ group OpenID; use the group_openid from a bot event")
 		}
 	}
 	if cfg.Enabled && cfg.AppSecret == "" {
 		return errors.New("QQ official AppSecret is required")
 	}
+	return nil
+}
+
+func validOpsQQGroupOpenID(id string) bool {
+	return len(id) > 0 && len(id) <= 128 && strings.Trim(id, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") == ""
+}
+
+func normalizeOpsAlertQQGroups(rule *OpsAlertRule) error {
+	if len(rule.QQGroupOpenIDs) > 100 {
+		return errors.New("at most 100 QQ group OpenIDs are allowed per alert rule")
+	}
+	groups := make([]string, 0, len(rule.QQGroupOpenIDs))
+	seen := make(map[string]bool, len(rule.QQGroupOpenIDs))
+	for _, group := range rule.QQGroupOpenIDs {
+		group = strings.TrimSpace(group)
+		if !validOpsQQGroupOpenID(group) {
+			return errors.New("invalid QQ group OpenID; use the group_openid from a bot event")
+		}
+		if !seen[group] {
+			groups = append(groups, group)
+			seen[group] = true
+		}
+	}
+	rule.QQGroupOpenIDs = groups
 	return nil
 }
 

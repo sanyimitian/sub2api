@@ -105,10 +105,45 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertQQ(ctx context.Context, runtime
 	if err != nil || !cfg.Enabled {
 		return
 	}
-	s.deliverAlert(ctx, event, "qq", cfg.recipient(), func() error {
-		message := fmt.Sprintf("【Sub2API 告警】%s\n级别：%s\n%s\n时间：%s", rule.Name, rule.Severity, event.Description, event.FiredAt.Format(time.RFC3339))
-		return s.opsService.sendQQNotification(ctx, cfg, message)
-	})
+	targets := []*OpsQQNotificationConfig{cfg}
+	if cfg.provider() == opsQQProviderOfficial && len(rule.QQGroupOpenIDs) > 0 {
+		targets = nil
+		for _, group := range rule.QQGroupOpenIDs {
+			target := *cfg
+			target.GroupOpenID = group
+			targets = append(targets, &target)
+		}
+	}
+
+	// Queue every group before sending. If the evaluation deadline expires,
+	// groups not yet attempted must still be picked up by the retry worker.
+	deliveries := opsAlertDeliveries(event)
+	changed := false
+	for _, target := range targets {
+		key := "qq:" + target.recipient()
+		if deliveries[key] == nil {
+			deliveries[key] = &OpsAlertDelivery{Channel: "qq", Recipient: target.recipient(), Status: "pending", NextAttemptAt: time.Now().UTC()}
+			changed = true
+		}
+	}
+	if changed {
+		if err := s.opsRepo.UpdateAlertDeliveries(ctx, event.ID, deliveries); err != nil {
+			return
+		}
+		if event.Dimensions == nil {
+			event.Dimensions = map[string]any{}
+		}
+		event.Dimensions["notifications"] = deliveries
+	}
+	message := fmt.Sprintf("【Sub2API 告警】%s\n级别：%s\n%s\n时间：%s", rule.Name, rule.Severity, event.Description, event.FiredAt.Format(time.RFC3339))
+	for _, target := range targets {
+		if ctx.Err() != nil {
+			return
+		}
+		s.deliverAlert(ctx, event, "qq", target.recipient(), func() error {
+			return s.opsService.sendQQNotification(ctx, target, message)
+		})
+	}
 }
 
 func (s *OpsAlertEvaluatorService) retryAlertNotifications(ctx context.Context, runtimeCfg *OpsAlertRuntimeSettings, rules []*OpsAlertRule) {

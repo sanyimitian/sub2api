@@ -31,6 +31,8 @@ type OpsAlertRule struct {
 
 	NotifyEmail bool `json:"notify_email"`
 	NotifyQQ    bool `json:"notify_qq"`
+	// Empty uses the global default group. Applies to the official QQ bot only.
+	QQGroupOpenIDs []string `json:"qq_group_openids"`
 
 	Filters map[string]any `json:"filters,omitempty"`
 

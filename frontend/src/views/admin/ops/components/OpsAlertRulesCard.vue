@@ -48,6 +48,27 @@ const saving = ref(false)
 const editingId = ref<number | null>(null)
 const draft = ref<AlertRule | null>(null)
 
+const qqGroupsInput = ref('')
+const qqGroups = computed(() => [...new Set(qqGroupsInput.value.split(/[,，\s]+/).filter(Boolean))])
+const discoveredQQGroups = ref<string[]>([])
+const qqGroupsLoading = ref(false)
+
+async function loadQQGroups() {
+  qqGroupsLoading.value = true
+  try {
+    const status = await opsAPI.getQQWebhookStatus()
+    discoveredQQGroups.value = status.groups.map(group => group.group_openid)
+  } catch {
+    appStore.showError(t('admin.ops.qq.webhookLoadFailed'))
+  } finally {
+    qqGroupsLoading.value = false
+  }
+}
+
+function toggleQQGroup(group: string, checked: boolean) {
+  qqGroupsInput.value = (checked ? [...new Set([...qqGroups.value, group])] : qqGroups.value.filter(id => id !== group)).join('\n')
+}
+
 const isErrorCount = computed(() => draft.value?.metric_type === 'upstream_error_count')
 const modelInput = ref('')
 const modelSuggestions = ref<string[]>([])
@@ -368,6 +389,8 @@ function newRuleDraft(): AlertRule {
 }
 
 function openCreate() {
+  qqGroupsInput.value = ''
+  discoveredQQGroups.value = []
   modelInput.value = ''
   editingId.value = null
   draft.value = newRuleDraft()
@@ -375,6 +398,8 @@ function openCreate() {
 }
 
 function openEdit(rule: AlertRule) {
+  qqGroupsInput.value = (rule.qq_group_openids ?? []).join('\n')
+  discoveredQQGroups.value = []
   modelInput.value = ''
   editingId.value = rule.id ?? null
   draft.value = JSON.parse(JSON.stringify(rule))
@@ -393,6 +418,9 @@ const editorValidation = computed(() => {
     errors.push(t('admin.ops.alertRules.validation.groupIdRequired'))
   }
   if (!r.operator) errors.push(t('admin.ops.alertRules.validation.operatorRequired'))
+  if (qqGroups.value.length > 100 || qqGroups.value.some(group => !/^[A-Za-z0-9_-]{1,128}$/.test(group))) {
+    errors.push(t('admin.ops.qq.invalidRuleGroups'))
+  }
   if (!(typeof r.threshold === 'number' && Number.isFinite(r.threshold)))
     errors.push(t('admin.ops.alertRules.validation.thresholdRequired'))
   if (!(Number.isInteger(r.window_minutes) && (isErrorCount.value ? r.window_minutes >= 1 && r.window_minutes <= 1440 : [1, 5, 60].includes(r.window_minutes)))) {
@@ -422,6 +450,7 @@ async function save() {
   }
   saving.value = true
   try {
+    draft.value.qq_group_openids = qqGroups.value
     if (editingId.value) {
       await opsAPI.updateAlertRule(editingId.value, draft.value)
     } else {
@@ -713,7 +742,21 @@ function cancelDelete() {
           </div>
           <div class="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-dark-800/50 md:col-span-2">
             <span class="text-xs font-bold text-gray-700 dark:text-gray-200">{{ t('admin.ops.qq.notify') }}</span>
-            <input v-model="draft!.notify_qq" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600" />
+            <input v-model="draft!.notify_qq" data-testid="alert-notify-qq" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600" />
+          </div>
+          <div v-if="draft!.notify_qq" class="space-y-2 md:col-span-2">
+            <label class="input-label" for="alert-qq-groups">{{ t('admin.ops.qq.ruleGroups') }}</label>
+            <textarea id="alert-qq-groups" v-model="qqGroupsInput" class="input" rows="3" :placeholder="t('admin.ops.qq.ruleGroupsPlaceholder')" />
+            <p class="text-xs text-gray-500">{{ t('admin.ops.qq.ruleGroupsHint') }}</p>
+            <button type="button" class="btn btn-sm btn-secondary" :disabled="qqGroupsLoading" @click="loadQQGroups">
+              {{ t('admin.ops.qq.refreshGroups') }}
+            </button>
+            <div v-if="discoveredQQGroups.length" class="max-h-40 space-y-2 overflow-y-auto">
+              <label v-for="group in discoveredQQGroups" :key="group" class="flex items-center gap-2 text-xs">
+                <input type="checkbox" :value="group" :checked="qqGroups.includes(group)" @change="toggleQQGroup(group, ($event.target as HTMLInputElement).checked)" />
+                <span class="break-all">{{ group }}</span>
+              </label>
+            </div>
           </div>
           <p class="text-xs text-gray-500 md:col-span-2">{{ t('admin.ops.errorCountAlert.notificationHint') }}</p>
         </div>

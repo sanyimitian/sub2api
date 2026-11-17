@@ -34,6 +34,9 @@ func (s *OpsService) CreateAlertRule(ctx context.Context, rule *OpsAlertRule) (*
 	if err := normalizeOpsErrorCountRule(rule); err != nil {
 		return nil, infraerrors.BadRequest("INVALID_RULE", err.Error())
 	}
+	if err := normalizeOpsAlertQQGroups(rule); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_RULE", err.Error())
+	}
 	created, err := s.opsRepo.CreateAlertRule(ctx, rule)
 	if err != nil {
 		return nil, err
@@ -53,6 +56,9 @@ func (s *OpsService) UpdateAlertRule(ctx context.Context, rule *OpsAlertRule) (*
 	}
 
 	if err := normalizeOpsErrorCountRule(rule); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_RULE", err.Error())
+	}
+	if err := normalizeOpsAlertQQGroups(rule); err != nil {
 		return nil, infraerrors.BadRequest("INVALID_RULE", err.Error())
 	}
 	updated, err := s.opsRepo.UpdateAlertRule(ctx, rule)

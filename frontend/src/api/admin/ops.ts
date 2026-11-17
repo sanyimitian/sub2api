@@ -714,6 +714,7 @@ export interface AlertRule {
   cooldown_minutes: number
   notify_email: boolean
   notify_qq?: boolean
+  qq_group_openids?: string[]
   filters?: Record<string, any>
   created_at?: string
   updated_at?: string
