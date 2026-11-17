@@ -5,6 +5,7 @@ export type Category = 'coding' | 'math' | 'reasoning'
 export type Counts = Record<Category, number>
 export type CodingDifficulty = 'medium' | 'hard'
 export type CodingCounts = Record<CodingDifficulty, number>
+export type EvaluationMode = 'responses' | 'claude_code'
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh'
 export type RunStatus = 'queued' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'failed' | 'interrupted'
 export interface Suite {
@@ -52,6 +53,7 @@ export interface BankUpdate {
   candidate: { version: string; counts: Counts; coding_counts: CodingCounts; added: number; changed: number; removed: number; skipped?: number } | null
 }
 export interface QuestionResult {
+  client_version?: string
   http_status?: number
   api_error_code?: BenchmarkAPIErrorDetail['code']
   difficulty?: string
@@ -76,6 +78,7 @@ export interface BenchmarkAPIErrorDetail {
   count: number
 }
 export interface BenchmarkRun {
+  evaluation_mode?: EvaluationMode
   group_id?: number | null
   group_name?: string
   owner_site_name?: string
@@ -114,6 +117,7 @@ export interface BenchmarkRun {
   suite?: Suite
 }
 export interface CreateBenchmark {
+  evaluation_mode?: EvaluationMode
   suite_id: string
   base_url: string
   api_key: string
@@ -121,6 +125,7 @@ export interface CreateBenchmark {
   effort: Effort
 }
 export interface BenchmarkSchedule {
+  evaluation_mode?: EvaluationMode
   group_id?: number | null
   group_name?: string
   active_run_id?: string | null
@@ -147,7 +152,7 @@ export interface ScheduleSettings {
   enabled: boolean
 }
 export interface BenchmarkGroup { id: number; name: string; platform: string }
-export interface ScheduleTarget { group_id: number; model: string; effort: Effort }
+export interface ScheduleTarget { evaluation_mode?: EvaluationMode; group_id: number; model: string; effort: Effort }
 export type CreateSchedule = ScheduleTarget & ScheduleSettings
 export interface ExecutionSettings { max_concurrency: number; running: number; queued: number; user_testing_enabled?: boolean }
 export interface DisplayInput {

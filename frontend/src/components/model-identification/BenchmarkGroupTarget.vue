@@ -22,6 +22,7 @@
         </select>
       </label>
     </div>
+    <BenchmarkModeSelect :model-value="modelValue.evaluation_mode" :disabled="disabled" @update:model-value="update({ evaluation_mode: $event })" />
     <p v-if="loadingGroups || loadingModels" role="status" class="text-xs text-gray-500">{{ t('modelBenchmark.loading') }}</p>
     <p v-else-if="error" role="alert" class="text-sm text-red-600">{{ error }} <button type="button" class="underline" @click="loadGroups">{{ t('modelBenchmark.retry') }}</button></p>
     <p v-else-if="!groups.length" class="text-sm text-amber-700">{{ t('modelBenchmark.noGroups') }}</p>
@@ -31,6 +32,7 @@
 </template>
 
 <script setup lang="ts">
+import BenchmarkModeSelect from './BenchmarkModeSelect.vue'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { benchmarks, type BenchmarkGroup, type Effort, type ScheduleTarget } from '@/api/admin/model-benchmarks'

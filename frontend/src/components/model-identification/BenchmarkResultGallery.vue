@@ -7,6 +7,7 @@
             <span class="rounded px-2 py-0.5 text-xs font-medium" :class="resultSource(item.result) === 'admin' ? 'bg-primary-100 text-primary-800 dark:bg-primary-900/40 dark:text-primary-200' : 'bg-gray-200 text-gray-700 dark:bg-dark-600 dark:text-gray-200'" data-testid="test-source">{{ t(resultSource(item.result) === 'admin' ? 'modelBenchmark.adminTest' : 'modelBenchmark.userTest') }}</span>
             <span class="shrink-0 text-xs" :class="item.result.status === 'completed' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'">{{ t(`modelBenchmark.statuses.${item.result.status}`) }}</span>
           </div>
+          <BenchmarkModeBadge :mode="item.result.evaluation_mode" />
           <p v-if="item.schedule.name" class="truncate text-xs text-gray-600 dark:text-gray-300" :title="item.schedule.name">{{ item.schedule.name }}</p>
           <div class="flex items-end justify-between gap-2">
             <div><span class="text-xs text-gray-600 dark:text-gray-300">{{ t('modelBenchmark.passRate') }}</span><strong class="block text-2xl font-bold tabular-nums" :class="benchmarkScoreClass(item.result.pass_rate, item.result.status)" data-testid="shared-pass-rate">{{ formatBenchmarkPassRate(item.result.pass_rate, item.result.status) }}</strong></div>
@@ -41,6 +42,7 @@
         <div class="rounded-xl bg-primary-50 p-4 dark:bg-primary-900/20"><p class="text-xs text-gray-500">{{ t('modelBenchmark.passRate') }}</p><strong class="text-4xl tabular-nums" :class="benchmarkScoreClass(selected.result.pass_rate, selected.result.status)" data-testid="shared-detail-pass-rate">{{ formatBenchmarkPassRate(selected.result.pass_rate, selected.result.status) }}</strong><p class="mt-2 text-sm">{{ t('modelBenchmark.passed', { passed: selected.result.passed, total: selected.result.total }) }} · {{ t('modelBenchmark.completed', { completed: selected.result.completed, total: selected.result.total }) }}</p></div>
         <div class="grid grid-cols-3 gap-3"><div v-for="category in categories" :key="category" class="rounded-lg bg-gray-50 p-3 dark:bg-dark-800"><p class="text-xs text-gray-500">{{ t(`modelBenchmark.categories.${category}`) }}</p><strong class="mt-1 block text-lg" :class="benchmarkScoreClass(benchmarkCategoryScore(selected.result.categories[category].passed, selected.result.categories[category].total), selected.result.status)">{{ selected.result.categories[category].passed }}/{{ selected.result.categories[category].total }}</strong></div></div>
         <dl class="grid gap-3 text-sm sm:grid-cols-2"><div><dt class="text-xs text-gray-500">{{ t('modelBenchmark.finishedAt') }}</dt><dd>{{ formatDate(selected.result.finished_at || selected.result.created_at) }}</dd></div><div><dt class="text-xs text-gray-500">{{ t('modelBenchmark.elapsed') }}</dt><dd class="font-medium tabular-nums transition-colors" :class="benchmarkDurationClass(selected.result.elapsed_seconds)">{{ t('modelBenchmark.seconds', { count: selected.result.elapsed_seconds }) }}</dd></div><div><dt class="text-xs text-gray-500">{{ t('modelBenchmark.suiteVersion') }}</dt><dd>{{ selected.result.suite_day }} · v{{ selected.result.suite_revision }}</dd></div><div><dt class="text-xs text-gray-500">{{ t('modelBenchmark.tokenBreakdown') }}</dt><dd>{{ selected.result.usage ? `${selected.result.usage.input_tokens.toLocaleString()} / ${selected.result.usage.output_tokens.toLocaleString()} / ${selected.result.usage.total_tokens.toLocaleString()}` : '—' }}</dd></div><div class="sm:col-span-2"><dt class="text-xs text-gray-500">{{ t('modelBenchmark.suiteFingerprint') }}</dt><dd class="break-all font-mono text-xs">{{ selected.result.suite_fingerprint }}</dd></div></dl>
+        <BenchmarkModeBadge :mode="selected.result.evaluation_mode" />
         <BenchmarkErrorSummary :result="selected.result" />
         <p class="text-xs leading-5 text-gray-500">{{ t('modelBenchmark.passRateHint') }}</p>
       </div>
@@ -49,6 +51,7 @@
 </template>
 
 <script setup lang="ts">
+import BenchmarkModeBadge from './BenchmarkModeBadge.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

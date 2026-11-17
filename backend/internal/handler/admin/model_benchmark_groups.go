@@ -88,13 +88,14 @@ func (h *ModelBenchmarkHandler) prepareGroupSchedule(c *gin.Context) bool {
 		return false
 	}
 	var input struct {
-		GroupID int64  `json:"group_id"`
-		Model   string `json:"model"`
-		Effort  string `json:"effort"`
-		Name    string `json:"name"`
-		Cron    string `json:"cron_expression"`
-		Enabled bool   `json:"enabled"`
-		Public  bool   `json:"public_results"`
+		GroupID        int64  `json:"group_id"`
+		Model          string `json:"model"`
+		Effort         string `json:"effort"`
+		EvaluationMode string `json:"evaluation_mode"`
+		Name           string `json:"name"`
+		Cron           string `json:"cron_expression"`
+		Enabled        bool   `json:"enabled"`
+		Public         bool   `json:"public_results"`
 	}
 	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, 16*1024+1))
 	if err != nil || len(raw) > 16*1024 {
@@ -107,6 +108,13 @@ func (h *ModelBenchmarkHandler) prepareGroupSchedule(c *gin.Context) bool {
 		response.BadRequest(c, "请选择分组、模型并填写有效的定时任务配置")
 		return false
 	}
+	if input.EvaluationMode == "" {
+		input.EvaluationMode = "responses"
+	}
+	if input.EvaluationMode != "responses" && input.EvaluationMode != "claude_code" {
+		response.BadRequest(c, "评测模式不受支持")
+		return false
+	}
 	if input.Effort == "" {
 		input.Effort = "medium"
 	}
@@ -117,11 +125,12 @@ func (h *ModelBenchmarkHandler) prepareGroupSchedule(c *gin.Context) bool {
 	}
 	data := struct {
 		*service.BenchmarkGroupTarget
-		Name    string `json:"name"`
-		Cron    string `json:"cron_expression"`
-		Enabled bool   `json:"enabled"`
-		Public  bool   `json:"public_results"`
-	}{target, input.Name, input.Cron, input.Enabled, input.Public}
+		EvaluationMode string `json:"evaluation_mode"`
+		Name           string `json:"name"`
+		Cron           string `json:"cron_expression"`
+		Enabled        bool   `json:"enabled"`
+		Public         bool   `json:"public_results"`
+	}{target, input.EvaluationMode, input.Name, input.Cron, input.Enabled, input.Public}
 	body, err := json.Marshal(data)
 	if err != nil {
 		response.InternalError(c, "无法创建分组测试")

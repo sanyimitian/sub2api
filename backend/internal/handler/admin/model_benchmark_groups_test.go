@@ -66,6 +66,33 @@ func TestModelBenchmarkGroupScheduleResolvesTargetOnServer(t *testing.T) {
 	require.Equal(t, "medium", received["effort"])
 	require.Equal(t, "Trusted group", received["group_name"])
 	require.NotContains(t, w.Body.String(), "secret")
+	require.Equal(t, "responses", received["evaluation_mode"])
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("POST", "/schedules", strings.NewReader(strings.TrimSuffix(base, "}")+`,"evaluation_mode":"claude_code"}`)))
+	require.Equal(t, 201, w.Code, w.Body.String())
+	require.Equal(t, "claude_code", received["evaluation_mode"])
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("POST", "/schedules", strings.NewReader(strings.TrimSuffix(base, "}")+`,"evaluation_mode":"shell"}`)))
+	require.Equal(t, 400, w.Code)
+}
+
+func TestModelBenchmarkPublicEvaluationMode(t *testing.T) {
+	for _, mode := range []string{"", "responses", "claude_code", "unknown"} {
+		fixture := benchmarkPublicFixture()
+		fixture["items"].([]any)[0].(map[string]any)["evaluation_mode"] = mode
+		body, err := json.Marshal(fixture)
+		require.NoError(t, err)
+		feed, err := decodeBenchmarkPublicFeed(body)
+		if mode == "unknown" {
+			require.Error(t, err)
+			continue
+		}
+		require.NoError(t, err)
+		if mode == "" {
+			mode = "responses"
+		}
+		require.Equal(t, mode, feed.Items[0].EvaluationMode)
+	}
 }
 
 func TestModelBenchmarkGroupPublicFeedHidesURL(t *testing.T) {

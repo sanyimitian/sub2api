@@ -18,6 +18,17 @@ from test_worker import Fixture, FakeGrader
 
 
 class DisplayTests(Fixture):
+    def test_evaluation_modes_survive_export_import_and_legacy_defaults(self):
+        _, feed = self.feed()
+        item = feed["items"][0]
+        item["evaluation_mode"] = "claude_code"
+        self.assertEqual(sanitize_feed(feed)[0]["results"][0]["evaluation_mode"], "claude_code")
+        del item["evaluation_mode"]
+        self.assertEqual(sanitize_feed(feed)[0]["results"][0]["evaluation_mode"], "responses")
+        item["evaluation_mode"] = "unknown"
+        with self.assertRaises(ValueError):
+            sanitize_feed(feed)
+
     def test_group_results_export_import_and_showcase_without_url(self):
         self.store.refresh({"coding": 0, "math": 1, "reasoning": 0})
         plan = self.plan(group_id=4, group_name="Premium")

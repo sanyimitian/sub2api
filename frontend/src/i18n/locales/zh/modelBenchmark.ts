@@ -1,4 +1,7 @@
 export default {
+  evaluationMode: '评测模式',
+  modes: { responses: 'API（Responses）', claude_code: 'Claude Code（无工具）' },
+  claudeCodeHint: '使用官方 Claude Code，每题独立会话，禁用工具与搜索。客户端自带提示词，结果仅建议与相同模式比较；仅适用于支持 Anthropic Messages 的 Claude 线路。',
   group: '测试分组',
   browseGroups: '按分组浏览测试结果',
   allGroups: '全部分组',

@@ -168,6 +168,8 @@ class Store:
             if "public_results" not in schedule_columns:
                 db.execute("ALTER TABLE schedules ADD COLUMN public_results INTEGER NOT NULL DEFAULT 0")
             for table, existing in (("runs", columns), ("schedules", schedule_columns)):
+                if "evaluation_mode" not in existing:
+                    db.execute(f"ALTER TABLE {table} ADD COLUMN evaluation_mode TEXT NOT NULL DEFAULT 'responses'")
                 if "group_id" not in existing:
                     db.execute(f"ALTER TABLE {table} ADD COLUMN group_id INTEGER")
                 if "group_name" not in existing:
@@ -384,7 +386,15 @@ class Store:
             suite = self._suite(db, refresh=True, counts=counts)
         return self.suite_public(suite)
 
+    @staticmethod
+    def validate_mode(data):
+        mode = data.get("evaluation_mode", "responses")
+        if mode not in ("responses", "claude_code"):
+            raise Problem("评测模式不受支持")
+        return mode
+
     def validate_target(self, data: dict):
+        self.validate_mode(data)
         try:
             base_url = normalize_url(data.get("base_url", ""))
         except ValueError as exc:
@@ -419,10 +429,10 @@ class Store:
             suite = self._suite(db)
             if data.get("suite_id") != suite["id"]:
                 raise Problem("当天题库已变更，请刷新后再开始测试", 409)
-            run_id = self._insert_run(db, suite["id"], base_url, model, effort, credential, owner_user_id=owner_user_id, owner_site_id=owner_site_id, identity=identity)
+            run_id = self._insert_run(db, suite["id"], base_url, model, effort, credential, owner_user_id=owner_user_id, owner_site_id=owner_site_id, identity=identity, evaluation_mode=self.validate_mode(data))
         return self.detail(run_id)
 
-    def _insert_run(self, db, suite_id, base_url, model, effort, credential, rerun_of=None, schedule_id=None, scheduled_for=None, owner_user_id=None, owner_site_id="", identity=None, group_id=None, group_name=""):
+    def _insert_run(self, db, suite_id, base_url, model, effort, credential, rerun_of=None, schedule_id=None, scheduled_for=None, owner_user_id=None, owner_site_id="", identity=None, group_id=None, group_name="", evaluation_mode="responses"):
         identity = self.validate_identity(identity if owner_user_id is not None else None)
         if owner_user_id is not None and not db.execute("SELECT user_testing_enabled FROM config WHERE id=1").fetchone()[0]:
             raise Problem("管理员暂未开放用户自行测试", 403)
@@ -439,7 +449,7 @@ class Store:
         run_id = uuid.uuid4().hex
         db.execute("INSERT INTO runs(id,suite_id,rerun_of,base_url,model,effort,credential,created_at,status,schedule_id,scheduled_for,owner_user_id,quota_at,owner_site_id,owner_email,owner_username,owner_site_name) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    (run_id, suite_id, rerun_of, base_url, model, effort, credential, now(), "queued", schedule_id, scheduled_for, owner_user_id, self.clock().timestamp(), owner_site_id, identity['email'], identity['username'], identity['site_name']))
-        db.execute("UPDATE runs SET group_id=?,group_name=? WHERE id=?", (group_id, group_name, run_id))
+        db.execute("UPDATE runs SET group_id=?,group_name=?,evaluation_mode=? WHERE id=?", (group_id, group_name, evaluation_mode, run_id))
         # Older records lack account snapshots. Only fill missing fields within
         # this authenticated site/user pair; never overwrite another identity.
         if owner_site_id and owner_user_id is not None:
@@ -462,11 +472,11 @@ class Store:
             suite = self._suite(db)
             if identity is None and owner_user_id is not None:
                 identity = {'email': row['owner_email'], 'username': row['owner_username'], 'site_name': row['owner_site_name']}
-            new_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"], run_id, owner_user_id=owner_user_id, owner_site_id=owner_site_id, identity=identity, group_id=row["group_id"], group_name=row["group_name"])
+            new_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"], run_id, owner_user_id=owner_user_id, owner_site_id=owner_site_id, identity=identity, group_id=row["group_id"], group_name=row["group_name"], evaluation_mode=row["evaluation_mode"])
         return self.detail(new_id)
 
     def _public_run(self, row, suite, detail=False):
-        record = {k: row[k] for k in ("id", "suite_id", "rerun_of", "schedule_id", "scheduled_for", "base_url", "model", "effort", "created_at", "started_at", "finished_at", "status", "error")}
+        record = {k: row[k] for k in ("id", "suite_id", "rerun_of", "schedule_id", "scheduled_for", "base_url", "model", "effort", "evaluation_mode", "created_at", "started_at", "finished_at", "status", "error")}
         record.update(group_id=row["group_id"], group_name=row["group_name"])
         if row["group_id"] is not None:
             record["base_url"] = ""
@@ -674,7 +684,7 @@ class Store:
         return name.strip(), expression, enabled, upcoming if enabled else None, public_results
 
     def _public_schedule(self, row):
-        result = {key: row[key] for key in ("id", "name", "base_url", "model", "effort", "cron_expression", "created_at", "updated_at", "next_run_at", "last_attempt_at", "last_run_id", "last_error")}
+        result = {key: row[key] for key in ("id", "name", "base_url", "model", "effort", "evaluation_mode", "cron_expression", "created_at", "updated_at", "next_run_at", "last_attempt_at", "last_run_id", "last_error")}
         result.update(group_id=row["group_id"], group_name=row["group_name"])
         if row["group_id"] is not None:
             result["base_url"] = ""
@@ -699,13 +709,14 @@ class Store:
             db.execute("""INSERT INTO schedules(id,name,base_url,model,effort,credential,cron_expression,enabled,created_at,updated_at,next_run_at,public_results)
                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                        (schedule_id, name, base_url, model, effort, credential, expression, int(enabled), created, created, upcoming, int(public_results)))
-            db.execute("UPDATE schedules SET group_id=?,group_name=? WHERE id=?", (group_id, group_name, schedule_id))
+            db.execute("UPDATE schedules SET group_id=?,group_name=?,evaluation_mode=? WHERE id=?", (group_id, group_name, self.validate_mode(data), schedule_id))
             return self._public_schedule(db.execute("SELECT * FROM schedules WHERE id=?", (schedule_id,)).fetchone())
 
     def update_schedule(self, schedule_id, data):
         target_fields = {"group_id", "group_name", "base_url", "api_key", "model", "effort"}
-        if not data or set(data) - ({"name", "cron_expression", "enabled", "public_results"} | target_fields):
+        if not data or set(data) - ({"name", "cron_expression", "enabled", "public_results", "evaluation_mode"} | target_fields):
             raise Problem("定时任务配置包含不支持的字段")
+        mode = self.validate_mode(data) if "evaluation_mode" in data else None
         target = None
         if set(data) & target_fields:
             if not target_fields <= set(data):
@@ -718,6 +729,8 @@ class Store:
             row = db.execute("SELECT * FROM schedules WHERE id=? AND deleted=0", (schedule_id,)).fetchone()
             if row is None:
                 raise Problem("定时任务不存在", 404)
+            if mode is not None:
+                db.execute("UPDATE schedules SET evaluation_mode=? WHERE id=?", (mode, schedule_id))
             if target is not None:
                 db.execute("UPDATE schedules SET base_url=?,model=?,effort=?,credential=?,group_id=?,group_name=? WHERE id=?", (*target, schedule_id))
             merged = {"name": row["name"], "cron_expression": row["cron_expression"], "enabled": bool(row["enabled"]), "public_results": bool(row["public_results"]), **data}
@@ -747,7 +760,7 @@ class Store:
             if db.execute("SELECT id FROM runs WHERE schedule_id=? AND status IN ('queued','running','cancelling')", (schedule_id,)).fetchone():
                 raise Problem("该定时任务已有未结束的测试，请等待完成后再执行", 409)
             suite = self._suite(db)
-            run_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"], schedule_id=schedule_id, group_id=row["group_id"], group_name=row["group_name"])
+            run_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"], schedule_id=schedule_id, group_id=row["group_id"], group_name=row["group_name"], evaluation_mode=row["evaluation_mode"])
             upcoming = None if interval_duration(row["cron_expression"]) is not None else row["next_run_at"]
             db.execute("UPDATE schedules SET last_run_id=?,last_attempt_at=?,last_error='',next_run_at=? WHERE id=?",
                        (run_id, self.clock().astimezone(timezone.utc).isoformat(), upcoming, schedule_id))
@@ -777,7 +790,7 @@ class Store:
                 if not error:
                     suite = self._suite(db)
                     run_id = self._insert_run(db, suite["id"], row["base_url"], row["model"], row["effort"], row["credential"],
-                                              schedule_id=row["id"], scheduled_for=row["next_run_at"], group_id=row["group_id"], group_name=row["group_name"])
+                                              schedule_id=row["id"], scheduled_for=row["next_run_at"], group_id=row["group_id"], group_name=row["group_name"], evaluation_mode=row["evaluation_mode"])
                     db.execute("UPDATE schedules SET last_run_id=? WHERE id=?", (run_id, row["id"]))
                     added += 1
                 # One catch-up run after downtime, never a burst for every missed interval.
@@ -838,7 +851,7 @@ class Store:
 
     def _shared_result(self, db, row):
         # Explicit whitelist: never publish targets, credentials, raw errors or answers.
-        fields = ("id", "model", "effort", "status", "created_at", "finished_at", "total", "completed", "passed",
+        fields = ("id", "model", "effort", "evaluation_mode", "status", "created_at", "finished_at", "total", "completed", "passed",
                   "pass_rate", "categories", "suite_day", "suite_revision", "suite_fingerprint", "elapsed_seconds",
                   "usage", "api_errors", "api_error_details", "grading_errors", "incomplete_responses", "group_id", "group_name")
         suite = db.execute("SELECT * FROM suites WHERE id=?", (row["suite_id"],)).fetchone()

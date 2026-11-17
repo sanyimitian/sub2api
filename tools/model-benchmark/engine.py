@@ -14,6 +14,7 @@ from pathlib import Path
 
 from store import MAX_CONCURRENCY, Store
 from displays import Displays
+from claude_code import ClaudeCodeClient
 from transport import RequestFailure, ResponsesClient
 
 INSTRUCTIONS = "You are a helpful assistant. Solve the task independently and follow the requested answer format."
@@ -105,8 +106,9 @@ class Grader:
 
 
 class Engine:
-    def __init__(self, store: Store, client: ResponsesClient, grader: Grader):
+    def __init__(self, store: Store, client: ResponsesClient, grader: Grader, claude_client=None):
         self.store, self.client, self.grader = store, client, grader
+        self.claude_client = claude_client or ClaudeCodeClient(getattr(client, "allow_private", False), getattr(client, "timeout", 600))
         self.stopping = threading.Event()
         self.available = threading.Event()
         self.available.set()
@@ -231,6 +233,7 @@ class Engine:
         payload = {"model": run["model"], "instructions": INSTRUCTIONS,
                    "input": [{"role": "user", "content": question["prompt"]}],
                    "reasoning": {"effort": run["effort"]}, "store": False}
+        client = self.claude_client if run.get("evaluation_mode") == "claude_code" else self.client
         data = None
         for attempt in range(3):
             if not self.wait_for_resources(run['id']):
@@ -239,7 +242,7 @@ class Engine:
             result["attempts"] += 1
             try:
                 target_options = {"group_id": run["group_id"]} if run.get("group_id") is not None else {}
-                data = self.client.generate(run["base_url"], run["api_key"], payload, **target_options)
+                data = client.generate(run["base_url"], run["api_key"], payload, **target_options)
                 break
             except RequestFailure as exc:
                 if attempt < 2 and (exc.status in RETRYABLE or exc.status == 0) and not self.store.cancelled(run["id"]):
@@ -260,7 +263,9 @@ class Engine:
             # or credentials are stored with these artifacts.
             artifacts = self.store.directory / "artifacts" / run["id"]
             artifacts.mkdir(parents=True, exist_ok=True, mode=0o700)
-            (artifacts / f"{index:03d}.json").write_text(json.dumps({"request": payload, "response": data}, ensure_ascii=False), encoding="utf-8")
+            (artifacts / f"{index:03d}.json").write_text(json.dumps({"evaluation_mode": run.get("evaluation_mode", "responses"), "request": payload, "response": data}, ensure_ascii=False), encoding="utf-8")
+            if data.get("client_version"):
+                result["client_version"] = data["client_version"]
             malformed_output = False
             try:
                 answer = "\n".join(content.get("text", "") for item in data.get("output", []) if item.get("type") == "message"

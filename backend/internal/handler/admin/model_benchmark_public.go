@@ -180,6 +180,7 @@ func validBenchmarkAPIErrors(details []benchmarkAPIErrorDetail, total int) bool 
 }
 
 type benchmarkPublicResult struct {
+	EvaluationMode      string                           `json:"evaluation_mode"`
 	GroupID             *int64                           `json:"group_id,omitempty"`
 	GroupName           string                           `json:"group_name,omitempty"`
 	ID                  string                           `json:"id"`
@@ -228,6 +229,12 @@ func decodeBenchmarkPublicFeed(data []byte) (*benchmarkPublicFeed, error) {
 	ids := make(map[string]bool)
 	for i := range feed.Items {
 		r := &feed.Items[i]
+		if r.EvaluationMode == "" {
+			r.EvaluationMode = "responses"
+		}
+		if r.EvaluationMode != "responses" && r.EvaluationMode != "claude_code" {
+			return nil, invalid
+		}
 		if r.GroupID != nil {
 			if *r.GroupID <= 0 || *r.GroupID > 9007199254740991 || !benchmarkPublicText(r.GroupName, 100) {
 				return nil, invalid

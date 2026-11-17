@@ -1,4 +1,7 @@
 export default {
+  evaluationMode: 'Evaluation mode',
+  modes: { responses: 'API (Responses)', claude_code: 'Claude Code (no tools)' },
+  claudeCodeHint: 'Uses official Claude Code with a fresh session per question and no tools or search. The client adds its own prompt; compare results within the same mode. Requires a Claude endpoint supporting Anthropic Messages.',
   group: 'Test group',
   browseGroups: 'Browse results by group',
   allGroups: 'All groups',

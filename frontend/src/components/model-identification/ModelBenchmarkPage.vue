@@ -89,7 +89,7 @@
                 </select>
               </label>
             </div>
-            <p class="text-xs leading-5 text-gray-500 dark:text-gray-400" :class="{ 'md:col-span-2': userMode }">{{ t('modelBenchmark.protocol') }}</p>
+            <BenchmarkModeSelect v-model="form.evaluation_mode" :disabled="!!busy" :class="{ 'md:col-span-2': userMode }" />
             </template>
             <div v-if="!userMode && scheduledMode" class="rounded-lg bg-gray-50 p-3 dark:bg-dark-800">
               <BenchmarkScheduleFields v-model="scheduleForm" :timezone="state?.timezone || 'Asia/Shanghai'" />
@@ -165,7 +165,7 @@
             <thead class="border-b border-gray-200 text-gray-500 dark:border-dark-700"><tr><th class="pb-3 pr-4">{{ t('modelBenchmark.scheduleName') }}</th><th class="pb-3 pr-4">{{ t('modelBenchmark.frequency') }}</th><th class="pb-3 pr-4">{{ t('modelBenchmark.nextRun') }}</th><th class="pb-3 pr-4">{{ t('modelBenchmark.lastRun') }}</th><th class="pb-3 pr-4">{{ t('modelBenchmark.publicResults') }}</th><th class="pb-3">{{ t('modelBenchmark.actions') }}</th></tr></thead>
             <tbody class="divide-y divide-gray-100 dark:divide-dark-800">
               <tr v-for="schedule in schedules" :key="schedule.id" :data-schedule-id="schedule.id">
-                <td class="max-w-xs py-4 pr-4"><div class="font-semibold">{{ schedule.name }}</div><div v-if="schedule.group_name" class="mt-1 text-sm text-primary-600 dark:text-primary-400">{{ schedule.group_name }}</div><div v-else class="mt-1 text-xs text-amber-700">{{ t('modelBenchmark.legacyScheduleTarget') }}</div><div class="mt-1 text-xs text-gray-500">{{ schedule.model }} · {{ t(`modelBenchmark.efforts.${schedule.effort}`) }}</div></td>
+                <td class="max-w-xs py-4 pr-4"><div class="font-semibold">{{ schedule.name }}</div><BenchmarkModeBadge :mode="schedule.evaluation_mode" /><div v-if="schedule.group_name" class="mt-1 text-sm text-primary-600 dark:text-primary-400">{{ schedule.group_name }}</div><div v-else class="mt-1 text-xs text-amber-700">{{ t('modelBenchmark.legacyScheduleTarget') }}</div><div class="mt-1 text-xs text-gray-500">{{ schedule.model }} · {{ t(`modelBenchmark.efforts.${schedule.effort}`) }}</div></td>
                 <td class="py-4 pr-4"><span>{{ scheduleFrequency(schedule.cron_expression) }}</span><div class="mt-1 text-xs" :class="schedule.enabled ? 'text-emerald-600' : 'text-gray-500'">{{ t(schedule.enabled ? 'modelBenchmark.scheduleEnabled' : 'modelBenchmark.schedulePaused') }}</div></td>
                 <td class="whitespace-nowrap py-4 pr-4 text-xs">{{ schedule.next_run_at ? formatScheduledTime(schedule.next_run_at) : schedule.enabled && schedule.active_run_id && schedule.cron_expression.startsWith('@every') ? t('modelBenchmark.waitingInterval') : '—' }}</td>
                 <td class="max-w-xs py-4 pr-4 text-xs"><div>{{ schedule.last_attempt_at ? formatScheduledTime(schedule.last_attempt_at) : '—' }}</div><p v-if="schedule.last_error" class="mt-1 text-amber-700 dark:text-amber-300">{{ schedule.last_error }}</p><button v-if="schedule.last_run_id" class="mt-1 text-primary-600 hover:underline" :disabled="!!busy" @click="showDetail(schedule.last_run_id)">{{ t('modelBenchmark.details') }}</button></td>
@@ -201,6 +201,7 @@
               <tr v-for="run in runs" :key="run.id" :data-run-id="run.id">
                 <td class="max-w-xs py-4 pr-4">
                   <div class="break-words font-semibold">{{ run.model }} <span class="text-xs font-normal text-gray-500">{{ t(`modelBenchmark.efforts.${run.effort}`) }}</span></div>
+                  <BenchmarkModeBadge :mode="run.evaluation_mode" />
                   <div v-if="run.group_name" class="mt-1 text-sm text-primary-600 dark:text-primary-400">{{ t('modelBenchmark.group') }}: {{ run.group_name }}</div>
                   <div v-else class="mt-1 break-all text-xs text-gray-500">{{ run.base_url }}</div>
                   <div class="mt-1 text-xs text-gray-500">{{ formatDate(run.created_at) }}</div>
@@ -239,6 +240,7 @@
       <section v-if="detail" ref="detailPanel" tabindex="-1" class="benchmark-card space-y-4" :aria-label="t('modelBenchmark.questionResults')">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="text-lg font-semibold">{{ t('modelBenchmark.questionResults') }} · {{ detail.model }}</h2>
+          <BenchmarkModeBadge :mode="detail.evaluation_mode" />
           <p v-if="detail.group_name" class="text-sm text-primary-600 dark:text-primary-400">{{ t('modelBenchmark.group') }}: {{ detail.group_name }}</p>
           <button class="btn btn-secondary" @click="closeDetail">{{ t('modelBenchmark.close') }}</button>
         </div>
@@ -278,6 +280,8 @@
 </template>
 
 <script setup lang="ts">
+import BenchmarkModeSelect from './BenchmarkModeSelect.vue'
+import BenchmarkModeBadge from './BenchmarkModeBadge.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -318,13 +322,13 @@ const categories: Category[] = ['coding', 'math', 'reasoning']
 const codingDifficulties: CodingDifficulty[] = ['medium', 'hard']
 const codingCounts = reactive<CodingCounts>({ medium: 10, hard: 10 })
 const efforts: Effort[] = ['low', 'medium', 'high', 'xhigh']
-const form = reactive({ base_url: '', api_key: '', model: '', effort: 'medium' as Effort })
+const form = reactive({ base_url: '', api_key: '', model: '', effort: 'medium' as Effort, evaluation_mode: 'responses' as 'responses' | 'claude_code' })
 const showKeyPicker = ref(false)
 const selectedKeyName = ref('')
 const scheduledMode = ref(false)
-const scheduleTarget = ref<ScheduleTarget>({ group_id: 0, model: '', effort: 'medium' })
+const scheduleTarget = ref<ScheduleTarget>({ group_id: 0, model: '', effort: 'medium', evaluation_mode: 'responses' })
 const scheduleTargetReady = ref(false)
-const editTarget = ref<ScheduleTarget>({ group_id: 0, model: '', effort: 'medium' })
+const editTarget = ref<ScheduleTarget>({ group_id: 0, model: '', effort: 'medium', evaluation_mode: 'responses' })
 const editTargetReady = ref(false)
 const scheduleForm = ref<ScheduleSettings>({ name: '', cron_expression: '@every 30m', enabled: true, public_results: false })
 const schedules = ref<BenchmarkSchedule[]>([])
@@ -500,7 +504,7 @@ async function toggleUserTesting() {
 }
 function editSchedule(schedule: BenchmarkSchedule) {
   editTargetReady.value = false
-  editTarget.value = { group_id: schedule.group_id ?? 0, model: schedule.model, effort: schedule.effort }
+  editTarget.value = { group_id: schedule.group_id ?? 0, model: schedule.model, effort: schedule.effort, evaluation_mode: schedule.evaluation_mode || 'responses' }
   editingSchedule.value = schedule
   editForm.value = { name: schedule.name, cron_expression: schedule.cron_expression, enabled: schedule.enabled, public_results: schedule.public_results }
 }

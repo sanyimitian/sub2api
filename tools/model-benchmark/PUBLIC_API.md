@@ -1,5 +1,9 @@
 # 模型评测公开结果接口（v2）
 
+每条结果包含 `evaluation_mode`：`responses` 表示原有 API 模式，`claude_code` 表示
+官方 Claude Code 无工具模式。旧版结果未携带该字段时按 `responses` 展示。
+两种模式的客户端提示词不同，展示和比较时应保留模式标识。
+
 ```http
 GET https://你的站点/api/v1/model-benchmarks/public-results
 Accept: application/json

@@ -31,7 +31,7 @@
           <td class="p-3" data-testid="record-account"><div class="min-w-36 max-w-64 break-all font-medium">{{ accountLabel(run) }}</div><div v-if="run.owner?.email && run.owner?.username" class="text-xs text-gray-500">{{ run.owner.username }}</div><div class="text-xs text-gray-500">#{{ run.owner_user_id }} <span v-if="run.owner?.deleted || (!siteID(run) && run.owner?.missing)">· {{ t('modelBenchmark.deletedAccount') }}</span></div></td>
           <td class="p-3" data-testid="record-site"><div class="min-w-28 max-w-48 break-words font-medium">{{ siteLabel(run) }}</div><div v-if="siteID(run)" class="max-w-48 break-all text-xs text-gray-500">{{ siteID(run) }}</div></td>
           <td class="p-3" data-testid="record-api-url"><div class="min-w-48 max-w-72 break-all font-mono text-xs">{{ run.base_url || t('modelBenchmark.urlUnavailable') }}</div></td>
-          <td class="p-3"><div class="max-w-56 break-all font-mono">{{ run.model }}</div><span class="text-xs text-gray-500">{{ t('modelBenchmark.effort') }}: {{ t(`modelBenchmark.efforts.${run.effort}`) }}</span></td>
+          <td class="p-3"><div class="max-w-56 break-all font-mono">{{ run.model }} <BenchmarkModeBadge :mode="run.evaluation_mode" /></div><span class="text-xs text-gray-500">{{ t('modelBenchmark.effort') }}: {{ t(`modelBenchmark.efforts.${run.effort}`) }}</span></td>
           <td class="whitespace-nowrap p-3 text-xs">{{ run.suite_day }} · v{{ run.suite_revision }}<code class="block text-gray-500" :title="run.suite_fingerprint">{{ run.suite_fingerprint.slice(0, 12) }}</code></td>
           <td class="p-3"><span>{{ t(`modelBenchmark.statuses.${run.status}`) }}</span><div class="text-xs text-gray-500">{{ run.completed }}/{{ run.total }}</div><BenchmarkErrorSummary :result="run" class="mt-2 max-w-xs" /></td>
           <td class="p-3"><strong class="text-xl tabular-nums" :class="benchmarkScoreClass(run.pass_rate, run.status)" data-testid="user-pass-rate">{{ formatBenchmarkPassRate(run.pass_rate, run.status) }}</strong><div v-for="category in categories" :key="category" class="whitespace-nowrap text-xs" :class="benchmarkScoreClass(benchmarkCategoryScore(run.categories[category].passed, run.categories[category].total), run.status)">{{ t(`modelBenchmark.categories.${category}`) }} {{ run.categories[category].passed }}/{{ run.categories[category].total }}</div></td>
@@ -43,7 +43,7 @@
     <div v-if="total > 0" class="overflow-x-auto"><Pagination :total="total" :page="page" :page-size="20" :show-page-size-selector="false" show-jump @update:page="loadPage" /></div>
     <BaseDialog :show="!!selected" :title="t('modelBenchmark.details')" width="wide" @close="closeDetail">
       <div v-if="selected" class="space-y-4" data-testid="user-record-detail">
-        <p class="break-all text-sm">{{ accountLabel(selected) }} · {{ selected.model }}</p>
+        <p class="break-all text-sm">{{ accountLabel(selected) }} · {{ selected.model }} <BenchmarkModeBadge :mode="selected.evaluation_mode" /></p>
         <p class="break-all text-sm">{{ t('modelBenchmark.externalSiteLabel') }}: {{ siteLabel(selected) }}</p>
         <p class="break-all text-sm">{{ t('modelBenchmark.testApiUrl') }}: {{ selected.base_url || t('modelBenchmark.urlUnavailable') }}</p>
         <p class="text-sm">{{ t('modelBenchmark.passRate') }}: <strong class="text-2xl" :class="benchmarkScoreClass(selected.pass_rate, selected.status)">{{ formatBenchmarkPassRate(selected.pass_rate, selected.status) }}</strong> · {{ t(`modelBenchmark.statuses.${selected.status}`) }}</p>
@@ -58,6 +58,7 @@
 </template>
 
 <script setup lang="ts">
+import BenchmarkModeBadge from './BenchmarkModeBadge.vue'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { benchmarks, type BenchmarkRun, type BenchmarkOwner, type BenchmarkSiteOption, type Category } from '@/api/admin/model-benchmarks'

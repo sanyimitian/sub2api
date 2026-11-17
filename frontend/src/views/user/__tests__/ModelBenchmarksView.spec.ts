@@ -197,7 +197,7 @@ describe('user model benchmarks', () => {
     await wrapper.get('[name="model"]').setValue('test-model')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
-    expect(userBenchmarks.create).toHaveBeenCalledWith({ base_url: 'https://own.example.com/v1', api_key: 'user-secret', model: 'test-model', effort: 'medium', suite_id: 'today' }, expect.any(AbortSignal))
+    expect(userBenchmarks.create).toHaveBeenCalledWith({ base_url: 'https://own.example.com/v1', api_key: 'user-secret', model: 'test-model', effort: 'medium', evaluation_mode: 'responses', suite_id: 'today' }, expect.any(AbortSignal))
     expect((wrapper.get('[name="api_key"]').element as HTMLInputElement).value).toBe('')
   })
 

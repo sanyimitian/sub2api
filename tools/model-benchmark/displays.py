@@ -140,6 +140,10 @@ def sanitize_feed(data):
             if not isinstance(result, dict):
                 raise ValueError("Invalid result")
             record = {k: text(result[k]) for k in ("id", "model", "effort", "status", "suite_day", "suite_fingerprint")}
+            mode = result.get("evaluation_mode", "responses")
+            if mode not in ("responses", "claude_code"):
+                raise ValueError("Invalid evaluation mode")
+            record["evaluation_mode"] = mode
             if result.get("group_id") is not None or result.get("group_name"):
                 record["group_id"] = integer(result.get("group_id"), 9007199254740991)
                 if record["group_id"] == 0:
