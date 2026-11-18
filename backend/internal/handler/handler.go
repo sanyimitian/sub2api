@@ -49,8 +49,11 @@ type AdminHandlers struct {
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
+	ModelIdentification *ModelIdentificationHandler
+	PublicTransit       *PublicTransitHandler
 	Auth                *AuthHandler
 	User                *UserHandler
+	MCPOAuth            *MCPOAuthHandler
 	APIKey              *APIKeyHandler
 	Usage               *UsageHandler
 	Redeem              *RedeemHandler
@@ -58,7 +61,6 @@ type Handlers struct {
 	Announcement        *AnnouncementHandler
 	ChannelMonitor      *ChannelMonitorUserHandler
 	ChannelMonitorV2    *ChannelMonitorV2Handler
-	ModelIdentification *ModelIdentificationHandler
 	Admin               *AdminHandlers
 	Gateway             *GatewayHandler
 	OpenAIGateway       *OpenAIGatewayHandler
@@ -71,7 +73,6 @@ type Handlers struct {
 	ModelPlaza          *ModelPlazaHandler
 	AsyncImage          *AsyncImageHandler
 	BatchImage          *BatchImageHandler
-	PublicTransit       *PublicTransitHandler
 }
 
 // BuildInfo contains build-time information

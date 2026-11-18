@@ -189,38 +189,38 @@ func TestOllamaCloudUsageSessionRouteOmitsAuditBody(t *testing.T) {
 	require.NotContains(t, logs[0].RequestBody, "audit-canary")
 }
 
-func TestModelIdentificationAuditOmitsCredentialBodies(t *testing.T) {
+// MCP OAuth 是机器凭证：只读工具同样可以批量读取邮箱等数据，必须全部入审计并带上 grant。
+func TestAuditRecordsEveryMCPOAuthReadWithGrant(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repository := &auditCaptureRepository{}
 	auditService := service.NewAuditLogService(repository, nil)
 	auditService.Start()
-	router := gin.New()
-	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
-	router.POST("/api/v1/admin/model-identification/plans", func(c *gin.Context) { c.JSON(200, gin.H{"id": 1}) })
-	router.PUT("/api/v1/admin/model-identification/plans/:id", func(c *gin.Context) { c.JSON(200, gin.H{"id": 1}) })
-	router.GET("/api/v1/admin/model-identification/plans/:id", func(c *gin.Context) { c.JSON(200, gin.H{"api_key": "secret-canary"}) })
-	for _, method := range []string{"POST", "PUT", "GET"} {
-		path := "/api/v1/admin/model-identification/plans"
-		if method != "POST" {
-			path += "/1"
-		}
-		req := httptest.NewRequest(method, path, bytes.NewBufferString(`{"endpoint":"https://hidden.example.com","api_key":"secret-canary"}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		require.Equal(t, 200, w.Code)
+
+	for _, authMethod := range []string{service.AuditAuthMethodMCPOAuth, ""} {
+		router := gin.New()
+		router.Use(func(c *gin.Context) {
+			c.Set(string(ContextKeyUser), AuthSubject{UserID: 77})
+			c.Set(string(ContextKeyUserRole), service.RoleAdmin)
+			if authMethod != "" {
+				c.Set("auth_method", authMethod)
+				SetAuditExtra(c, map[string]any{"mcp_grant_id": "grant-1", "mcp_tool": "admin_list_users"})
+			}
+			c.Next()
+		})
+		router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+		router.GET("/api/v1/admin/users", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"items": []any{}}) })
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/admin/users?search=a", nil))
+		require.Equal(t, http.StatusOK, recorder.Code)
 	}
 	auditService.Stop()
+
 	repository.mu.Lock()
-	defer repository.mu.Unlock()
-	require.Len(t, repository.logs, 3)
-	for _, entry := range repository.logs {
-		require.NotContains(t, entry.RequestBody, "secret-canary")
-		require.NotContains(t, entry.RequestBody, "hidden.example.com")
-		if entry.Method == "GET" {
-			require.Equal(t, "admin.model_identification.credentials.read", entry.Action)
-		} else {
-			require.Equal(t, "<credential-bearing body omitted>", entry.RequestBody)
-		}
-	}
+	logs := append([]*service.AuditLog(nil), repository.logs...)
+	repository.mu.Unlock()
+	require.Len(t, logs, 1, "browser reads stay outside the audit log")
+	require.Equal(t, service.AuditAuthMethodMCPOAuth, logs[0].AuthMethod)
+	require.Equal(t, "admin.users.read", logs[0].Action)
+	require.Equal(t, "grant-1", logs[0].Extra["mcp_grant_id"])
+	require.Equal(t, "admin_list_users", logs[0].Extra["mcp_tool"])
 }

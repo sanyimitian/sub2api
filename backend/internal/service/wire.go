@@ -71,6 +71,7 @@ func ProvideAuthService(
 	defaultSubAssigner DefaultSubscriptionAssigner,
 	affiliateService *AffiliateService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	mcpOAuthService *MCPOAuthService,
 ) *AuthService {
 	svc := NewAuthService(
 		entClient,
@@ -89,6 +90,9 @@ func ProvideAuthService(
 	)
 	svc.SetTencentCaptchaService(tencentCaptchaService)
 	svc.SetAliyunCaptchaService(aliyunCaptchaService)
+	if mcpOAuthService != nil {
+		svc.SetMCPGrantRevoker(mcpOAuthService)
+	}
 	return svc
 }
 
@@ -873,6 +877,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAuthService,
 	NewPasskeyService,
 	NewUserService,
+	NewMCPOAuthService,
 	ProvideAPIKeyService,
 	ProvideAPIKeyAuthCacheInvalidator,
 	ProvideAuthCacheInvalidationWorker,
@@ -1009,21 +1014,16 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorV2Aggregator,
 	NewChannelMonitorRequestTemplateService,
 	ProvideUserPlatformQuotaUsageFlusher,
+	NewUsageBillingLaneCombiner,
+	ProvideUsageBillingRepository,
 )
 
-// ProvidePublicTransitService wires the optional passive-monitor repository
-// without changing NewPublicTransitService's constructor contract.
-func ProvidePublicTransitService(
-	channelService *ChannelService,
-	monitorService *ChannelMonitorService,
-	settingService *SettingService,
-	paymentConfig *PaymentConfigService,
-	groupRepo GroupRepository,
-	usageRepo UsageLogRepository,
-	opsRepo OpsRepository,
-	monitorV2 *ChannelMonitorV2Service,
-	presentationCache PublicTransitPresentationCache,
-) *PublicTransitService {
+// ProvideUsageBillingRepository 以按用户合并结算的通道作为各服务使用的计费仓储。
+func ProvideUsageBillingRepository(lanes *UsageBillingLaneCombiner) UsageBillingRepository {
+	return lanes
+}
+
+func ProvidePublicTransitService(channelService *ChannelService, monitorService *ChannelMonitorService, settingService *SettingService, paymentConfig *PaymentConfigService, groupRepo GroupRepository, usageRepo UsageLogRepository, opsRepo OpsRepository, monitorV2 *ChannelMonitorV2Service, presentationCache PublicTransitPresentationCache) *PublicTransitService {
 	svc := NewPublicTransitService(channelService, monitorService, settingService, paymentConfig, groupRepo, usageRepo)
 	svc.presentationCache = presentationCache
 	svc.SetChannelMonitorV2Service(monitorV2)
