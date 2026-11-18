@@ -127,14 +127,75 @@ func TestPublicTransitModelCatalog_DeepseekPublishedRatesMatchActualBilling(t *t
 	}
 }
 
+func TestPublicTransitModelCatalog_DeepseekOverrideFileRatesMatchActualBilling(t *testing.T) {
+	const catalog = `{"deepseek-v4.1-flash":{"input_cost_per_token":9e-6,"output_cost_per_token":8e-6,"cache_read_input_token_cost":7e-6}}`
+	for _, tc := range []struct {
+		name  string
+		patch string
+	}{
+		{"input only", `{"input_cost_per_token":1e-6}`},
+		{"output only", `{"output_cost_per_token":2e-6}`},
+		{"cache read only", `{"cache_read_input_token_cost":3e-7}`},
+		{"explicit zeros", `{"input_cost_per_token":0,"output_cost_per_token":0,"cache_read_input_token_cost":0}`},
+		// Keep one token rate in each fixture: a card with all token rates
+		// removed is rejected by the pricing loader before billing can use it.
+		{"null is not an override", `{"input_cost_per_token":null,"cache_read_input_token_cost":null}`},
+		{"null output is not an override", `{"output_cost_per_token":null}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pricing := newPricingServiceWithOverride(t, `{"deepseek-v4.1-flash":`+tc.patch+`}`)
+			var err error
+			pricing.pricingData, err = pricing.parsePricingData([]byte(catalog))
+			require.NoError(t, err)
+			billing := NewBillingService(&config.Config{}, pricing)
+			resolver := NewModelPricingResolver(nil, billing)
+			before, err := json.Marshal(pricing.pricingData)
+			require.NoError(t, err)
+			for _, custom := range []bool{false, true} {
+				group := Group{Platform: PlatformOpenAI, RateMultiplier: 0.1}
+				if custom {
+					group.ModelPricing = []ChannelModelPricing{{
+						Models: []string{"deepseek-v4.1-flash"}, InputPrice: testPtrFloat64(4e-6),
+					}}
+				}
+				for _, now := range []time.Time{
+					time.Date(2026, 11, 17, 2, 0, 0, 0, time.UTC),
+					time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC),
+					time.Date(2026, 11, 21, 2, 0, 0, 0, time.UTC),
+				} {
+					model, ok := publicCatalogModelAt(group, "deepseek-v4.1-flash", pricing, now)
+					require.True(t, ok)
+					// Compare each component independently so opposite rate errors
+					// cannot cancel out in the total price assertion.
+					tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 1000}
+					cost, err := billing.CalculateCostUnified(CostInput{
+						Ctx: context.Background(), Model: "deepseek-v4.1-flash", Group: &group,
+						Tokens: tokens, RateMultiplier: group.RateMultiplier, Resolver: resolver, PricingAt: now,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, model.Price.InputUSDPerToken)
+					require.NotNil(t, model.Price.OutputUSDPerToken)
+					require.NotNil(t, model.Price.CacheReadUSDPerToken)
+					require.InDelta(t, cost.InputCost, float64(tokens.InputTokens)*(*model.Price.InputUSDPerToken), 1e-12, "custom=%t at=%s", custom, now)
+					require.InDelta(t, cost.OutputCost, float64(tokens.OutputTokens)*(*model.Price.OutputUSDPerToken), 1e-12, "custom=%t at=%s", custom, now)
+					require.InDelta(t, cost.CacheReadCost, float64(tokens.CacheReadTokens)*(*model.Price.CacheReadUSDPerToken), 1e-12, "custom=%t at=%s", custom, now)
+				}
+			}
+			after, err := json.Marshal(pricing.pricingData)
+			require.NoError(t, err)
+			require.JSONEq(t, string(before), string(after), "public snapshots must not mutate shared billing prices")
+		})
+	}
+}
+
 func TestPublicTransitModelCatalog_SnapshotModesUseSameOptInCatalog(t *testing.T) {
 	repo := &settingPublicRepoStub{values: map[string]string{
-		SettingKeyPublicTransitModelCatalog: `[{"group_id":95,"models":["claude-opus-5-5"]}]`,
+		SettingKeyPublicTransitModelCatalog: `[{"group_id":42,"models":["claude-opus-5-5"]}]`,
 		SettingKeyChannelMonitorEnabled:     "true",
 	}}
 	settings := NewSettingService(repo, &config.Config{})
 	groups := &stubGroupRepoForAvailable{activeGroups: []Group{{
-		ID: 95, Name: "verified-public-group", Platform: PlatformAnthropic, Status: StatusActive, RateMultiplier: 0.11,
+		ID: 42, Name: "verified-public-group", Platform: PlatformAnthropic, Status: StatusActive, RateMultiplier: 0.5,
 	}}}
 	pricing := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
 		"claude-opus-5-5": {InputCostPerToken: 4e-6, OutputCostPerToken: 20e-6},
@@ -158,7 +219,7 @@ func TestPublicTransitModelCatalog_SnapshotModesUseSameOptInCatalog(t *testing.T
 			require.Len(t, snapshot.Groups, 1)
 			require.Len(t, snapshot.Groups[0].Models, 1)
 			require.Equal(t, "claude-opus-5-5", snapshot.Groups[0].Models[0].StandardModel)
-			require.Equal(t, 0.11, snapshot.Groups[0].RateMultiplier)
+			require.Equal(t, 0.5, snapshot.Groups[0].RateMultiplier)
 			require.NotContains(t, string(encoded), "group_id")
 		})
 	}
@@ -171,17 +232,17 @@ func TestPublicTransitModelCatalog_ConfigurationDefaultsOffAndRejectsAmbiguousIn
 		require.Empty(t, catalog)
 	}
 	for _, raw := range []string{
-		`{"95":["glm-5.3"]}`,
+		`{"42":["glm-5.3"]}`,
 		`[{"group_id":0,"models":["glm-5.3"]}]`,
-		`[{"group_id":95,"models":["claude-*"]}]`,
-		`[{"group_id":95,"models":["private\nmodel"]}]`,
-		`[{"group_id":95,"models":["glm-5.3"],"rate_multiplier":0.01}]`,
+		`[{"group_id":42,"models":["claude-*"]}]`,
+		`[{"group_id":42,"models":["private\nmodel"]}]`,
+		`[{"group_id":42,"models":["glm-5.3"],"rate_multiplier":0.01}]`,
 		`[] []`,
 	} {
 		_, err := parsePublicTransitModelCatalog(raw)
 		require.Error(t, err)
 	}
-	catalog, err := parsePublicTransitModelCatalog(`[{"group_id":95,"models":[" claude-opus-5-5 "]}]`)
+	catalog, err := parsePublicTransitModelCatalog(`[{"group_id":42,"models":[" claude-opus-5-5 "]}]`)
 	require.NoError(t, err)
 	require.Equal(t, "claude-opus-5-5", catalog[0].Models[0])
 }

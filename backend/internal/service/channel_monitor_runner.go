@@ -113,7 +113,7 @@ func newChannelMonitorRunner(svc monitorRunnerSvc, settingService *SettingServic
 }
 
 // Start 加载所有 enabled monitor 并为每个建立独立定时任务。
-// 调用方需保证只调一次（wire ProvideChannelMonitorRunner 内只调一次）。
+// 由应用在 HTTP listener 就绪后调用；重复调用不会重复调度。
 func (r *ChannelMonitorRunner) Start() {
 	if r == nil || r.svc == nil {
 		return
@@ -170,10 +170,8 @@ func (r *ChannelMonitorRunner) Schedule(m *ChannelMonitor) {
 		return
 	}
 	if !r.started {
-		// Start 之前调用 Schedule 通常意味着 wire 顺序错乱：
-		// 当前 wire 顺序是 SetScheduler → Start，CRUD 钩子最早也只能在请求到达时触发，
-		// 此时 Start 早已完成。出现此分支时把 monitor 信息打出来便于排查，
-		// 不入队、不缓存——交给运维通过重启或修复 wire 解决。
+		// 启动时 listener 可能已绑定，但 Start 尚未加载任务；随后 Start 会从数据库
+		// 读取最新状态。出现此分支时保留日志便于排查，不提前触发探针。
 		r.mu.Unlock()
 		slog.Warn("channel_monitor: schedule before runner started, skip",
 			"monitor_id", m.ID, "name", m.Name)

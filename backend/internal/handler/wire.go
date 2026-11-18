@@ -190,6 +190,7 @@ func ProvideAdminSettingHandler(settingService *service.SettingService, emailSer
 func ProvideHandlers(
 	authHandler *AuthHandler,
 	userHandler *UserHandler,
+	mcpOAuthHandler *MCPOAuthHandler,
 	apiKeyHandler *APIKeyHandler,
 	usageHandler *UsageHandler,
 	redeemHandler *RedeemHandler,
@@ -216,8 +217,11 @@ func ProvideHandlers(
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
 	return &Handlers{
+		ModelIdentification: modelIdentificationHandler,
+		PublicTransit:       publicTransitHandler,
 		Auth:                authHandler,
 		User:                userHandler,
+		MCPOAuth:            mcpOAuthHandler,
 		APIKey:              apiKeyHandler,
 		Usage:               usageHandler,
 		Redeem:              redeemHandler,
@@ -225,7 +229,6 @@ func ProvideHandlers(
 		Announcement:        announcementHandler,
 		ChannelMonitor:      channelMonitorUserHandler,
 		ChannelMonitorV2:    channelMonitorV2Handler,
-		ModelIdentification: modelIdentificationHandler,
 		Admin:               adminHandlers,
 		Gateway:             gatewayHandler,
 		OpenAIGateway:       openaiGatewayHandler,
@@ -238,7 +241,6 @@ func ProvideHandlers(
 		ModelPlaza:          modelPlazaHandler,
 		AsyncImage:          asyncImageHandler,
 		BatchImage:          batchImageHandler,
-		PublicTransit:       publicTransitHandler,
 	}
 }
 
@@ -248,6 +250,7 @@ var ProviderSet = wire.NewSet(
 	// Top-level handlers
 	NewAuthHandler,
 	NewUserHandler,
+	NewMCPOAuthHandler,
 	NewAPIKeyHandler,
 	NewUsageHandler,
 	NewRedeemHandler,

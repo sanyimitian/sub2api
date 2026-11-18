@@ -6,16 +6,17 @@ It changes only the public V1/V2 transit snapshots and the pages consuming them.
 It does not change authenticated model discovery, request allowlists, routing,
 customer permissions, group multipliers, or billing configuration.
 
-The setting is absent/off by default. Example reviewed scope for Codebot:
+The setting is absent/off by default. Example using fictional group IDs:
 
 ```json
 [
-  {"group_id": 95, "models": ["claude-opus-5-5"]},
-  {"group_id": 100, "models": ["deepseek-v4.1-flash", "glm-5.3"]}
+  {"group_id": 1, "models": ["claude-opus-5-5"]},
+  {"group_id": 2, "models": ["deepseek-v4.1-flash", "glm-5.3"]}
 ]
 ```
 
-Before enabling an entry, verify that the group's existing API can serve that
+Replace the example IDs with the intended groups. Before enabling an entry,
+verify that the group's existing API can serve that
 exact model. This setting is an operator declaration, not automatic capability
 discovery. It does not turn successful traffic or monitor results into a model
 catalog, and a failed probe never removes a published price.
@@ -29,13 +30,16 @@ Prices come from identified catalog entries, including recognized aliases,
 with the group's configured flat token prices taking precedence. Missing input
 or output prices, unsupported billing modes, and dynamic time pricing are
 skipped. There is no family-name price guessing. A price of zero is preserved
-only when explicitly configured in a group card; missing prices are not made
-zero. Names and request platforms remain those of the verified model and group.
+when explicitly configured in a group card or in the input, output, or
+cache-read fields of `pricing.override_file`; missing prices are not made zero.
+Names and request platforms remain those of the verified model and group.
 
 `claude-opus-5-5` and `glm-5.3` use identified catalog prices. The exact verified
 model `deepseek-v4.1-flash` uses the application's existing billing constants
 and peak/off-peak function, including the weekday 2x periods. Its public price
-represents the snapshot time and discloses the schedule. Group custom prices
+represents the snapshot time and discloses the schedule. Fields explicitly set
+in `pricing.override_file` retain their configured prices without the default
+rate replacement or peak multiplier, matching billing. Group custom prices
 still take precedence without adding the peak multiplier, matching billing.
 Other unrecognized DeepSeek names remain unpublished. No billing code or
 customer prices are modified to populate this public catalog.
@@ -51,7 +55,7 @@ go build ./cmd/server
 ```
 
 Use a production-data copy with schedulers disabled for a snapshot dry run.
-Capture snapshots with the setting absent and with the reviewed JSON above.
+Capture snapshots with the setting absent and with the reviewed configuration.
 Compare the group lists by name and platform: only the approved groups' empty
 model lists may gain the verified, priced entries. Multipliers, pre-existing
 models/prices, billing and disclosure fields must remain equal. Monitor/cache

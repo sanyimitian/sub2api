@@ -1,4 +1,5 @@
 import adminAccessKeys from './adminAccessKeys'
+import mcp from './mcp'
 import modelIdentification from './modelIdentification'
 import modelBenchmark from './modelBenchmark'
 import landing from './landing'
@@ -14,6 +15,7 @@ export default {
   modelBenchmark,
   modelIdentification,
   adminAccessKeys,
+  mcp,
   ...landing,
   ...common,
   ...dashboard,

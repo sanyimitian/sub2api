@@ -71,6 +71,7 @@ func ProvideAuthService(
 	defaultSubAssigner DefaultSubscriptionAssigner,
 	affiliateService *AffiliateService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	mcpOAuthService *MCPOAuthService,
 ) *AuthService {
 	svc := NewAuthService(
 		entClient,
@@ -89,6 +90,9 @@ func ProvideAuthService(
 	)
 	svc.SetTencentCaptchaService(tencentCaptchaService)
 	svc.SetAliyunCaptchaService(aliyunCaptchaService)
+	if mcpOAuthService != nil {
+		svc.SetMCPGrantRevoker(mcpOAuthService)
+	}
 	return svc
 }
 
@@ -873,6 +877,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAuthService,
 	NewPasskeyService,
 	NewUserService,
+	NewMCPOAuthService,
 	ProvideAPIKeyService,
 	ProvideAPIKeyAuthCacheInvalidator,
 	ProvideAuthCacheInvalidationWorker,
@@ -1009,21 +1014,16 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorV2Aggregator,
 	NewChannelMonitorRequestTemplateService,
 	ProvideUserPlatformQuotaUsageFlusher,
+	NewUsageBillingLaneCombiner,
+	ProvideUsageBillingRepository,
 )
 
-// ProvidePublicTransitService wires the optional passive-monitor repository
-// without changing NewPublicTransitService's constructor contract.
-func ProvidePublicTransitService(
-	channelService *ChannelService,
-	monitorService *ChannelMonitorService,
-	settingService *SettingService,
-	paymentConfig *PaymentConfigService,
-	groupRepo GroupRepository,
-	usageRepo UsageLogRepository,
-	opsRepo OpsRepository,
-	monitorV2 *ChannelMonitorV2Service,
-	presentationCache PublicTransitPresentationCache,
-) *PublicTransitService {
+// ProvideUsageBillingRepository 以按用户合并结算的通道作为各服务使用的计费仓储。
+func ProvideUsageBillingRepository(lanes *UsageBillingLaneCombiner) UsageBillingRepository {
+	return lanes
+}
+
+func ProvidePublicTransitService(channelService *ChannelService, monitorService *ChannelMonitorService, settingService *SettingService, paymentConfig *PaymentConfigService, groupRepo GroupRepository, usageRepo UsageLogRepository, opsRepo OpsRepository, monitorV2 *ChannelMonitorV2Service, presentationCache PublicTransitPresentationCache) *PublicTransitService {
 	svc := NewPublicTransitService(channelService, monitorService, settingService, paymentConfig, groupRepo, usageRepo)
 	svc.presentationCache = presentationCache
 	svc.SetChannelMonitorV2Service(monitorV2)
@@ -1081,9 +1081,9 @@ func ProvideChannelMonitorService(
 	return svc
 }
 
-// ProvideChannelMonitorRunner 创建并启动渠道监控调度器。
-// 通过 SetScheduler 注入回 service 后再 Start，确保启动时加载所有 enabled monitor，
-// 后续 CRUD 也能即时同步任务表。Runner.Stop 由 cleanup function 调用。
+// ProvideChannelMonitorRunner 创建渠道监控调度器并注入 service。
+// 应用在 HTTP listener 就绪后调用 Start，避免探测本站时在启动阶段记录 502。
+// 后续 CRUD 能即时同步任务表。Runner.Stop 由 cleanup function 调用。
 // settingService 用于 runner 每次 fire 读取功能开关。
 // quotaFetcher（账号侧用量聚合）也在此注入：accountUsage/CN 服务在 wire 图中
 // 晚于 channelMonitorService 构造，走 setter 注入避免调整既有构造顺序。
@@ -1100,7 +1100,6 @@ func ProvideChannelMonitorRunner(
 		svc.SetScheduler(r)
 		svc.SetQuotaFetcher(quotaFetcher)
 	}
-	r.Start()
 	return r
 }
 

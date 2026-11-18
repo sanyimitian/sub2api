@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -168,9 +169,17 @@ func runMainServer() {
 		}
 	}
 
-	// 启动服务器
+	// 先绑定监听端口，再启动探针，避免监测本站时撞上尚未就绪的网关。
+	serverErrors, err := startHTTPServer(app.Server, func(_ net.Addr) {
+		if app.ChannelMonitorRunner != nil {
+			app.ChannelMonitorRunner.Start()
+		}
+	})
+	if err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 	go func() {
-		if err := app.Server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := <-serverErrors; err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
