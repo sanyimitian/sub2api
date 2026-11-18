@@ -63,7 +63,11 @@ export default {
         publicTransit: {
           title: 'Public Transit Export', description: 'Expose a standard public snapshot API and optional visual page.', configureLink: 'Open public data page', previewLink: 'Preview in admin', apiEnabled: 'Public data API', apiEnabledHint: 'Exposes discovery and snapshot endpoints without private credentials.', pageEnabled: 'Public data page', pageEnabledHint: 'Expose /public/transit for visitors.',
           availabilityAdjustmentEnabled: 'DeepSeek / GLM availability display adjustment',
-          availabilityAdjustmentEnabledHint: 'Disabled by default. When enabled, public DeepSeek / GLM availability below 85% uses a synthetic display value from 88.00% to 90.00%; original measurements remain available for verification.'
+          availabilityAdjustmentEnabledHint: 'Disabled by default. When enabled, public DeepSeek / GLM availability below 85% uses a synthetic display value within the range below; original measurements remain available for verification.',
+          availabilityAdjustmentMin: 'Display minimum (%)',
+          availabilityAdjustmentMax: 'Display maximum (%)',
+          availabilityAdjustmentRangeHint: 'Defaults to 88.00%–90.00%. Enter 0%–100% with up to two decimal places; equal bounds are allowed. You can configure the range while display adjustment is off.',
+          availabilityAdjustmentRangeError: 'Enter a display minimum and maximum from 0 to 100 with up to two decimal places. The minimum must not exceed the maximum.'
         },
         modelPlaza: {
           title: 'Model Plaza',

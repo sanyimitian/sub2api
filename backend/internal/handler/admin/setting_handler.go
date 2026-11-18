@@ -405,6 +405,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		PublicTransitEnabled:                       settings.PublicTransitEnabled,
 		PublicTransitPageEnabled:                   settings.PublicTransitPageEnabled,
 		PublicTransitAvailabilityAdjustmentEnabled: settings.PublicTransitAvailabilityAdjustmentEnabled,
+		PublicTransitAvailabilityAdjustmentMin:     settings.PublicTransitAvailabilityAdjustmentMin,
+		PublicTransitAvailabilityAdjustmentMax:     settings.PublicTransitAvailabilityAdjustmentMax,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,

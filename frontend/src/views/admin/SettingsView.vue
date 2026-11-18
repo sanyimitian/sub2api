@@ -7440,6 +7440,47 @@
                 data-testid="public-transit-availability-adjustment-toggle"
               />
             </div>
+            <div :class="{ 'opacity-60': !form.public_transit_enabled }">
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label for="public-transit-availability-min" class="mb-1 block text-sm font-medium">
+                    {{ t('admin.settings.features.publicTransit.availabilityAdjustmentMin') }}
+                  </label>
+                  <input
+                    id="public-transit-availability-min"
+                    v-model.number="form.public_transit_availability_adjustment_min"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    class="input w-full"
+                    :disabled="!form.public_transit_enabled"
+                    aria-describedby="public-transit-availability-range-hint"
+                    data-testid="public-transit-availability-min"
+                  />
+                </div>
+                <div>
+                  <label for="public-transit-availability-max" class="mb-1 block text-sm font-medium">
+                    {{ t('admin.settings.features.publicTransit.availabilityAdjustmentMax') }}
+                  </label>
+                  <input
+                    id="public-transit-availability-max"
+                    v-model.number="form.public_transit_availability_adjustment_max"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    class="input w-full"
+                    :disabled="!form.public_transit_enabled"
+                    aria-describedby="public-transit-availability-range-hint"
+                    data-testid="public-transit-availability-max"
+                  />
+                </div>
+              </div>
+              <p id="public-transit-availability-range-hint" class="mt-2 text-xs text-gray-500">
+                {{ t('admin.settings.features.publicTransit.availabilityAdjustmentRangeHint') }}
+              </p>
+            </div>
             <div class="flex items-center justify-between border-t border-gray-100 pt-5" :class="{ 'opacity-60': !form.public_transit_enabled }"><div><label class="text-sm font-medium">{{ t('admin.settings.features.publicTransit.pageEnabled') }}</label><p class="mt-0.5 text-xs text-gray-500">{{ t('admin.settings.features.publicTransit.pageEnabledHint') }}</p></div><Toggle v-model="form.public_transit_page_enabled" :disabled="!form.public_transit_enabled" /></div>
           </div>
         </div>
@@ -9788,12 +9829,16 @@ type SettingsForm = Omit<
   | "wechat_connect_mobile_enabled"
   | "openai_oauth_scheduling_rate_multiplier"
   | "openai_ws_latency_switch_min_tps"
+  | "public_transit_availability_adjustment_min"
+  | "public_transit_availability_adjustment_max"
 > & {
   /** Form always binds a concrete boolean (SystemSettings marks this optional). */
   channel_monitor_hide_throughput: boolean;
   channel_monitor_show_quota: boolean;
   channel_monitor_hide_user_ranking: boolean;
   openai_ws_latency_switch_min_tps: number | "";
+  public_transit_availability_adjustment_min: number | "";
+  public_transit_availability_adjustment_max: number | "";
   smtp_password: string;
   turnstile_secret_key: string;
   tencent_captcha_app_secret_key: string;
@@ -10146,6 +10191,8 @@ const form = reactive<SettingsForm>({
   public_transit_enabled: true,
   public_transit_page_enabled: false,
   public_transit_availability_adjustment_enabled: false,
+  public_transit_availability_adjustment_min: 88,
+  public_transit_availability_adjustment_max: 90,
   // Model Plaza feature switches + description
   model_plaza_enabled: false,
   model_plaza_require_auth: false,
@@ -11193,6 +11240,10 @@ async function loadSettings() {
     form.public_transit_availability_adjustment_enabled = Boolean(
       settings.public_transit_availability_adjustment_enabled
     );
+    form.public_transit_availability_adjustment_min =
+      settings.public_transit_availability_adjustment_min ?? 88;
+    form.public_transit_availability_adjustment_max =
+      settings.public_transit_availability_adjustment_max ?? 90;
     form.login_agreement_updated_at =
       settings.login_agreement_updated_at || "2026-03-31";
     form.login_agreement_documents =
@@ -11421,6 +11472,21 @@ const siteBillingModeHint = computed(() =>
 async function saveSettings() {
   saving.value = true;
   try {
+    const availabilityMin = form.public_transit_availability_adjustment_min;
+    const availabilityMax = form.public_transit_availability_adjustment_max;
+    if (
+      typeof availabilityMin !== "number" ||
+      typeof availabilityMax !== "number" ||
+      ![availabilityMin, availabilityMax].every((value) =>
+        Number.isFinite(value) && value >= 0 && value <= 100 &&
+        Math.round(value * 100) / 100 === value
+      ) ||
+      availabilityMin > availabilityMax
+    ) {
+      appStore.showError(t("admin.settings.features.publicTransit.availabilityAdjustmentRangeError"));
+      return;
+    }
+
     const normalizedTableDefaultPageSize = Math.floor(
       Number(form.table_default_page_size),
     );
@@ -11910,6 +11976,8 @@ async function saveSettings() {
       public_transit_enabled: form.public_transit_enabled,
       public_transit_page_enabled: form.public_transit_enabled && form.public_transit_page_enabled,
       public_transit_availability_adjustment_enabled: Boolean(form.public_transit_availability_adjustment_enabled),
+      public_transit_availability_adjustment_min: availabilityMin,
+      public_transit_availability_adjustment_max: availabilityMax,
       // Model Plaza feature switches + description
       model_plaza_enabled: form.model_plaza_enabled,
       model_plaza_require_auth: form.model_plaza_require_auth,

@@ -558,6 +558,8 @@ const (
 	SettingKeyModelPlazaDescription                      = "model_plaza_description"
 	SettingKeyPublicTransitEnabled                       = "public_transit_enabled"
 	SettingKeyPublicTransitAvailabilityAdjustmentEnabled = "public_transit_availability_adjustment_enabled"
+	SettingKeyPublicTransitAvailabilityAdjustmentMin     = "public_transit_availability_adjustment_min"
+	SettingKeyPublicTransitAvailabilityAdjustmentMax     = "public_transit_availability_adjustment_max"
 	SettingKeyPublicTransitCacheEnabled                  = "public_transit_cache_presentation_enabled"
 	SettingKeyPublicTransitCacheMaximumRate              = "public_transit_cache_maximum_rate"
 	SettingKeyPublicTransitCacheIncreasePercent          = "public_transit_cache_increase_percent"

@@ -334,10 +334,12 @@ type SystemSettings struct {
 	GrokDefaultBaseURLMode         string `json:"grok_default_base_url_mode"`
 
 	// Available Channels feature switch (user-facing aggregate view)
-	AvailableChannelsEnabled                   bool `json:"available_channels_enabled"`
-	PublicTransitEnabled                       bool `json:"public_transit_enabled"`
-	PublicTransitPageEnabled                   bool `json:"public_transit_page_enabled"`
-	PublicTransitAvailabilityAdjustmentEnabled bool `json:"public_transit_availability_adjustment_enabled"`
+	AvailableChannelsEnabled                   bool    `json:"available_channels_enabled"`
+	PublicTransitEnabled                       bool    `json:"public_transit_enabled"`
+	PublicTransitPageEnabled                   bool    `json:"public_transit_page_enabled"`
+	PublicTransitAvailabilityAdjustmentEnabled bool    `json:"public_transit_availability_adjustment_enabled"`
+	PublicTransitAvailabilityAdjustmentMin     float64 `json:"public_transit_availability_adjustment_min"`
+	PublicTransitAvailabilityAdjustmentMax     float64 `json:"public_transit_availability_adjustment_max"`
 
 	// Subscription feature switch: gates the whole user-facing subscription surface
 	// (sidebar entries, purchase-page subscription tab, header badge, /subscriptions route).

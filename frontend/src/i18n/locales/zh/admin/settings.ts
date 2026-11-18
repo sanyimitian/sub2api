@@ -63,7 +63,11 @@ export default {
         publicTransit: {
           title: '公开资料出口', description: '开放标准公开快照接口，并可选开放可视化页面。', configureLink: '打开公开资料页面', previewLink: '在后台预览', apiEnabled: '公开资料接口', apiEnabledHint: '开放发现与快照接口，不暴露账号凭据。', pageEnabled: '公开资料页面', pageEnabledHint: '开放 /public/transit 给访客访问。',
           availabilityAdjustmentEnabled: 'DeepSeek / GLM 可用率展示调整',
-          availabilityAdjustmentEnabledHint: '默认关闭。开启后，DeepSeek / GLM 公开可用率低于 85% 时，按 88.00%–90.00% 的模拟展示值输出；保留原始观测值供核对。'
+          availabilityAdjustmentEnabledHint: '默认关闭。开启后，DeepSeek / GLM 公开可用率低于 85% 时，按下方范围生成模拟展示值；保留原始观测值供核对。',
+          availabilityAdjustmentMin: '展示下限（%）',
+          availabilityAdjustmentMax: '展示上限（%）',
+          availabilityAdjustmentRangeHint: '默认 88.00%–90.00%。范围 0%–100%，最多两位小数，下限可等于上限。可在展示调整关闭时预先配置。',
+          availabilityAdjustmentRangeError: '请填写 0–100 之间的展示下限和上限，最多两位小数，且下限不能高于上限。'
         },
         modelPlaza: {
           title: '模型广场',

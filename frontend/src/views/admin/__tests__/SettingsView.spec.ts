@@ -750,12 +750,16 @@ describe("admin SettingsView payment visible method controls", () => {
     const toggle = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-adjustment-toggle"]');
     expect(toggle.element.checked).toBe(false);
     expect(toggle.element.disabled).toBe(false);
+    expect(wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-min"]').element.value).toBe("88");
+    expect(wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-max"]').element.value).toBe("90");
 
     await toggle.setValue(true);
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
     expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       public_transit_availability_adjustment_enabled: true,
+      public_transit_availability_adjustment_min: 88,
+      public_transit_availability_adjustment_max: 90,
     }));
 
     await toggle.setValue(false);
@@ -763,6 +767,8 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
     expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       public_transit_availability_adjustment_enabled: false,
+      public_transit_availability_adjustment_min: 88,
+      public_transit_availability_adjustment_max: 90,
     }));
     wrapper.unmount();
   });
@@ -772,6 +778,8 @@ describe("admin SettingsView payment visible method controls", () => {
       ...baseSettingsResponse,
       public_transit_enabled: false,
       public_transit_availability_adjustment_enabled: true,
+      public_transit_availability_adjustment_min: 0,
+      public_transit_availability_adjustment_max: 95.5,
     });
     const wrapper = mountView();
     await flushPromises();
@@ -780,17 +788,87 @@ describe("admin SettingsView payment visible method controls", () => {
     const toggle = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-adjustment-toggle"]');
     expect(toggle.element.checked).toBe(true);
     expect(toggle.element.disabled).toBe(true);
+    const minimum = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-min"]');
+    const maximum = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-max"]');
+    expect(minimum.element.value).toBe("0");
+    expect(maximum.element.value).toBe("95.5");
+    expect(minimum.element.disabled).toBe(true);
+    expect(maximum.element.disabled).toBe(true);
 
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
     expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       public_transit_enabled: false,
       public_transit_availability_adjustment_enabled: true,
+      public_transit_availability_adjustment_min: 0,
+      public_transit_availability_adjustment_max: 95.5,
     }));
 
     await wrapper.get('[data-testid="public-transit-api-toggle"]').setValue(true);
     expect(toggle.element.disabled).toBe(false);
     expect(toggle.element.checked).toBe(true);
+    expect(minimum.element.disabled).toBe(false);
+    expect(maximum.element.disabled).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("loads custom availability bounds and saves ranges while adjustment is off, including equal zero bounds", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      public_transit_enabled: true,
+      public_transit_availability_adjustment_enabled: false,
+      public_transit_availability_adjustment_min: 87.25,
+      public_transit_availability_adjustment_max: 89.75,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+
+    const minimum = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-min"]');
+    const maximum = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-max"]');
+    expect(minimum.element.value).toBe("87.25");
+    expect(maximum.element.value).toBe("89.75");
+    expect(minimum.element.disabled).toBe(false);
+    expect(maximum.element.disabled).toBe(false);
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      public_transit_availability_adjustment_enabled: false,
+      public_transit_availability_adjustment_min: 87.25,
+      public_transit_availability_adjustment_max: 89.75,
+    }));
+
+    for (const [min, max] of [[0, 0], [0, 100], [88.08, 90.07]]) {
+      await minimum.setValue(min);
+      await maximum.setValue(max);
+      await wrapper.find("form").trigger("submit.prevent");
+      await flushPromises();
+      expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+        public_transit_availability_adjustment_min: min,
+        public_transit_availability_adjustment_max: max,
+      }));
+    }
+    wrapper.unmount();
+  });
+
+  it("rejects empty, out-of-range, reversed, and over-precision availability bounds before saving", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+    const minimum = wrapper.get('[data-testid="public-transit-availability-min"]');
+    const maximum = wrapper.get('[data-testid="public-transit-availability-max"]');
+
+    for (const [min, max] of [["", "90"], ["88", ""], ["-0.01", "90"], ["88", "100.01"], ["91", "90"], ["88.001", "90"], ["88", "90.001"], ["NaN", "90"], ["88", "Infinity"]]) {
+      updateSettings.mockClear();
+      showError.mockClear();
+      await minimum.setValue(min);
+      await maximum.setValue(max);
+      await wrapper.find("form").trigger("submit.prevent");
+      await flushPromises();
+      expect(updateSettings, `invalid range ${min}–${max}`).not.toHaveBeenCalled();
+      expect(showError).toHaveBeenCalledWith("admin.settings.features.publicTransit.availabilityAdjustmentRangeError");
+    }
     wrapper.unmount();
   });
 

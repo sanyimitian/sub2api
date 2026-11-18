@@ -204,6 +204,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyPublicTransitEnabled:                       "true",
 		SettingKeyPublicTransitPageEnabled:                   "false",
 		SettingKeyPublicTransitAvailabilityAdjustmentEnabled: "false",
+		SettingKeyPublicTransitAvailabilityAdjustmentMin:     "88",
+		SettingKeyPublicTransitAvailabilityAdjustmentMax:     "90",
 
 		// Subscription feature (default enabled; opt-out)
 		SettingKeySubscriptionEnabled: "true",
@@ -832,6 +834,12 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.PublicTransitEnabled = !isFalseSettingValue(settings[SettingKeyPublicTransitEnabled])
 	result.PublicTransitPageEnabled = publicTransitPageEnabledFromSettings(settings)
 	result.PublicTransitAvailabilityAdjustmentEnabled = settings[SettingKeyPublicTransitAvailabilityAdjustmentEnabled] == "true"
+	availabilityRange, availabilityRangeErr := parsePublicTransitAvailabilityRange(settings)
+	if availabilityRangeErr != nil {
+		result.PublicTransitAvailabilityAdjustmentEnabled = false
+	}
+	result.PublicTransitAvailabilityAdjustmentMin = availabilityRange.Minimum
+	result.PublicTransitAvailabilityAdjustmentMax = availabilityRange.Maximum
 
 	// Subscription feature (default: enabled; only an explicit false disables)
 	result.SubscriptionEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionEnabled])

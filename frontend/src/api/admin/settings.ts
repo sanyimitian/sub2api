@@ -758,6 +758,8 @@ export interface SystemSettings {
   public_transit_enabled: boolean;
   public_transit_page_enabled: boolean;
   public_transit_availability_adjustment_enabled: boolean;
+  public_transit_availability_adjustment_min: number;
+  public_transit_availability_adjustment_max: number;
 
   // Model Plaza feature switches + description
   model_plaza_enabled: boolean;
@@ -1084,6 +1086,8 @@ export interface UpdateSettingsRequest {
   public_transit_enabled?: boolean;
   public_transit_page_enabled?: boolean;
   public_transit_availability_adjustment_enabled?: boolean;
+  public_transit_availability_adjustment_min?: number;
+  public_transit_availability_adjustment_max?: number;
 
   // Model Plaza feature switches + description
   model_plaza_enabled?: boolean;
