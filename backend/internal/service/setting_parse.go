@@ -200,9 +200,10 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyGrokDefaultBaseURLMode:         GrokDefaultBaseURLModeCLI,
 
 		// Available channels feature (default disabled; opt-in)
-		SettingKeyAvailableChannelsEnabled: "false",
-		SettingKeyPublicTransitEnabled:     "true",
-		SettingKeyPublicTransitPageEnabled: "false",
+		SettingKeyAvailableChannelsEnabled:                   "false",
+		SettingKeyPublicTransitEnabled:                       "true",
+		SettingKeyPublicTransitPageEnabled:                   "false",
+		SettingKeyPublicTransitAvailabilityAdjustmentEnabled: "false",
 
 		// Subscription feature (default enabled; opt-out)
 		SettingKeySubscriptionEnabled: "true",
@@ -830,6 +831,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.AvailableChannelsEnabled = settings[SettingKeyAvailableChannelsEnabled] == "true"
 	result.PublicTransitEnabled = !isFalseSettingValue(settings[SettingKeyPublicTransitEnabled])
 	result.PublicTransitPageEnabled = publicTransitPageEnabledFromSettings(settings)
+	result.PublicTransitAvailabilityAdjustmentEnabled = settings[SettingKeyPublicTransitAvailabilityAdjustmentEnabled] == "true"
 
 	// Subscription feature (default: enabled; only an explicit false disables)
 	result.SubscriptionEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionEnabled])

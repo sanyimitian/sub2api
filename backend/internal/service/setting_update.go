@@ -433,6 +433,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyAvailableChannelsEnabled] = strconv.FormatBool(settings.AvailableChannelsEnabled)
 	updates[SettingKeyPublicTransitEnabled] = strconv.FormatBool(settings.PublicTransitEnabled)
 	updates[SettingKeyPublicTransitPageEnabled] = strconv.FormatBool(settings.PublicTransitEnabled && settings.PublicTransitPageEnabled)
+	updates[SettingKeyPublicTransitAvailabilityAdjustmentEnabled] = strconv.FormatBool(settings.PublicTransitAvailabilityAdjustmentEnabled)
 
 	// Subscription feature switch
 	updates[SettingKeySubscriptionEnabled] = strconv.FormatBool(settings.SubscriptionEnabled)

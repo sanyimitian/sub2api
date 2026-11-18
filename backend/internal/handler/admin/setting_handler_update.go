@@ -360,9 +360,10 @@ type UpdateSettingsRequest struct {
 	GrokDefaultBaseURLMode         *string `json:"grok_default_base_url_mode"`
 
 	// Available Channels feature switch (user-facing)
-	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
-	PublicTransitEnabled     *bool `json:"public_transit_enabled"`
-	PublicTransitPageEnabled *bool `json:"public_transit_page_enabled"`
+	AvailableChannelsEnabled                   *bool `json:"available_channels_enabled"`
+	PublicTransitEnabled                       *bool `json:"public_transit_enabled"`
+	PublicTransitPageEnabled                   *bool `json:"public_transit_page_enabled"`
+	PublicTransitAvailabilityAdjustmentEnabled *bool `json:"public_transit_availability_adjustment_enabled"`
 
 	// Subscription feature switch (user-facing subscription surface; see SettingKeySubscriptionEnabled)
 	SubscriptionEnabled *bool `json:"subscription_enabled"`
@@ -2112,6 +2113,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.PublicTransitPageEnabled
 		}(),
+		PublicTransitAvailabilityAdjustmentEnabled: func() bool {
+			if req.PublicTransitAvailabilityAdjustmentEnabled != nil {
+				return *req.PublicTransitAvailabilityAdjustmentEnabled
+			}
+			return previousSettings.PublicTransitAvailabilityAdjustmentEnabled
+		}(),
 		ModelPlazaEnabled: func() bool {
 			if req.ModelPlazaEnabled != nil {
 				return *req.ModelPlazaEnabled
@@ -2581,10 +2588,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		GrokCrossClientModelMapEnabled: updatedSettings.GrokCrossClientModelMapEnabled,
 		GrokDefaultBaseURLMode:         updatedSettings.GrokDefaultBaseURLMode,
 
-		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
-		SubscriptionEnabled:      updatedSettings.SubscriptionEnabled,
-		PublicTransitEnabled:     updatedSettings.PublicTransitEnabled,
-		PublicTransitPageEnabled: updatedSettings.PublicTransitPageEnabled,
+		AvailableChannelsEnabled:                   updatedSettings.AvailableChannelsEnabled,
+		SubscriptionEnabled:                        updatedSettings.SubscriptionEnabled,
+		PublicTransitEnabled:                       updatedSettings.PublicTransitEnabled,
+		PublicTransitPageEnabled:                   updatedSettings.PublicTransitPageEnabled,
+		PublicTransitAvailabilityAdjustmentEnabled: updatedSettings.PublicTransitAvailabilityAdjustmentEnabled,
 
 		ModelPlazaEnabled:       updatedSettings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   updatedSettings.ModelPlazaRequireAuth,

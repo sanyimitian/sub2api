@@ -627,6 +627,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.PublicTransitPageEnabled != after.PublicTransitPageEnabled {
 		changed = append(changed, "public_transit_page_enabled")
 	}
+	if before.PublicTransitAvailabilityAdjustmentEnabled != after.PublicTransitAvailabilityAdjustmentEnabled {
+		changed = append(changed, "public_transit_availability_adjustment_enabled")
+	}
 	if before.ModelPlazaEnabled != after.ModelPlazaEnabled {
 		changed = append(changed, "model_plaza_enabled")
 	}
