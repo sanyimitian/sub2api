@@ -137,7 +137,10 @@ func TestPublicTransitModelCatalog_DeepseekOverrideFileRatesMatchActualBilling(t
 		{"output only", `{"output_cost_per_token":2e-6}`},
 		{"cache read only", `{"cache_read_input_token_cost":3e-7}`},
 		{"explicit zeros", `{"input_cost_per_token":0,"output_cost_per_token":0,"cache_read_input_token_cost":0}`},
-		{"null is not an override", `{"input_cost_per_token":null,"output_cost_per_token":null,"cache_read_input_token_cost":null}`},
+		// Keep one token rate in each fixture: a card with all token rates
+		// removed is rejected by the pricing loader before billing can use it.
+		{"null is not an override", `{"input_cost_per_token":null,"cache_read_input_token_cost":null}`},
+		{"null output is not an override", `{"output_cost_per_token":null}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pricing := newPricingServiceWithOverride(t, `{"deepseek-v4.1-flash":`+tc.patch+`}`)
