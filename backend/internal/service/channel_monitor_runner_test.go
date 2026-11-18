@@ -13,6 +13,7 @@ import (
 // stubMonitorSvc 实现 monitorRunnerSvc，用于隔离 runner 与真实 service/repo。
 type stubMonitorSvc struct {
 	enabled    []*ChannelMonitor
+	listCount  atomic.Int64
 	runCount   atomic.Int64
 	runCalled  chan int64 // 每次 RunCheck 触发时 push 一次（缓冲足够大避免阻塞）
 	runErr     error
@@ -21,6 +22,7 @@ type stubMonitorSvc struct {
 }
 
 func (s *stubMonitorSvc) ListEnabledMonitors(_ context.Context) ([]*ChannelMonitor, error) {
+	s.listCount.Add(1)
 	if s.listErr != nil {
 		return nil, s.listErr
 	}
@@ -263,6 +265,44 @@ func TestStart_LoadsAllEnabledMonitors(t *testing.T) {
 	waitFor(t, 2*time.Second, "all 3 tasks scheduled", func() bool { return runnerTaskCount(r) == 3 })
 
 	stoppedWithin(t, r, 3*time.Second)
+}
+
+func TestStart_ConcurrentCallsDoNotDuplicateProbes(t *testing.T) {
+	svc := &stubMonitorSvc{
+		enabled:   []*ChannelMonitor{{ID: 1, Enabled: true, IntervalSeconds: 3600}},
+		runCalled: make(chan int64, 8),
+	}
+	r := newRunnerForTest(svc)
+	t.Cleanup(r.Stop)
+	var starts sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		starts.Add(1)
+		go func() {
+			defer starts.Done()
+			r.Start()
+		}()
+	}
+	starts.Wait()
+	select {
+	case <-svc.runCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected the initial probe")
+	}
+	r.Stop()
+	if got := svc.listCount.Load(); got != 1 {
+		t.Fatalf("expected one initial monitor load, got %d", got)
+	}
+	if got := svc.runCount.Load(); got != 1 {
+		t.Fatalf("expected one initial probe, got %d", got)
+	}
+}
+
+func TestProvideChannelMonitorRunnerDefersStart(t *testing.T) {
+	r := ProvideChannelMonitorRunner(nil, nil, nil)
+	t.Cleanup(r.Stop)
+	if r.started {
+		t.Fatal("constructing dependencies must not start probes before HTTP is listening")
+	}
 }
 
 func TestStart_SkipsDecryptFailedMonitor(t *testing.T) {
