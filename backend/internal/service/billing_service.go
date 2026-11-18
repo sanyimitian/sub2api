@@ -98,7 +98,6 @@ type BillingCache interface {
 type ModelPricing struct {
 	// UltrafastMultiplier is model-owned and independent of operator Fast pricing.
 	UltrafastMultiplier                float64
-	CacheWrite12hMultiplier            float64
 	InputPricePerToken                 float64            // 每token输入价格 (USD)
 	InputPricePerTokenPriority         float64            // priority service tier 下每token输入价格 (USD)
 	ImageInputPricePerToken            float64            // 图片输入 token 价格 (USD)，用于多模态 embedding 等图文不同价场景；为 0 时回退到 InputPricePerToken
@@ -192,7 +191,6 @@ type UsageTokens struct {
 	ImageCacheReadTokens  int
 	OutputTokens          int
 	CacheCreationTokens   int
-	CacheWrite12hTokens   int
 	CacheReadTokens       int
 	CacheCreation5mTokens int
 	CacheCreation1hTokens int
@@ -1412,47 +1410,46 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 	model = strings.ToLower(model)
 
 	// 1. 优先从动态价格服务获取
-	var litellmPricing *LiteLLMModelPricing
 	if s.pricingService != nil {
-		litellmPricing = s.pricingService.GetModelPricing(model)
-	}
-	if litellmPricing == nil || litellmPricing.TokenPricingAbsent {
-		litellmPricing = gpt62FallbackPrice(model)
-	}
-	// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
-	// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
-	// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
-	// 图片计费路径（getDefaultImagePrice / getImageUnitPrice）直接读
-	// PricingService，不受影响。
-	if litellmPricing != nil {
-		// 启用 5m/1h 分类计费的条件：
-		// 1. 存在 1h 价格
-		// 2. 1h 价格 > 5m 价格（防止 LiteLLM 数据错误导致少收费）
-		price5m := litellmPricing.CacheCreationInputTokenCost
-		price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
-		enableBreakdown := price1h > 0 && price1h > price5m
-		return s.applyModelSpecificPricingPolicyEx(model, &ModelPricing{
-			InputPricePerToken:                 litellmPricing.InputCostPerToken,
-			InputPricePerTokenPriority:         litellmPricing.InputCostPerTokenPriority,
-			OutputPricePerToken:                litellmPricing.OutputCostPerToken,
-			OutputPricePerTokenPriority:        litellmPricing.OutputCostPerTokenPriority,
-			CacheCreationPriceExplicit:         (openai.IsGPT6SolOrLunaModelSpelling(model) || openai.IsGPT61SolModelSpelling(model)) && litellmPricing.CacheCreationInputTokenCostExplicit,
-			CacheCreationPricePerToken:         litellmPricing.CacheCreationInputTokenCost,
-			CacheCreationPricePerTokenPriority: litellmPricing.CacheCreationInputTokenCostPriority,
-			CacheReadPricePerToken:             litellmPricing.CacheReadInputTokenCost,
-			CacheReadPricePerTokenPriority:     litellmPricing.CacheReadInputTokenCostPriority,
-			CacheCreation5mPrice:               price5m,
-			CacheCreation1hPrice:               price1h,
-			SupportsCacheBreakdown:             enableBreakdown,
-			LongContextInputThreshold:          litellmPricing.LongContextInputTokenThreshold,
-			// xAI 的长上下文阈值语义为"达到即进高档"（LiteLLM 同口径），其余提供商为严格大于。
-			LongContextThresholdInclusive: strings.EqualFold(litellmPricing.LiteLLMProvider, "xai"),
-			LongContextInputMultiplier:    litellmPricing.LongContextInputCostMultiplier,
-			LongContextOutputMultiplier:   litellmPricing.LongContextOutputCostMultiplier,
-			ImageInputPricePerToken:       litellmPricing.InputCostPerImageToken,
-			ImageCacheReadPricePerToken:   litellmPricing.CacheReadInputImageTokenCost,
-			ImageOutputPricePerToken:      litellmPricing.OutputCostPerImageToken,
-		}, true, pricingAt), nil
+		litellmPricing := s.pricingService.GetModelPricing(model)
+		// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
+		// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
+		// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
+		// 图片计费路径（getDefaultImagePrice / getImageUnitPrice）直接读
+		// PricingService，不受影响。
+		if litellmPricing != nil && litellmPricing.TokenPricingAbsent {
+			litellmPricing = nil
+		}
+		if litellmPricing != nil {
+			// 启用 5m/1h 分类计费的条件：
+			// 1. 存在 1h 价格
+			// 2. 1h 价格 > 5m 价格（防止 LiteLLM 数据错误导致少收费）
+			price5m := litellmPricing.CacheCreationInputTokenCost
+			price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
+			enableBreakdown := price1h > 0 && price1h > price5m
+			return s.applyModelSpecificPricingPolicyEx(model, &ModelPricing{
+				InputPricePerToken:                 litellmPricing.InputCostPerToken,
+				InputPricePerTokenPriority:         litellmPricing.InputCostPerTokenPriority,
+				OutputPricePerToken:                litellmPricing.OutputCostPerToken,
+				OutputPricePerTokenPriority:        litellmPricing.OutputCostPerTokenPriority,
+				CacheCreationPriceExplicit:         (openai.IsGPT6SolOrLunaModelSpelling(model) || openai.IsGPT61SolModelSpelling(model)) && litellmPricing.CacheCreationInputTokenCostExplicit,
+				CacheCreationPricePerToken:         litellmPricing.CacheCreationInputTokenCost,
+				CacheCreationPricePerTokenPriority: litellmPricing.CacheCreationInputTokenCostPriority,
+				CacheReadPricePerToken:             litellmPricing.CacheReadInputTokenCost,
+				CacheReadPricePerTokenPriority:     litellmPricing.CacheReadInputTokenCostPriority,
+				CacheCreation5mPrice:               price5m,
+				CacheCreation1hPrice:               price1h,
+				SupportsCacheBreakdown:             enableBreakdown,
+				LongContextInputThreshold:          litellmPricing.LongContextInputTokenThreshold,
+				// xAI 的长上下文阈值语义为"达到即进高档"（LiteLLM 同口径），其余提供商为严格大于。
+				LongContextThresholdInclusive: strings.EqualFold(litellmPricing.LiteLLMProvider, "xai"),
+				LongContextInputMultiplier:    litellmPricing.LongContextInputCostMultiplier,
+				LongContextOutputMultiplier:   litellmPricing.LongContextOutputCostMultiplier,
+				ImageInputPricePerToken:       litellmPricing.InputCostPerImageToken,
+				ImageCacheReadPricePerToken:   litellmPricing.CacheReadInputImageTokenCost,
+				ImageOutputPricePerToken:      litellmPricing.OutputCostPerImageToken,
+			}, true, pricingAt), nil
+		}
 	}
 
 	// 2. 使用硬编码回退价格
@@ -1569,7 +1566,7 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 		if input.LongContextBillingEnabled != nil {
 			applyLongContextBilling = *input.LongContextBillingEnabled
 		}
-		pricing, err := s.getModelPricingAt(input.Model, input.PricingAt)
+		pricing, err := s.GetModelPricing(input.Model)
 		if err != nil {
 			return nil, err
 		}
@@ -1788,10 +1785,6 @@ func (s *BillingService) computeTokenBreakdown(
 // computeCacheCreationCost 计算缓存创建费用（支持 5m/1h 分类或标准计费）。
 // multiplier 用于长上下文等场景下的整体价格缩放（普通调用传 1.0 即可）。
 func (s *BillingService) computeCacheCreationCost(pricing *ModelPricing, tokens UsageTokens, price, multiplier float64) float64 {
-	if pricing.CacheWrite12hMultiplier > 0 {
-		longWrites := min(max(tokens.CacheWrite12hTokens, 0), tokens.CacheCreationTokens)
-		return (float64(tokens.CacheCreationTokens-longWrites) + float64(longWrites)*pricing.CacheWrite12hMultiplier) * price * multiplier
-	}
 	if pricing.SupportsCacheBreakdown && (pricing.CacheCreation5mPrice > 0 || pricing.CacheCreation1hPrice > 0) {
 		cacheCreation5mTokens, cacheCreation1hTokens := normalizeCacheCreationBreakdown(tokens)
 		if cacheCreation5mTokens == 0 && cacheCreation1hTokens == 0 && tokens.CacheCreationTokens > 0 {
@@ -1956,20 +1949,6 @@ func (s *BillingService) applyModelSpecificPricingPolicyEx(model string, pricing
 			cloned.OutputPricePerToken = deepseekFlashOffPeakOutputPrice
 			cloned.CacheReadPricePerToken = deepseekFlashOffPeakCacheRead
 		}
-		return &cloned
-	}
-	switch canonicalizeOpenAIModelAliasSpelling(model) {
-	case "gpt-6.2-astra", "gpt-6.2-sol":
-		cloned := *pricing
-		if pricingAt.IsZero() {
-			pricingAt = timezone.Now()
-		}
-		cloned.CacheWrite12hMultiplier = 2
-		cloned.UltrafastMultiplier = 3
-		if !pricingAt.Before(time.Date(2027, time.March, 1, 8, 0, 0, 0, time.UTC)) {
-			cloned.UltrafastMultiplier = 6
-		}
-		enforceOpenAIFastPricingRatio(&cloned, 2)
 		return &cloned
 	}
 	normalized := normalizeKnownOpenAICodexModel(model)

@@ -38,7 +38,7 @@ func TestUsageConversionsPreserveCacheWriteTokens(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(`{
 		"input_tokens":1000,
 		"output_tokens":50,
-		"input_tokens_details":{"cached_tokens":100,"cache_write_tokens":200,"cache_write_tokens_details":{"ttl_30m_tokens":150,"ttl_12h_tokens":50}}
+		"input_tokens_details":{"cached_tokens":100,"cache_write_tokens":200}
 	}`), &responsesUsage))
 	require.NotNil(t, responsesUsage.InputTokensDetails)
 	require.Equal(t, 200, responsesUsage.InputTokensDetails.CacheWriteTokens)
@@ -52,7 +52,6 @@ func TestUsageConversionsPreserveCacheWriteTokens(t *testing.T) {
 	require.NotNil(t, roundTrip.InputTokensDetails)
 	require.Equal(t, 200, roundTrip.CacheCreationInputTokens)
 	require.Equal(t, 200, roundTrip.InputTokensDetails.CacheWriteTokens)
-	require.Equal(t, &CacheWriteTokensDetails{Tokens30m: 150, Tokens12h: 50}, roundTrip.InputTokensDetails.CacheWriteDetails)
 }
 
 func TestResponsesUsageNestedCacheWritePresenceOverridesTopLevelAlias(t *testing.T) {

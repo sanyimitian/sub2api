@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -33,44 +32,6 @@ func captureStdLog(t *testing.T) *bytes.Buffer {
 
 func newTestBillingService() *BillingService {
 	return NewBillingService(&config.Config{}, nil)
-}
-
-func TestGPT62OfficialBilling(t *testing.T) {
-	catalog := &PricingService{}
-	data, err := os.ReadFile("../../resources/model-pricing/model_prices_and_context_window.json")
-	require.NoError(t, err)
-	catalog.pricingData, err = catalog.parsePricingData(data)
-	require.NoError(t, err)
-	cutover := time.Date(2027, 3, 1, 8, 0, 0, 0, time.UTC)
-	for model, base := range map[string]float64{"gpt-6.2-astra": 8e-6, "gpt-6.2-sol": 2e-6} {
-		require.Contains(t, catalog.pricingData, model)
-		for source, prices := range map[string]*PricingService{"offline": nil, "bundled": catalog, "stale": {pricingData: map[string]*LiteLLMModelPricing{"gpt-5.4": openAIGPT54FallbackPricing}}} {
-			t.Run(model+"/"+source, func(t *testing.T) {
-				svc := NewBillingService(&config.Config{}, prices)
-				for _, total := range []int{272000, 272001} {
-					inputFactor, outputFactor := 1.0, 1.0
-					if total > 272000 {
-						inputFactor, outputFactor = 2, 1.5
-					}
-					for _, tier := range []struct {
-						name   string
-						at     time.Time
-						factor float64
-					}{
-						{"default", cutover, 1}, {"priority", cutover, 2}, {"ultrafast", cutover.Add(-time.Nanosecond), 3}, {"ultrafast", cutover, 6},
-					} {
-						cost, err := svc.CalculateCostUnified(CostInput{Model: "openai/" + model, Tokens: UsageTokens{InputTokens: total - 11000, CacheReadTokens: 4000, CacheCreationTokens: 7000, CacheWrite12hTokens: 4000, OutputTokens: 1000}, PricingAt: tier.at, RateMultiplier: 0.15, ServiceTier: tier.name})
-						require.NoError(t, err)
-						require.InDelta(t, float64(total-11000)*base*inputFactor*tier.factor, cost.InputCost, 1e-10)
-						require.InDelta(t, 4000*base*0.05*inputFactor*tier.factor, cost.CacheReadCost, 1e-10)
-						require.InDelta(t, (3000*1.25+4000*2.5)*base*inputFactor*tier.factor, cost.CacheCreationCost, 1e-10)
-						require.InDelta(t, 1000*base*5*outputFactor*tier.factor, cost.OutputCost, 1e-10)
-						require.InDelta(t, cost.TotalCost*0.15, cost.ActualCost, 1e-10)
-					}
-				}
-			})
-		}
-	}
 }
 
 func newTestBillingServiceWithOpenAILadderCatalog(t *testing.T) *BillingService {

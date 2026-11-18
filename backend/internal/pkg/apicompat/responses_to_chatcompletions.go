@@ -432,7 +432,6 @@ func promptDetailsFromResponses(src *ResponsesInputTokensDetails) *ChatTokenDeta
 		AudioTokens:         src.AudioTokens,
 		CacheCreationTokens: src.CacheCreationTokens,
 		CacheWriteTokens:    src.CacheWriteTokens,
-		CacheWriteDetails:   src.CacheWriteDetails,
 	}
 }
 

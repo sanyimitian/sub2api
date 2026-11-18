@@ -29,7 +29,6 @@ type Usage struct {
 	ImageInputTokens         int
 	OutputTokens             int
 	CacheCreationInputTokens int
-	CacheWrite12hTokens      int
 	CacheReadInputTokens     int
 	ImageOutputTokens        int
 }
@@ -1161,7 +1160,6 @@ func parseUsageAndAccumulate(
 		ImageInputTokens:         int(imageInputTokens),
 		OutputTokens:             outputTokens,
 		CacheCreationInputTokens: openAICacheCreationTokensFromUsage(usageResult),
-		CacheWrite12hTokens:      int(usageResult.Get("input_tokens_details.cache_write_tokens_details.ttl_12h_tokens").Int()),
 		CacheReadInputTokens:     cachedTokens,
 		ImageOutputTokens:        int(imageTokens),
 	}
@@ -1195,7 +1193,6 @@ func mergeRelayUsageNonZero(dst *Usage, src Usage) {
 	}
 	if src.CacheCreationInputTokens > 0 {
 		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
-		dst.CacheWrite12hTokens = src.CacheWrite12hTokens
 	}
 	if src.CacheReadInputTokens > 0 {
 		dst.CacheReadInputTokens = src.CacheReadInputTokens
@@ -1217,7 +1214,6 @@ func finalizeRelayTurnUsage(state *relayState) Usage {
 	state.usage.ImageInputTokens += turnUsage.ImageInputTokens
 	state.usage.OutputTokens += turnUsage.OutputTokens
 	state.usage.CacheCreationInputTokens += turnUsage.CacheCreationInputTokens
-	state.usage.CacheWrite12hTokens += turnUsage.CacheWrite12hTokens
 	state.usage.CacheReadInputTokens += turnUsage.CacheReadInputTokens
 	state.usage.ImageOutputTokens += turnUsage.ImageOutputTokens
 	state.turnUsage = Usage{}
