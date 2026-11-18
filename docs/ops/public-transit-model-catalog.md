@@ -30,13 +30,16 @@ Prices come from identified catalog entries, including recognized aliases,
 with the group's configured flat token prices taking precedence. Missing input
 or output prices, unsupported billing modes, and dynamic time pricing are
 skipped. There is no family-name price guessing. A price of zero is preserved
-only when explicitly configured in a group card; missing prices are not made
-zero. Names and request platforms remain those of the verified model and group.
+when explicitly configured in a group card or in the input, output, or
+cache-read fields of `pricing.override_file`; missing prices are not made zero.
+Names and request platforms remain those of the verified model and group.
 
 `claude-opus-5-5` and `glm-5.3` use identified catalog prices. The exact verified
 model `deepseek-v4.1-flash` uses the application's existing billing constants
 and peak/off-peak function, including the weekday 2x periods. Its public price
-represents the snapshot time and discloses the schedule. Group custom prices
+represents the snapshot time and discloses the schedule. Fields explicitly set
+in `pricing.override_file` retain their configured prices without the default
+rate replacement or peak multiplier, matching billing. Group custom prices
 still take precedence without adding the peak multiplier, matching billing.
 Other unrecognized DeepSeek names remain unpublished. No billing code or
 customer prices are modified to populate this public catalog.

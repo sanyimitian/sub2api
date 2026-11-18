@@ -116,8 +116,26 @@ func publicCatalogModelAt(group Group, name string, pricingService *PricingServi
 	// Identified lookup accepts known aliases but never guesses a price from
 	// substrings such as "gpt" or "opus". Missing token prices stay unpublished.
 	var price *ChannelModelPricing
+	var overrides tokenPriceOverrides
 	if base := pricingService.GetIdentifiedModelPricing(name); base != nil && !base.TokenPricingAbsent && base.Mode != "image_generation" {
 		price = synthesizePricingFromLiteLLM(base, nil)
+		overrides = base.priceOverrides
+		// Unlike a missing catalog rate, an explicit override of zero is a
+		// configured price. Preserve it before applying model-specific policy.
+		for _, field := range []struct {
+			explicit bool
+			value    float64
+			dst      **float64
+		}{
+			{overrides.input, base.InputCostPerToken, &price.InputPrice},
+			{overrides.output, base.OutputCostPerToken, &price.OutputPrice},
+			{overrides.cacheRead, base.CacheReadInputTokenCost, &price.CacheReadPrice},
+		} {
+			if field.explicit {
+				value := field.value
+				*field.dst = &value
+			}
+		}
 	}
 	// This verified model has a built-in billing policy even when absent from
 	// the downloaded catalog. Reuse its billing constants, not a family guess.
@@ -127,9 +145,15 @@ func publicCatalogModelAt(group Group, name string, pricingService *PricingServi
 		if price == nil {
 			price = &ChannelModelPricing{BillingMode: BillingModeToken}
 		}
-		price.InputPrice = nonZeroPtr(deepseekFlashOffPeakInputPrice)
-		price.OutputPrice = nonZeroPtr(deepseekFlashOffPeakOutputPrice)
-		price.CacheReadPrice = nonZeroPtr(deepseekFlashOffPeakCacheRead)
+		if !overrides.input {
+			price.InputPrice = nonZeroPtr(deepseekFlashOffPeakInputPrice)
+		}
+		if !overrides.output {
+			price.OutputPrice = nonZeroPtr(deepseekFlashOffPeakOutputPrice)
+		}
+		if !overrides.cacheRead {
+			price.CacheReadPrice = nonZeroPtr(deepseekFlashOffPeakCacheRead)
+		}
 	}
 	priceSource := ModelPriceSourceStandard
 	if custom := matchGroupModelPricing(&group, name); custom != nil {
@@ -156,10 +180,20 @@ func publicCatalogModelAt(group Group, name string, pricingService *PricingServi
 	if deepseekFlash && priceSource == ModelPriceSourceStandard {
 		// Match actual default-card billing at snapshot time. Group custom
 		// prices do not receive this multiplier, including partial price cards.
+		// Explicit override-file fields also stay fixed, matching billing.
 		multiplier := deepseekPeakMultiplierAt(now)
-		for _, field := range []**float64{&price.InputPrice, &price.OutputPrice, &price.CacheReadPrice} {
-			value := **field * multiplier
-			*field = &value
+		for _, field := range []struct {
+			explicit bool
+			dst      **float64
+		}{
+			{overrides.input, &price.InputPrice},
+			{overrides.output, &price.OutputPrice},
+			{overrides.cacheRead, &price.CacheReadPrice},
+		} {
+			if !field.explicit {
+				value := **field.dst * multiplier
+				*field.dst = &value
+			}
 		}
 	}
 	if price == nil || price.InputPrice == nil || price.OutputPrice == nil {
@@ -178,7 +212,7 @@ func publicCatalogModelAt(group Group, name string, pricingService *PricingServi
 		PricingSource: priceSource, CatalogSource: "public_catalog",
 	}, group)
 	if deepseekFlash && priceSource == ModelPriceSourceStandard {
-		model.Source.Disclosure += "; token prices reflect the current billing period: weekday 01:00-04:00 and 06:00-10:00 UTC cost 2x off-peak; Beijing weekends are off-peak"
+		model.Source.Disclosure += "; token prices reflect the current billing period: weekday 01:00-04:00 and 06:00-10:00 UTC cost 2x off-peak for default rates; Beijing weekends are off-peak; explicitly overridden rates stay fixed"
 	}
 	return model, true
 }
