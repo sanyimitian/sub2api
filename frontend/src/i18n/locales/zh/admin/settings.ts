@@ -63,7 +63,10 @@ export default {
         publicTransit: {
           title: '公开资料出口', description: '开放标准公开快照接口，并可选开放可视化页面。', configureLink: '打开公开资料页面', previewLink: '在后台预览', apiEnabled: '公开资料接口', apiEnabledHint: '开放发现与快照接口，不暴露账号凭据。', pageEnabled: '公开资料页面', pageEnabledHint: '开放 /public/transit 给访客访问。',
           availabilityAdjustmentEnabled: 'DeepSeek / GLM 可用率展示调整',
-          availabilityAdjustmentEnabledHint: '默认关闭。开启后，DeepSeek / GLM 公开可用率低于 85% 时，按下方范围生成模拟展示值；保留原始观测值供核对。',
+          availabilityAdjustmentEnabledHint: '默认关闭。开启后，DeepSeek / GLM 公开可用率低于所设触发阈值时，按下方范围生成模拟展示值；保留原始观测值供核对。',
+          availabilityAdjustmentThreshold: '触发阈值（%）',
+          availabilityAdjustmentThresholdHint: '默认 85%。仅原始可用率严格低于阈值时调整，等于阈值时保持原值。范围 0%–100%，最多两位小数。',
+          availabilityAdjustmentThresholdError: '请填写 0–100 之间的触发阈值，最多两位小数。',
           availabilityAdjustmentMin: '展示下限（%）',
           availabilityAdjustmentMax: '展示上限（%）',
           availabilityAdjustmentRangeHint: '默认 88.00%–90.00%。范围 0%–100%，最多两位小数，下限可等于上限。可在展示调整关闭时预先配置。',

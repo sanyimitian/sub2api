@@ -630,6 +630,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.PublicTransitAvailabilityAdjustmentEnabled != after.PublicTransitAvailabilityAdjustmentEnabled {
 		changed = append(changed, "public_transit_availability_adjustment_enabled")
 	}
+	if before.PublicTransitAvailabilityAdjustmentThreshold != after.PublicTransitAvailabilityAdjustmentThreshold {
+		changed = append(changed, service.SettingKeyPublicTransitAvailabilityAdjustmentThreshold)
+	}
 	if before.PublicTransitAvailabilityAdjustmentMin != after.PublicTransitAvailabilityAdjustmentMin {
 		changed = append(changed, service.SettingKeyPublicTransitAvailabilityAdjustmentMin)
 	}

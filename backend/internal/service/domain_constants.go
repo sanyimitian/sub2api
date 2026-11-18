@@ -555,21 +555,22 @@ const (
 
 	// SettingKeyModelPlazaDescription stores the Markdown blurb rendered at the top of
 	// the Model Plaza page (global pricing notes, exchange rate, promotions, ...).
-	SettingKeyModelPlazaDescription                      = "model_plaza_description"
-	SettingKeyPublicTransitEnabled                       = "public_transit_enabled"
-	SettingKeyPublicTransitAvailabilityAdjustmentEnabled = "public_transit_availability_adjustment_enabled"
-	SettingKeyPublicTransitAvailabilityAdjustmentMin     = "public_transit_availability_adjustment_min"
-	SettingKeyPublicTransitAvailabilityAdjustmentMax     = "public_transit_availability_adjustment_max"
-	SettingKeyPublicTransitCacheEnabled                  = "public_transit_cache_presentation_enabled"
-	SettingKeyPublicTransitCacheMaximumRate              = "public_transit_cache_maximum_rate"
-	SettingKeyPublicTransitCacheIncreasePercent          = "public_transit_cache_increase_percent"
-	SettingKeyPublicTransitCacheGroupIncreasePercent     = "public_transit_cache_group_increase_percent"
-	SettingKeyPublicTransitCacheLowRateThreshold         = "public_transit_cache_low_rate_threshold"
-	SettingKeyPublicTransitCacheLowRateDisplayMin        = "public_transit_cache_low_rate_display_min"
-	SettingKeyPublicTransitCacheLowRateDisplayMax        = "public_transit_cache_low_rate_display_max"
-	SettingKeyPublicTransitCacheLowRateMin               = "public_transit_cache_low_rate_min"
-	SettingKeyPublicTransitCacheLowRateMax               = "public_transit_cache_low_rate_max"
-	SettingKeyPublicTransitPageEnabled                   = "public_transit_page_enabled"
+	SettingKeyModelPlazaDescription                        = "model_plaza_description"
+	SettingKeyPublicTransitEnabled                         = "public_transit_enabled"
+	SettingKeyPublicTransitAvailabilityAdjustmentEnabled   = "public_transit_availability_adjustment_enabled"
+	SettingKeyPublicTransitAvailabilityAdjustmentThreshold = "public_transit_availability_adjustment_threshold"
+	SettingKeyPublicTransitAvailabilityAdjustmentMin       = "public_transit_availability_adjustment_min"
+	SettingKeyPublicTransitAvailabilityAdjustmentMax       = "public_transit_availability_adjustment_max"
+	SettingKeyPublicTransitCacheEnabled                    = "public_transit_cache_presentation_enabled"
+	SettingKeyPublicTransitCacheMaximumRate                = "public_transit_cache_maximum_rate"
+	SettingKeyPublicTransitCacheIncreasePercent            = "public_transit_cache_increase_percent"
+	SettingKeyPublicTransitCacheGroupIncreasePercent       = "public_transit_cache_group_increase_percent"
+	SettingKeyPublicTransitCacheLowRateThreshold           = "public_transit_cache_low_rate_threshold"
+	SettingKeyPublicTransitCacheLowRateDisplayMin          = "public_transit_cache_low_rate_display_min"
+	SettingKeyPublicTransitCacheLowRateDisplayMax          = "public_transit_cache_low_rate_display_max"
+	SettingKeyPublicTransitCacheLowRateMin                 = "public_transit_cache_low_rate_min"
+	SettingKeyPublicTransitCacheLowRateMax                 = "public_transit_cache_low_rate_max"
+	SettingKeyPublicTransitPageEnabled                     = "public_transit_page_enabled"
 
 	// SettingKeyPluginManagementEnabled controls sidebar visibility only; it does
 	// not stop or otherwise change already loaded plugin runtimes.

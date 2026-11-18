@@ -99,6 +99,9 @@ func (s *SettingService) refreshCachedSettingsAfterWrite(ctx context.Context, se
 }
 
 func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, settings *SystemSettings) (map[string]string, error) {
+	if err := ValidatePublicTransitAvailabilityThreshold(settings.PublicTransitAvailabilityAdjustmentThreshold); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_PUBLIC_TRANSIT_AVAILABILITY_THRESHOLD", err.Error())
+	}
 	availabilityRange := PublicTransitAvailabilityRange{
 		Minimum: settings.PublicTransitAvailabilityAdjustmentMin,
 		Maximum: settings.PublicTransitAvailabilityAdjustmentMax,
@@ -441,6 +444,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyPublicTransitEnabled] = strconv.FormatBool(settings.PublicTransitEnabled)
 	updates[SettingKeyPublicTransitPageEnabled] = strconv.FormatBool(settings.PublicTransitEnabled && settings.PublicTransitPageEnabled)
 	updates[SettingKeyPublicTransitAvailabilityAdjustmentEnabled] = strconv.FormatBool(settings.PublicTransitAvailabilityAdjustmentEnabled)
+	updates[SettingKeyPublicTransitAvailabilityAdjustmentThreshold] = strconv.FormatFloat(settings.PublicTransitAvailabilityAdjustmentThreshold, 'f', -1, 64)
 	updates[SettingKeyPublicTransitAvailabilityAdjustmentMin] = strconv.FormatFloat(availabilityRange.Minimum, 'f', -1, 64)
 	updates[SettingKeyPublicTransitAvailabilityAdjustmentMax] = strconv.FormatFloat(availabilityRange.Maximum, 'f', -1, 64)
 

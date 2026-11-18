@@ -750,6 +750,7 @@ describe("admin SettingsView payment visible method controls", () => {
     const toggle = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-adjustment-toggle"]');
     expect(toggle.element.checked).toBe(false);
     expect(toggle.element.disabled).toBe(false);
+    expect(wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-threshold"]').element.value).toBe("85");
     expect(wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-min"]').element.value).toBe("88");
     expect(wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-max"]').element.value).toBe("90");
 
@@ -758,6 +759,7 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
     expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       public_transit_availability_adjustment_enabled: true,
+      public_transit_availability_adjustment_threshold: 85,
       public_transit_availability_adjustment_min: 88,
       public_transit_availability_adjustment_max: 90,
     }));
@@ -767,6 +769,7 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
     expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       public_transit_availability_adjustment_enabled: false,
+      public_transit_availability_adjustment_threshold: 85,
       public_transit_availability_adjustment_min: 88,
       public_transit_availability_adjustment_max: 90,
     }));
@@ -778,6 +781,7 @@ describe("admin SettingsView payment visible method controls", () => {
       ...baseSettingsResponse,
       public_transit_enabled: false,
       public_transit_availability_adjustment_enabled: true,
+      public_transit_availability_adjustment_threshold: 0,
       public_transit_availability_adjustment_min: 0,
       public_transit_availability_adjustment_max: 95.5,
     });
@@ -790,6 +794,9 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(toggle.element.disabled).toBe(true);
     const minimum = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-min"]');
     const maximum = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-max"]');
+    const threshold = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-threshold"]');
+    expect(threshold.element.value).toBe("0");
+    expect(threshold.element.disabled).toBe(true);
     expect(minimum.element.value).toBe("0");
     expect(maximum.element.value).toBe("95.5");
     expect(minimum.element.disabled).toBe(true);
@@ -800,6 +807,7 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       public_transit_enabled: false,
       public_transit_availability_adjustment_enabled: true,
+      public_transit_availability_adjustment_threshold: 0,
       public_transit_availability_adjustment_min: 0,
       public_transit_availability_adjustment_max: 95.5,
     }));
@@ -809,6 +817,51 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(toggle.element.checked).toBe(true);
     expect(minimum.element.disabled).toBe(false);
     expect(maximum.element.disabled).toBe(false);
+    expect(threshold.element.disabled).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("loads custom availability threshold and saves zero and maximum while adjustment is off", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      public_transit_enabled: true,
+      public_transit_availability_adjustment_enabled: false,
+      public_transit_availability_adjustment_threshold: 76.25,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+    const threshold = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-threshold"]');
+    expect(threshold.element.value).toBe("76.25");
+    expect(threshold.element.disabled).toBe(false);
+
+    for (const value of [76.25, 0, 100]) {
+      await threshold.setValue(value);
+      await wrapper.find("form").trigger("submit.prevent");
+      await flushPromises();
+      expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+        public_transit_availability_adjustment_enabled: false,
+        public_transit_availability_adjustment_threshold: value,
+      }));
+    }
+    wrapper.unmount();
+  });
+
+  it("rejects invalid availability thresholds before saving", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+    const threshold = wrapper.get('[data-testid="public-transit-availability-threshold"]');
+
+    for (const value of ["", "-0.01", "100.01", "85.001", "NaN", "Infinity"]) {
+      updateSettings.mockClear();
+      showError.mockClear();
+      await threshold.setValue(value);
+      await wrapper.find("form").trigger("submit.prevent");
+      await flushPromises();
+      expect(updateSettings, `invalid threshold ${value}`).not.toHaveBeenCalled();
+      expect(showError).toHaveBeenCalledWith("admin.settings.features.publicTransit.availabilityAdjustmentThresholdError");
+    }
     wrapper.unmount();
   });
 

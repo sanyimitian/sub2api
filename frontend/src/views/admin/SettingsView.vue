@@ -7441,7 +7441,24 @@
               />
             </div>
             <div :class="{ 'opacity-60': !form.public_transit_enabled }">
-              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                  <label for="public-transit-availability-threshold" class="mb-1 block text-sm font-medium">
+                    {{ t('admin.settings.features.publicTransit.availabilityAdjustmentThreshold') }}
+                  </label>
+                  <input
+                    id="public-transit-availability-threshold"
+                    v-model.number="form.public_transit_availability_adjustment_threshold"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    class="input w-full"
+                    :disabled="!form.public_transit_enabled"
+                    aria-describedby="public-transit-availability-threshold-hint"
+                    data-testid="public-transit-availability-threshold"
+                  />
+                </div>
                 <div>
                   <label for="public-transit-availability-min" class="mb-1 block text-sm font-medium">
                     {{ t('admin.settings.features.publicTransit.availabilityAdjustmentMin') }}
@@ -7477,6 +7494,9 @@
                   />
                 </div>
               </div>
+              <p id="public-transit-availability-threshold-hint" class="mt-2 text-xs text-gray-500">
+                {{ t('admin.settings.features.publicTransit.availabilityAdjustmentThresholdHint') }}
+              </p>
               <p id="public-transit-availability-range-hint" class="mt-2 text-xs text-gray-500">
                 {{ t('admin.settings.features.publicTransit.availabilityAdjustmentRangeHint') }}
               </p>
@@ -9831,6 +9851,7 @@ type SettingsForm = Omit<
   | "openai_ws_latency_switch_min_tps"
   | "public_transit_availability_adjustment_min"
   | "public_transit_availability_adjustment_max"
+  | "public_transit_availability_adjustment_threshold"
 > & {
   /** Form always binds a concrete boolean (SystemSettings marks this optional). */
   channel_monitor_hide_throughput: boolean;
@@ -9839,6 +9860,7 @@ type SettingsForm = Omit<
   openai_ws_latency_switch_min_tps: number | "";
   public_transit_availability_adjustment_min: number | "";
   public_transit_availability_adjustment_max: number | "";
+  public_transit_availability_adjustment_threshold: number | "";
   smtp_password: string;
   turnstile_secret_key: string;
   tencent_captcha_app_secret_key: string;
@@ -10191,6 +10213,7 @@ const form = reactive<SettingsForm>({
   public_transit_enabled: true,
   public_transit_page_enabled: false,
   public_transit_availability_adjustment_enabled: false,
+  public_transit_availability_adjustment_threshold: 85,
   public_transit_availability_adjustment_min: 88,
   public_transit_availability_adjustment_max: 90,
   // Model Plaza feature switches + description
@@ -11240,6 +11263,8 @@ async function loadSettings() {
     form.public_transit_availability_adjustment_enabled = Boolean(
       settings.public_transit_availability_adjustment_enabled
     );
+    form.public_transit_availability_adjustment_threshold =
+      settings.public_transit_availability_adjustment_threshold ?? 85;
     form.public_transit_availability_adjustment_min =
       settings.public_transit_availability_adjustment_min ?? 88;
     form.public_transit_availability_adjustment_max =
@@ -11472,6 +11497,17 @@ const siteBillingModeHint = computed(() =>
 async function saveSettings() {
   saving.value = true;
   try {
+    const availabilityThreshold = form.public_transit_availability_adjustment_threshold;
+    if (
+      typeof availabilityThreshold !== "number" ||
+      !Number.isFinite(availabilityThreshold) ||
+      availabilityThreshold < 0 || availabilityThreshold > 100 ||
+      Math.round(availabilityThreshold * 100) / 100 !== availabilityThreshold
+    ) {
+      appStore.showError(t("admin.settings.features.publicTransit.availabilityAdjustmentThresholdError"));
+      return;
+    }
+
     const availabilityMin = form.public_transit_availability_adjustment_min;
     const availabilityMax = form.public_transit_availability_adjustment_max;
     if (
@@ -11976,6 +12012,7 @@ async function saveSettings() {
       public_transit_enabled: form.public_transit_enabled,
       public_transit_page_enabled: form.public_transit_enabled && form.public_transit_page_enabled,
       public_transit_availability_adjustment_enabled: Boolean(form.public_transit_availability_adjustment_enabled),
+      public_transit_availability_adjustment_threshold: availabilityThreshold,
       public_transit_availability_adjustment_min: availabilityMin,
       public_transit_availability_adjustment_max: availabilityMax,
       // Model Plaza feature switches + description

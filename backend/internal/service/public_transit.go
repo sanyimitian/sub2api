@@ -63,10 +63,11 @@ type PublicTransitRuntime struct {
 	PageEnabled                   bool
 	AvailabilityAdjustmentEnabled bool
 	AvailabilityRange             PublicTransitAvailabilityRange
+	AvailabilityThreshold         float64
 }
 
 func (s *SettingService) GetPublicTransitRuntime(ctx context.Context) PublicTransitRuntime {
-	vals, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyPublicTransitEnabled, SettingKeyPublicTransitPageEnabled, SettingKeyPublicTransitAvailabilityAdjustmentEnabled, SettingKeyPublicTransitAvailabilityAdjustmentMin, SettingKeyPublicTransitAvailabilityAdjustmentMax})
+	vals, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyPublicTransitEnabled, SettingKeyPublicTransitPageEnabled, SettingKeyPublicTransitAvailabilityAdjustmentEnabled, SettingKeyPublicTransitAvailabilityAdjustmentMin, SettingKeyPublicTransitAvailabilityAdjustmentMax, SettingKeyPublicTransitAvailabilityAdjustmentThreshold})
 	if err != nil {
 		return PublicTransitRuntime{APIEnabled: false, PageEnabled: false}
 	}
@@ -85,11 +86,13 @@ func (s *SettingService) GetPublicTransitRuntime(ctx context.Context) PublicTran
 		pageEnabled = false
 	}
 	displayRange, rangeErr := parsePublicTransitAvailabilityRange(vals)
+	threshold, thresholdErr := parsePublicTransitAvailabilityThreshold(vals)
 	return PublicTransitRuntime{
 		APIEnabled:                    apiEnabled,
 		PageEnabled:                   pageEnabled,
-		AvailabilityAdjustmentEnabled: apiEnabled && rangeErr == nil && vals[SettingKeyPublicTransitAvailabilityAdjustmentEnabled] == "true",
+		AvailabilityAdjustmentEnabled: apiEnabled && rangeErr == nil && thresholdErr == nil && vals[SettingKeyPublicTransitAvailabilityAdjustmentEnabled] == "true",
 		AvailabilityRange:             displayRange,
+		AvailabilityThreshold:         threshold,
 	}
 }
 
@@ -390,7 +393,7 @@ func (s *PublicTransitService) Snapshot(ctx context.Context, baseURL string) (*P
 		if err != nil {
 			return nil, fmt.Errorf("load public monitor details: %w", err)
 		}
-		monitorItems = buildPublicTransitMonitors(monitors, monitorDetails, runtime.AvailabilityAdjustmentEnabled, runtime.AvailabilityRange)
+		monitorItems = buildPublicTransitMonitors(monitors, monitorDetails, runtime.AvailabilityAdjustmentEnabled, runtime.AvailabilityRange, runtime.AvailabilityThreshold)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -855,7 +858,7 @@ func (s *PublicTransitService) publicMonitorDetails(ctx context.Context, views [
 	return out, nil
 }
 
-func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*UserMonitorDetail, adjustAvailability bool, displayRange PublicTransitAvailabilityRange) []PublicTransitMonitor {
+func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*UserMonitorDetail, adjustAvailability bool, displayRange PublicTransitAvailabilityRange, threshold float64) []PublicTransitMonitor {
 	out := make([]PublicTransitMonitor, 0, len(views))
 	for _, v := range views {
 		if v == nil {
@@ -869,7 +872,7 @@ func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*Use
 				LatencyMs: e.LatencyMs,
 			})
 		}
-		models := buildPublicTransitMonitorModels(details[v.ID], adjustAvailability, displayRange)
+		models := buildPublicTransitMonitorModels(details[v.ID], adjustAvailability, displayRange, threshold)
 		timeline := buildPublicTransitMonitorTimeline(v.Timeline)
 		item := PublicTransitMonitor{
 			Name:                v.Name,
@@ -898,7 +901,7 @@ func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*Use
 			break
 		}
 		if adjustAvailability && !primaryFound && len(v.Timeline) > 0 {
-			item.AvailabilityAdjustment = adjustPublicTransitAvailability(v.PrimaryModel, &item.Availability7d, nil, nil, displayRange)
+			item.AvailabilityAdjustment = adjustPublicTransitAvailability(v.PrimaryModel, &item.Availability7d, nil, nil, displayRange, threshold)
 		}
 		if len(v.Timeline) > 0 {
 			item.LastCheckedAt = v.Timeline[0].CheckedAt.UTC().Format(time.RFC3339)
@@ -914,7 +917,7 @@ func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*Use
 	return out
 }
 
-func buildPublicTransitMonitorModels(detail *UserMonitorDetail, adjustAvailability bool, displayRange PublicTransitAvailabilityRange) []PublicTransitMonitorModel {
+func buildPublicTransitMonitorModels(detail *UserMonitorDetail, adjustAvailability bool, displayRange PublicTransitAvailabilityRange, threshold float64) []PublicTransitMonitorModel {
 	if detail == nil {
 		return []PublicTransitMonitorModel{}
 	}
@@ -931,7 +934,7 @@ func buildPublicTransitMonitorModels(detail *UserMonitorDetail, adjustAvailabili
 		}
 		// Adjust only the copied public DTO, never the monitor detail or history.
 		if adjustAvailability && m.LatestStatus != "" {
-			item.AvailabilityAdjustment = adjustPublicTransitAvailability(m.Model, &item.Availability7d, &item.Availability15d, &item.Availability30d, displayRange)
+			item.AvailabilityAdjustment = adjustPublicTransitAvailability(m.Model, &item.Availability7d, &item.Availability15d, &item.Availability30d, displayRange, threshold)
 		}
 		out = append(out, item)
 	}

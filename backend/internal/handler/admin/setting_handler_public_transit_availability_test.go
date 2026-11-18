@@ -143,15 +143,137 @@ func TestPublicTransitAvailabilityRangeInitializationDefaults(t *testing.T) {
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
 	require.NoError(t, svc.InitializeDefaultSettings(context.Background()))
 	require.Equal(t, "false", repo.values[service.SettingKeyPublicTransitAvailabilityAdjustmentEnabled])
+	require.Equal(t, "85", repo.values[service.SettingKeyPublicTransitAvailabilityAdjustmentThreshold])
 	require.Equal(t, "88", repo.values[service.SettingKeyPublicTransitAvailabilityAdjustmentMin])
 	require.Equal(t, "90", repo.values[service.SettingKeyPublicTransitAvailabilityAdjustmentMax])
 
 	// Initialization is not a migration and must not reset an existing range.
+	repo.values[service.SettingKeyPublicTransitAvailabilityAdjustmentThreshold] = "0"
 	repo.values[service.SettingKeyPublicTransitAvailabilityAdjustmentMin] = "0"
 	repo.values[service.SettingKeyPublicTransitAvailabilityAdjustmentMax] = "100"
 	require.NoError(t, svc.InitializeDefaultSettings(context.Background()))
+	require.Equal(t, "0", repo.values[service.SettingKeyPublicTransitAvailabilityAdjustmentThreshold])
 	require.Equal(t, "0", repo.values[service.SettingKeyPublicTransitAvailabilityAdjustmentMin])
 	require.Equal(t, "100", repo.values[service.SettingKeyPublicTransitAvailabilityAdjustmentMax])
+}
+
+func assertPublicTransitAvailabilityThreshold(t *testing.T, rec *httptest.ResponseRecorder, want float64) {
+	t.Helper()
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var response struct {
+		Data struct {
+			Threshold *float64 `json:"public_transit_availability_adjustment_threshold"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.NotNil(t, response.Data.Threshold, "settings response must expose a numeric threshold, including zero")
+	require.Equal(t, want, *response.Data.Threshold)
+}
+
+func TestPublicTransitAvailabilityThresholdSettingsRoundTrip(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+	const key = service.SettingKeyPublicTransitAvailabilityAdjustmentThreshold
+	assertPublicTransitAvailabilityThreshold(t, getPublicTransitAvailabilitySettings(t, h), 85)
+	require.NotContains(t, repo.values, key)
+
+	// An older client can save the switch without resetting the threshold.
+	assertPublicTransitAvailabilityThreshold(t, doUpdateSettings(t, h, map[string]any{
+		service.SettingKeyPublicTransitAvailabilityAdjustmentEnabled: true,
+	}, nil), 85)
+	require.Equal(t, "85", repo.values[key])
+
+	for _, threshold := range []float64{77.25, 0, 100} {
+		assertPublicTransitAvailabilityThreshold(t, doUpdateSettings(t, h, map[string]any{key: threshold}, nil), threshold)
+		assertPublicTransitAvailabilityThreshold(t, getPublicTransitAvailabilitySettings(t, h), threshold)
+		assertPublicTransitAvailabilityThreshold(t, doUpdateSettings(t, h, map[string]any{
+			"site_name": "Threshold Preservation Test",
+		}, nil), threshold)
+		assertPublicTransitAvailabilityThreshold(t, doUpdateSettings(t, h, map[string]any{
+			service.SettingKeyPublicTransitAvailabilityAdjustmentEnabled: false,
+		}, nil), threshold)
+		assertPublicTransitAvailabilityThreshold(t, getPublicTransitAvailabilitySettings(t, h), threshold)
+	}
+
+	// Trigger threshold and output range are independent settings.
+	assertPublicTransitAvailabilityRange(t, getPublicTransitAvailabilitySettings(t, h), 88, 90)
+	require.Equal(t, "100", repo.values[key])
+}
+
+func TestPublicTransitAvailabilityThresholdRejectsInvalidWithoutWriting(t *testing.T) {
+	for _, threshold := range []float64{-0.01, 100.01, 85.001} {
+		h, repo := newStepUpSwitchTestHandler(t, map[string]string{
+			service.SettingKeyPublicTransitAvailabilityAdjustmentEnabled:   "true",
+			service.SettingKeyPublicTransitAvailabilityAdjustmentThreshold: "85",
+			service.SettingKeySiteName:                                     "Existing Site",
+		})
+		before := make(map[string]string, len(repo.values))
+		for key, value := range repo.values {
+			before[key] = value
+		}
+		rec := doUpdateSettings(t, h, map[string]any{
+			service.SettingKeyPublicTransitAvailabilityAdjustmentThreshold: threshold,
+			"site_name": "Must Not Be Written",
+		}, nil)
+		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		require.Contains(t, rec.Body.String(), "INVALID_PUBLIC_TRANSIT_AVAILABILITY_THRESHOLD")
+		require.Equal(t, before, repo.values, "rejected thresholds must not partially update settings")
+		require.Nil(t, repo.lastUpdates)
+	}
+}
+
+func TestPublicTransitAvailabilityThresholdRejectsNonFiniteServiceValues(t *testing.T) {
+	for _, threshold := range []float64{math.NaN(), math.Inf(-1), math.Inf(1)} {
+		h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+		settings, err := h.settingService.GetAllSettings(context.Background())
+		require.NoError(t, err)
+		settings.PublicTransitAvailabilityAdjustmentThreshold = threshold
+		err = h.settingService.UpdateSettings(context.Background(), settings)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "INVALID_PUBLIC_TRANSIT_AVAILABILITY_THRESHOLD")
+		require.Empty(t, repo.values)
+		require.Nil(t, repo.lastUpdates)
+	}
+}
+
+func TestPublicTransitAvailabilityThresholdInvalidStoredValuesStayDisabledOnUnrelatedSave(t *testing.T) {
+	for _, threshold := range []string{"bad", "NaN", "+Inf", "-1", "101", "85.001"} {
+		t.Run(threshold, func(t *testing.T) {
+			h, repo := newStepUpSwitchTestHandler(t, map[string]string{
+				service.SettingKeyPublicTransitAvailabilityAdjustmentEnabled:   "true",
+				service.SettingKeyPublicTransitAvailabilityAdjustmentThreshold: threshold,
+			})
+			settings, err := h.settingService.GetAllSettings(context.Background())
+			require.NoError(t, err)
+			require.False(t, settings.PublicTransitAvailabilityAdjustmentEnabled)
+			require.Equal(t, float64(85), settings.PublicTransitAvailabilityAdjustmentThreshold)
+			require.False(t, h.settingService.GetPublicTransitRuntime(context.Background()).AvailabilityAdjustmentEnabled)
+			assertPublicTransitAvailabilityThreshold(t, getPublicTransitAvailabilitySettings(t, h), 85)
+
+			rec := doUpdateSettings(t, h, map[string]any{"site_name": "Updated Site"}, nil)
+			assertPublicTransitAvailabilityThreshold(t, rec, 85)
+			require.Contains(t, rec.Body.String(), `"public_transit_availability_adjustment_enabled":false`)
+			require.Equal(t, "Updated Site", repo.values[service.SettingKeySiteName])
+			require.Equal(t, "false", repo.values[service.SettingKeyPublicTransitAvailabilityAdjustmentEnabled])
+			require.Equal(t, "85", repo.values[service.SettingKeyPublicTransitAvailabilityAdjustmentThreshold])
+			require.False(t, h.settingService.GetPublicTransitRuntime(context.Background()).AvailabilityAdjustmentEnabled)
+		})
+	}
+}
+
+func TestDiffSettingsPublicTransitAvailabilityThreshold(t *testing.T) {
+	before := &service.SystemSettings{PublicTransitAvailabilityAdjustmentThreshold: 85}
+	for _, threshold := range []float64{0, 77.25, 85, 100} {
+		changed := diffSettings(before, &service.SystemSettings{
+			PublicTransitAvailabilityAdjustmentThreshold: threshold,
+		}, nil, nil, UpdateSettingsRequest{})
+		if threshold == 85 {
+			require.NotContains(t, changed, service.SettingKeyPublicTransitAvailabilityAdjustmentThreshold)
+		} else {
+			require.Contains(t, changed, service.SettingKeyPublicTransitAvailabilityAdjustmentThreshold)
+		}
+		require.NotContains(t, changed, service.SettingKeyPublicTransitAvailabilityAdjustmentMin)
+		require.NotContains(t, changed, service.SettingKeyPublicTransitAvailabilityAdjustmentMax)
+	}
 }
 
 func TestPublicTransitAvailabilityRangeAcceptsZeroAndEqualBounds(t *testing.T) {
