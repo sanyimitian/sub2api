@@ -61,7 +61,9 @@ export default {
           },
         },
         publicTransit: {
-          title: '公开资料出口', description: '开放标准公开快照接口，并可选开放可视化页面。', configureLink: '打开公开资料页面', previewLink: '在后台预览', apiEnabled: '公开资料接口', apiEnabledHint: '开放发现与快照接口，不暴露账号凭据。', pageEnabled: '公开资料页面', pageEnabledHint: '开放 /public/transit 给访客访问。'
+          title: '公开资料出口', description: '开放标准公开快照接口，并可选开放可视化页面。', configureLink: '打开公开资料页面', previewLink: '在后台预览', apiEnabled: '公开资料接口', apiEnabledHint: '开放发现与快照接口，不暴露账号凭据。', pageEnabled: '公开资料页面', pageEnabledHint: '开放 /public/transit 给访客访问。',
+          availabilityAdjustmentEnabled: 'DeepSeek / GLM 可用率展示调整',
+          availabilityAdjustmentEnabledHint: '默认关闭。开启后，DeepSeek / GLM 公开可用率低于 85% 时，按 88.00%–90.00% 的模拟展示值输出；保留原始观测值供核对。'
         },
         modelPlaza: {
           title: '模型广场',
