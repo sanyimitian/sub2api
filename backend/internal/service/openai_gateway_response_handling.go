@@ -1271,6 +1271,7 @@ func mergeOpenAIUsageNonZero(dst *OpenAIUsage, src OpenAIUsage) {
 	}
 	if src.CacheCreationInputTokens > 0 {
 		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
+		dst.CacheWrite12hTokens = src.CacheWrite12hTokens
 	}
 	if src.CacheReadInputTokens > 0 {
 		dst.CacheReadInputTokens = src.CacheReadInputTokens
@@ -1560,6 +1561,7 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 		ImageInputTokens:         imageInputTokens,
 		OutputTokens:             int(outputTokens),
 		CacheCreationInputTokens: cacheCreationTokens,
+		CacheWrite12hTokens:      int(value.Get("input_tokens_details.cache_write_tokens_details.ttl_12h_tokens").Int()),
 		CacheReadInputTokens:     cacheReadTokens,
 		ImageOutputTokens:        int(imageOutputTokens),
 	}, true

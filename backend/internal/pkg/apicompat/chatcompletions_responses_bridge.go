@@ -1549,6 +1549,7 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 			CachedTokens:        usage.PromptTokensDetails.CachedTokens,
 			CacheCreationTokens: usage.PromptTokensDetails.CacheCreationTokens,
 			CacheWriteTokens:    usage.PromptTokensDetails.CacheWriteTokens,
+			CacheWriteDetails:   usage.PromptTokensDetails.CacheWriteDetails,
 		}
 		if usage.PromptTokensDetails.CacheWriteTokens > 0 {
 			out.CacheCreationInputTokens = usage.PromptTokensDetails.CacheWriteTokens

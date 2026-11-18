@@ -191,6 +191,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageCacheReadTokens: result.Usage.ImageCacheReadTokens,
 		OutputTokens:         result.Usage.OutputTokens,
 		CacheCreationTokens:  result.Usage.CacheCreationInputTokens,
+		CacheWrite12hTokens:  result.Usage.CacheWrite12hTokens,
 		CacheReadTokens:      result.Usage.CacheReadInputTokens,
 		ImageOutputTokens:    result.Usage.ImageOutputTokens,
 	}
@@ -756,13 +757,11 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 			DisableModelLongContextPricing: modelLongContextExempt,
 		})
 	}
-	return s.billingService.calculateCostWithServiceTierPolicy(
-		billingModel,
-		tokens,
-		multiplier,
-		serviceTier,
-		(longContextBillingGate == nil || *longContextBillingGate) && !modelLongContextExempt,
-	)
+	return s.billingService.CalculateCostUnified(CostInput{
+		Model: billingModel, Tokens: tokens, RateMultiplier: multiplier, PricingAt: pricingAt,
+		ServiceTier: serviceTier, LongContextBillingEnabled: longContextBillingGate,
+		DisableModelLongContextPricing: modelLongContextExempt,
+	})
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIImageCost(

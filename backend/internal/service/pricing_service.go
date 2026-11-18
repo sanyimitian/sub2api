@@ -1574,6 +1574,9 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 // 5. gpt-5.4* -> 业务静态兜底价
 // 6. 最终回退到 DefaultTestModel (gpt-5.1-codex)
 func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
+	if pricing := gpt62FallbackPrice(model); pricing != nil {
+		return pricing
+	}
 	if strings.HasPrefix(model, "gpt-5.3-codex-spark") {
 		if pricing, ok := s.pricingData["gpt-5.1-codex"]; ok {
 			logger.LegacyPrintf("service.pricing", "[Pricing][SparkBilling] %s -> %s billing", model, "gpt-5.1-codex")
@@ -1690,6 +1693,26 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 	}
 
 	return nil
+}
+
+func gpt62FallbackPrice(model string) *LiteLLMModelPricing {
+	var input float64
+	switch canonicalizeOpenAIModelAliasSpelling(model) {
+	case "gpt-6.2-astra":
+		input = 8e-6
+	case "gpt-6.2-sol":
+		input = 2e-6
+	default:
+		return nil
+	}
+	return &LiteLLMModelPricing{
+		InputCostPerToken: input, OutputCostPerToken: input * 5,
+		CacheReadInputTokenCost: input * 0.05, CacheCreationInputTokenCost: input * 1.25,
+		InputCostPerTokenPriority: input * 2, OutputCostPerTokenPriority: input * 10,
+		CacheReadInputTokenCostPriority: input * 0.1, CacheCreationInputTokenCostPriority: input * 2.5,
+		LongContextInputTokenThreshold: 272_000, LongContextInputCostMultiplier: 2, LongContextOutputCostMultiplier: 1.5,
+		LiteLLMProvider: "openai", Mode: "chat", SupportsPromptCaching: true, SupportsServiceTier: true,
+	}
 }
 
 // generateOpenAIModelVariants 生成 OpenAI 模型的回退变体列表

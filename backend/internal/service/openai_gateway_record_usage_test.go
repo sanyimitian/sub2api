@@ -1174,6 +1174,25 @@ func TestOpenAIGatewayServiceRecordUsage_ClampsActualInputTokensToZero(t *testin
 	require.Equal(t, 0, usageRepo.lastLog.InputTokens)
 }
 
+func TestGPT62RecordUsageMixedCacheWrites(t *testing.T) {
+	logs := &openAIRecordUsageLogRepoStub{inserted: true}
+	users := &openAIRecordUsageUserRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(logs, users, &openAIRecordUsageSubRepoStub{}, nil)
+	usage, ok := extractOpenAIUsageFromJSONBytes([]byte(`{"usage":{"input_tokens":12000,"output_tokens":100,"input_tokens_details":{"cached_tokens":4000,"cache_write_tokens":7000,"cache_write_tokens_details":{"ttl_30m_tokens":3000,"ttl_12h_tokens":4000}}}}`))
+	require.True(t, ok)
+	tier := "ultrafast"
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{RequestID: "mixed", Model: "gpt-6.2-sol", Duration: time.Second, Usage: usage, ServiceTier: &tier},
+		APIKey: &APIKey{ID: 1}, User: &User{ID: 2}, Account: &Account{ID: 3, Platform: PlatformOpenAI},
+		PricingAt: time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, logs.lastLog)
+	require.Equal(t, 1000, logs.lastLog.InputTokens)
+	require.InDelta(t, (3000*2.5e-6+4000*5e-6)*3, logs.lastLog.CacheCreationCost, 1e-12)
+	require.InDelta(t, (1000*2e-6+4000*0.1e-6+3000*2.5e-6+4000*5e-6+100*10e-6)*3*1.1, users.lastAmount, 1e-12)
+}
+
 func TestOpenAIGatewayServiceRecordUsage_GPT56SeparatesCacheWriteForBillingAndStats(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}
