@@ -27,6 +27,28 @@ func TestUserAvailableChannel_Unauthenticated401(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
+func TestBuildPlatformSections_SyncedModelsStayWithVisibleGroup(t *testing.T) {
+	ch := service.AvailableChannel{
+		SupportedModels: []service.SupportedModel{{Name: "unused", Platform: "openai"}},
+		GroupModels: map[int64][]service.SupportedModel{
+			1: {{Name: "gpt-6-sol", Platform: "openai"}},
+			2: {{Name: "gpt-image-2", Platform: "openai"}},
+		},
+	}
+	groups := []userAvailableGroup{{ID: 1, Name: "Chat", Platform: "openai"}, {ID: 2, Name: "Images", Platform: "openai"}, {ID: 3, Name: "Empty", Platform: "openai"}}
+	sections := buildPlatformSections(ch, groups)
+	require.Len(t, sections, 2)
+	require.Len(t, sections[0].Groups, 1)
+	require.Equal(t, int64(1), sections[0].Groups[0].ID)
+	require.Equal(t, "gpt-6-sol", sections[0].SupportedModels[0].Name)
+	require.Len(t, sections[0].SupportedModels, 1)
+	require.Equal(t, "gpt-image-2", sections[1].SupportedModels[0].Name)
+	visibleOnly := buildPlatformSections(ch, groups[1:2])
+	require.Len(t, visibleOnly, 1)
+	require.Len(t, visibleOnly[0].SupportedModels, 1)
+	require.Equal(t, "gpt-image-2", visibleOnly[0].SupportedModels[0].Name)
+}
+
 func TestFilterUserVisibleGroups_IntersectionOnly(t *testing.T) {
 	// 渠道挂在 {g1, g2, g3}，用户只允许 {g1, g3} —— 响应必须仅含 g1/g3。
 	groups := []service.AvailableGroupRef{

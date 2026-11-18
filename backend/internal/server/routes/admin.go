@@ -77,6 +77,8 @@ func RegisterAdminRoutes(
 
 		// 系统设置
 		registerSettingsRoutes(admin, h, stepUpAuth)
+		admin.POST("/model-plaza/sync", h.ModelPlaza.SyncModels)
+		admin.POST("/available-channels/sync", h.ModelPlaza.SyncAvailableChannels)
 
 		// 数据管理
 		registerDataManagementRoutes(admin, h, stepUpAuth)

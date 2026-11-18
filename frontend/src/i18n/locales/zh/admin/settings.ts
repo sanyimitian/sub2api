@@ -39,6 +39,11 @@ export default {
             '开启后，用户端渠道监控 V2 不再显示「用户排行」页，用户 API 也不返回排行数据。管理员仍可查看。',
         },
         availableChannels: {
+          syncModels: '同步模型',
+          syncing: '同步中…',
+          syncHint: '按关联分组已启用账户支持的模型更新可用渠道展示，按分组分别展示。仅点击时同步，之后不会自动更新。',
+          syncSuccess: '已同步 {groups} 个分组，共 {models} 个模型条目',
+          syncFailed: '同步失败，原展示清单已保留',
           title: '可用渠道',
           description: '向已登录用户展示他们能访问的渠道、模型和定价聚合视图。默认关闭。',
           configureLink: '前往 渠道管理 > 渠道定价 配置模型价格',
@@ -67,6 +72,11 @@ export default {
         },
         modelPlaza: {
           title: '模型广场',
+          syncModels: '同步模型',
+          syncing: '同步中…',
+          syncHint: '点击后按各分组已启用账户支持的模型更新展示清单。清单保存后不会自动同步；账户配置变化后请再次点击。',
+          syncSuccess: '已同步 {groups} 个分组，共 {models} 个模型条目',
+          syncFailed: '同步失败，原展示清单已保留',
           description: '以分组为单位向访客展示可用模型与价格的公开页面。默认关闭。',
           enabled: '启用模型广场',
           enabledHint: '开启后顶栏显示入口，页面可通过 /model-plaza 独立访问。',

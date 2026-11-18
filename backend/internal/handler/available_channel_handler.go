@@ -23,6 +23,7 @@ type AvailableChannelHandler struct {
 	channelService *service.ChannelService
 	apiKeyService  *service.APIKeyService
 	settingService *service.SettingService
+	plazaService   *service.ModelPlazaService
 }
 
 // NewAvailableChannelHandler 创建用户侧可用渠道 handler。
@@ -30,11 +31,13 @@ func NewAvailableChannelHandler(
 	channelService *service.ChannelService,
 	apiKeyService *service.APIKeyService,
 	settingService *service.SettingService,
+	plazaService *service.ModelPlazaService,
 ) *AvailableChannelHandler {
 	return &AvailableChannelHandler{
 		channelService: channelService,
 		apiKeyService:  apiKeyService,
 		settingService: settingService,
+		plazaService:   plazaService,
 	}
 }
 
@@ -158,6 +161,12 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if h.plazaService != nil {
+		if err := h.plazaService.ApplyAvailableChannelCatalog(c.Request.Context(), channels); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 
 	acceptLanguage := c.GetHeader("Accept-Language")
 	out := make([]userAvailableChannel, 0, len(channels))
@@ -202,6 +211,26 @@ func buildPlatformSections(
 	ch service.AvailableChannel,
 	visibleGroups []userAvailableGroup,
 ) []userChannelPlatformSection {
+	if ch.GroupModels != nil {
+		sections := make([]userChannelPlatformSection, 0, len(visibleGroups))
+		for _, group := range visibleGroups {
+			models := ch.GroupModels[group.ID]
+			if len(models) == 0 {
+				continue
+			}
+			groupChannel := ch
+			groupChannel.GroupModels = nil
+			groupChannel.SupportedModels = models
+			sections = append(sections, buildPlatformSections(groupChannel, []userAvailableGroup{group})...)
+		}
+		sort.SliceStable(sections, func(i, j int) bool {
+			if sections[i].Platform != sections[j].Platform {
+				return sections[i].Platform < sections[j].Platform
+			}
+			return sections[i].Groups[0].Name < sections[j].Groups[0].Name
+		})
+		return sections
+	}
 	groupsByPlatform := make(map[string][]userAvailableGroup, 4)
 	compositeGroups := make([]userAvailableGroup, 0, 1)
 	for _, g := range visibleGroups {

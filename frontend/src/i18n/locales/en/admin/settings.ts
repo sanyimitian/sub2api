@@ -39,6 +39,11 @@ export default {
             'When on, the user Channel Monitor V2 page hides the user ranking tab and the user API returns no ranking rows. Admins still see the ranking.',
         },
         availableChannels: {
+          syncModels: 'Sync models',
+          syncing: 'Syncing…',
+          syncHint: 'Update available channels from models supported by each linked group’s enabled accounts, displayed separately by group. Sync runs only when clicked.',
+          syncSuccess: 'Synced {groups} groups and {models} model entries',
+          syncFailed: 'Sync failed. The previous display list was preserved.',
           title: 'Available Channels',
           description: 'Show logged-in users an aggregate view of the channels, models and pricing they can access. Disabled by default.',
           configureLink: 'Configure model pricing in Channel Management > Channel Pricing',
@@ -67,6 +72,11 @@ export default {
         },
         modelPlaza: {
           title: 'Model Plaza',
+          syncModels: 'Sync models',
+          syncing: 'Syncing…',
+          syncHint: 'Click to update the display list from models supported by each group’s enabled accounts. The saved list does not sync automatically; click again after changing account settings.',
+          syncSuccess: 'Synced {groups} groups and {models} model entries',
+          syncFailed: 'Sync failed. The previous display list was preserved.',
           description: 'A public page showcasing available models and pricing by group. Disabled by default.',
           enabled: 'Enable Model Plaza',
           enabledHint: 'When enabled, an entry appears in the header and the page is reachable at /model-plaza.',

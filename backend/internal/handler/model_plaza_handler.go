@@ -36,6 +36,26 @@ func NewModelPlazaHandler(
 	}
 }
 
+// SyncModels updates the saved display selection only when an admin clicks sync.
+// POST /api/v1/admin/model-plaza/sync (protected by the admin route middleware).
+func (h *ModelPlazaHandler) SyncModels(c *gin.Context) {
+	result, err := h.plazaService.SyncModels(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *ModelPlazaHandler) SyncAvailableChannels(c *gin.Context) {
+	result, err := h.plazaService.SyncAvailableChannelModels(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
 // modelPlazaOfficialPricing 官方参考价（USD per token，与计费目录同源）。
 type modelPlazaOfficialPricing struct {
 	InputPrice         *float64 `json:"input_price"`
