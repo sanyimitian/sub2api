@@ -616,6 +616,16 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
+async function openFeaturesTab(wrapper: ReturnType<typeof mountView>) {
+  const featuresTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.features"));
+
+  expect(featuresTabButton).toBeDefined();
+  await featuresTabButton?.trigger("click");
+  await flushPromises();
+}
+
 describe("admin SettingsView email domain quota copy", () => {
   it("documents the email domain quota and empty-whitelist behavior in both locales", () => {
     expect(zhCommon.auth.emailDomainRegistrationLimit).toContain("主流邮箱");
@@ -730,6 +740,58 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     fetchPublicSettings.mockResolvedValue(undefined);
     adminSettingsFetch.mockResolvedValue(undefined);
+  });
+
+  it("defaults public availability adjustment off and saves explicit enable and disable choices", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+
+    const toggle = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-adjustment-toggle"]');
+    expect(toggle.element.checked).toBe(false);
+    expect(toggle.element.disabled).toBe(false);
+
+    await toggle.setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      public_transit_availability_adjustment_enabled: true,
+    }));
+
+    await toggle.setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      public_transit_availability_adjustment_enabled: false,
+    }));
+    wrapper.unmount();
+  });
+
+  it("loads and preserves availability adjustment while the public API is disabled", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      public_transit_enabled: false,
+      public_transit_availability_adjustment_enabled: true,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+
+    const toggle = wrapper.get<HTMLInputElement>('[data-testid="public-transit-availability-adjustment-toggle"]');
+    expect(toggle.element.checked).toBe(true);
+    expect(toggle.element.disabled).toBe(true);
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      public_transit_enabled: false,
+      public_transit_availability_adjustment_enabled: true,
+    }));
+
+    await wrapper.get('[data-testid="public-transit-api-toggle"]').setValue(true);
+    expect(toggle.element.disabled).toBe(false);
+    expect(toggle.element.checked).toBe(true);
+    wrapper.unmount();
   });
 
   it("loads and saves the open button visibility for each custom menu", async () => {

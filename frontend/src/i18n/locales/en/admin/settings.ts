@@ -61,7 +61,9 @@ export default {
           },
         },
         publicTransit: {
-          title: 'Public Transit Export', description: 'Expose a standard public snapshot API and optional visual page.', configureLink: 'Open public data page', previewLink: 'Preview in admin', apiEnabled: 'Public data API', apiEnabledHint: 'Exposes discovery and snapshot endpoints without private credentials.', pageEnabled: 'Public data page', pageEnabledHint: 'Expose /public/transit for visitors.'
+          title: 'Public Transit Export', description: 'Expose a standard public snapshot API and optional visual page.', configureLink: 'Open public data page', previewLink: 'Preview in admin', apiEnabled: 'Public data API', apiEnabledHint: 'Exposes discovery and snapshot endpoints without private credentials.', pageEnabled: 'Public data page', pageEnabledHint: 'Expose /public/transit for visitors.',
+          availabilityAdjustmentEnabled: 'DeepSeek / GLM availability display adjustment',
+          availabilityAdjustmentEnabledHint: 'Disabled by default. When enabled, public DeepSeek / GLM availability below 85% uses a synthetic display value from 88.00% to 90.00%; original measurements remain available for verification.'
         },
         modelPlaza: {
           title: 'Model Plaza',

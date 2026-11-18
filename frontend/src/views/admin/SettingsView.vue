@@ -7424,7 +7424,22 @@
             </router-link>
           </div>
           <div class="space-y-5 p-6">
-            <div class="flex items-center justify-between"><div><label class="text-sm font-medium">{{ t('admin.settings.features.publicTransit.apiEnabled') }}</label><p class="mt-0.5 text-xs text-gray-500">{{ t('admin.settings.features.publicTransit.apiEnabledHint') }}</p></div><Toggle v-model="form.public_transit_enabled" /></div>
+            <div class="flex items-center justify-between"><div><label class="text-sm font-medium">{{ t('admin.settings.features.publicTransit.apiEnabled') }}</label><p class="mt-0.5 text-xs text-gray-500">{{ t('admin.settings.features.publicTransit.apiEnabledHint') }}</p></div><Toggle v-model="form.public_transit_enabled" data-testid="public-transit-api-toggle" /></div>
+            <div
+              class="flex items-center justify-between gap-4 border-t border-gray-100 pt-5"
+              :class="{ 'opacity-60': !form.public_transit_enabled }"
+            >
+              <div>
+                <label class="text-sm font-medium">{{ t('admin.settings.features.publicTransit.availabilityAdjustmentEnabled') }}</label>
+                <p class="mt-0.5 text-xs text-gray-500">{{ t('admin.settings.features.publicTransit.availabilityAdjustmentEnabledHint') }}</p>
+              </div>
+              <Toggle
+                v-model="form.public_transit_availability_adjustment_enabled"
+                :disabled="!form.public_transit_enabled"
+                :aria-label="t('admin.settings.features.publicTransit.availabilityAdjustmentEnabled')"
+                data-testid="public-transit-availability-adjustment-toggle"
+              />
+            </div>
             <div class="flex items-center justify-between border-t border-gray-100 pt-5" :class="{ 'opacity-60': !form.public_transit_enabled }"><div><label class="text-sm font-medium">{{ t('admin.settings.features.publicTransit.pageEnabled') }}</label><p class="mt-0.5 text-xs text-gray-500">{{ t('admin.settings.features.publicTransit.pageEnabledHint') }}</p></div><Toggle v-model="form.public_transit_page_enabled" :disabled="!form.public_transit_enabled" /></div>
           </div>
         </div>
@@ -10130,6 +10145,7 @@ const form = reactive<SettingsForm>({
   subscription_enabled: true,
   public_transit_enabled: true,
   public_transit_page_enabled: false,
+  public_transit_availability_adjustment_enabled: false,
   // Model Plaza feature switches + description
   model_plaza_enabled: false,
   model_plaza_require_auth: false,
@@ -11174,6 +11190,9 @@ async function loadSettings() {
     form.channel_monitor_hide_user_ranking = Boolean(
       settings.channel_monitor_hide_user_ranking
     );
+    form.public_transit_availability_adjustment_enabled = Boolean(
+      settings.public_transit_availability_adjustment_enabled
+    );
     form.login_agreement_updated_at =
       settings.login_agreement_updated_at || "2026-03-31";
     form.login_agreement_documents =
@@ -11890,6 +11909,7 @@ async function saveSettings() {
       subscription_enabled: form.subscription_enabled,
       public_transit_enabled: form.public_transit_enabled,
       public_transit_page_enabled: form.public_transit_enabled && form.public_transit_page_enabled,
+      public_transit_availability_adjustment_enabled: Boolean(form.public_transit_availability_adjustment_enabled),
       // Model Plaza feature switches + description
       model_plaza_enabled: form.model_plaza_enabled,
       model_plaza_require_auth: form.model_plaza_require_auth,

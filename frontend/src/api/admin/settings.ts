@@ -757,6 +757,7 @@ export interface SystemSettings {
   subscription_enabled: boolean;
   public_transit_enabled: boolean;
   public_transit_page_enabled: boolean;
+  public_transit_availability_adjustment_enabled: boolean;
 
   // Model Plaza feature switches + description
   model_plaza_enabled: boolean;
@@ -1082,6 +1083,7 @@ export interface UpdateSettingsRequest {
   subscription_enabled?: boolean;
   public_transit_enabled?: boolean;
   public_transit_page_enabled?: boolean;
+  public_transit_availability_adjustment_enabled?: boolean;
 
   // Model Plaza feature switches + description
   model_plaza_enabled?: boolean;
