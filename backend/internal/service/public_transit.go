@@ -59,12 +59,13 @@ func NewPublicTransitService(
 }
 
 type PublicTransitRuntime struct {
-	APIEnabled  bool
-	PageEnabled bool
+	APIEnabled                    bool
+	PageEnabled                   bool
+	AvailabilityAdjustmentEnabled bool
 }
 
 func (s *SettingService) GetPublicTransitRuntime(ctx context.Context) PublicTransitRuntime {
-	vals, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyPublicTransitEnabled, SettingKeyPublicTransitPageEnabled})
+	vals, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyPublicTransitEnabled, SettingKeyPublicTransitPageEnabled, SettingKeyPublicTransitAvailabilityAdjustmentEnabled})
 	if err != nil {
 		return PublicTransitRuntime{APIEnabled: false, PageEnabled: false}
 	}
@@ -82,7 +83,11 @@ func (s *SettingService) GetPublicTransitRuntime(ctx context.Context) PublicTran
 	if !apiEnabled {
 		pageEnabled = false
 	}
-	return PublicTransitRuntime{APIEnabled: apiEnabled, PageEnabled: pageEnabled}
+	return PublicTransitRuntime{
+		APIEnabled:                    apiEnabled,
+		PageEnabled:                   pageEnabled,
+		AvailabilityAdjustmentEnabled: apiEnabled && vals[SettingKeyPublicTransitAvailabilityAdjustmentEnabled] == "true",
+	}
 }
 
 func (s *PublicTransitService) Enabled(ctx context.Context) bool {
@@ -372,6 +377,7 @@ func (s *PublicTransitService) Snapshot(ctx context.Context, baseURL string) (*P
 
 	monitorRuntime := s.settingService.GetChannelMonitorRuntime(ctx)
 	var monitorItems []PublicTransitMonitor
+	runtime := s.settingService.GetPublicTransitRuntime(ctx)
 	if monitorRuntime.ActiveProbesAllowed() {
 		monitors, err := s.monitorService.ListUserView(ctx)
 		if err != nil {
@@ -381,11 +387,10 @@ func (s *PublicTransitService) Snapshot(ctx context.Context, baseURL string) (*P
 		if err != nil {
 			return nil, fmt.Errorf("load public monitor details: %w", err)
 		}
-		monitorItems = buildPublicTransitMonitors(monitors, monitorDetails)
+		monitorItems = buildPublicTransitMonitors(monitors, monitorDetails, runtime.AvailabilityAdjustmentEnabled)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	runtime := s.settingService.GetPublicTransitRuntime(ctx)
 	cacheUsageByGroupID, err := s.publicGroupCacheUsage(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load public group cache usage: %w", err)
@@ -847,7 +852,7 @@ func (s *PublicTransitService) publicMonitorDetails(ctx context.Context, views [
 	return out, nil
 }
 
-func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*UserMonitorDetail) []PublicTransitMonitor {
+func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*UserMonitorDetail, adjustAvailability bool) []PublicTransitMonitor {
 	out := make([]PublicTransitMonitor, 0, len(views))
 	for _, v := range views {
 		if v == nil {
@@ -861,7 +866,7 @@ func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*Use
 				LatencyMs: e.LatencyMs,
 			})
 		}
-		models := buildPublicTransitMonitorModels(details[v.ID])
+		models := buildPublicTransitMonitorModels(details[v.ID], adjustAvailability)
 		timeline := buildPublicTransitMonitorTimeline(v.Timeline)
 		item := PublicTransitMonitor{
 			Name:                v.Name,
@@ -889,7 +894,7 @@ func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*Use
 			primaryFound = true
 			break
 		}
-		if !primaryFound && len(v.Timeline) > 0 {
+		if adjustAvailability && !primaryFound && len(v.Timeline) > 0 {
 			item.AvailabilityAdjustment = adjustPublicTransitAvailability(v.PrimaryModel, &item.Availability7d, nil, nil)
 		}
 		if len(v.Timeline) > 0 {
@@ -906,7 +911,7 @@ func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*Use
 	return out
 }
 
-func buildPublicTransitMonitorModels(detail *UserMonitorDetail) []PublicTransitMonitorModel {
+func buildPublicTransitMonitorModels(detail *UserMonitorDetail, adjustAvailability bool) []PublicTransitMonitorModel {
 	if detail == nil {
 		return []PublicTransitMonitorModel{}
 	}
@@ -922,7 +927,7 @@ func buildPublicTransitMonitorModels(detail *UserMonitorDetail) []PublicTransitM
 			AvgLatency7dMs:  m.AvgLatency7dMs,
 		}
 		// Adjust only the copied public DTO, never the monitor detail or history.
-		if m.LatestStatus != "" {
+		if adjustAvailability && m.LatestStatus != "" {
 			item.AvailabilityAdjustment = adjustPublicTransitAvailability(m.Model, &item.Availability7d, &item.Availability15d, &item.Availability30d)
 		}
 		out = append(out, item)

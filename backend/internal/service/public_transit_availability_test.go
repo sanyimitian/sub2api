@@ -3,12 +3,14 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -110,7 +112,7 @@ func TestPublicTransitAvailability_OnlyPublicDTOChanges(t *testing.T) {
 	beforeDetail, err := json.Marshal(detail)
 	require.NoError(t, err)
 
-	monitors := buildPublicTransitMonitors([]*UserMonitorView{nil, view}, map[int64]*UserMonitorDetail{view.ID: detail})
+	monitors := buildPublicTransitMonitors([]*UserMonitorView{nil, view}, map[int64]*UserMonitorDetail{view.ID: detail}, true)
 	require.Len(t, monitors, 1)
 	monitor := monitors[0]
 	require.Len(t, monitor.Models, 3)
@@ -137,14 +139,14 @@ func TestPublicTransitAvailability_OnlyPublicDTOChanges(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, string(beforeView), string(afterView))
 	require.JSONEq(t, string(beforeDetail), string(afterDetail))
-	require.Equal(t, monitors, buildPublicTransitMonitors([]*UserMonitorView{view}, map[int64]*UserMonitorDetail{view.ID: detail}))
+	require.Equal(t, monitors, buildPublicTransitMonitors([]*UserMonitorView{view}, map[int64]*UserMonitorDetail{view.ID: detail}, true))
 }
 
 func TestPublicTransitAvailability_JSONDisclosesOriginalMeasurements(t *testing.T) {
 	models := buildPublicTransitMonitorModels(&UserMonitorDetail{Models: []ModelDetail{
 		{Model: "glm-5.3", LatestStatus: "down", Availability7d: 70.25, Availability15d: 85, Availability30d: 93},
 		{Model: "deepseek-v4.1-flash", LatestStatus: "operational", Availability7d: 85, Availability15d: 90, Availability30d: 100},
-	}})
+	}}, true)
 	encoded, err := json.Marshal(models)
 	require.NoError(t, err)
 	var payload []map[string]any
@@ -166,7 +168,7 @@ func TestPublicTransitAvailability_MissingDetailDoesNotInventPeriods(t *testing.
 	view := &UserMonitorView{ID: 117, PrimaryModel: "glm-5.3", Availability7d: 80,
 		Timeline: []UserMonitorTimelinePoint{{Status: "down", CheckedAt: checkedAt}},
 	}
-	monitors := buildPublicTransitMonitors([]*UserMonitorView{view}, nil)
+	monitors := buildPublicTransitMonitors([]*UserMonitorView{view}, nil, true)
 	require.Len(t, monitors, 1)
 	monitor := monitors[0]
 	require.GreaterOrEqual(t, monitor.Availability7d, 88.0)
@@ -182,22 +184,86 @@ func TestPublicTransitAvailability_MissingDetailDoesNotInventPeriods(t *testing.
 
 	view.Timeline = nil
 	view.Availability7d = 0
-	monitors = buildPublicTransitMonitors([]*UserMonitorView{view}, nil)
+	monitors = buildPublicTransitMonitors([]*UserMonitorView{view}, nil, true)
 	require.Zero(t, monitors[0].Availability7d)
 	require.Nil(t, monitors[0].AvailabilityAdjustment)
-	require.Empty(t, buildPublicTransitMonitorModels(nil))
+	require.Empty(t, buildPublicTransitMonitorModels(nil, true))
 }
 
 func TestPublicTransitAvailability_UnobservedDetailRemainsUnavailable(t *testing.T) {
 	models := buildPublicTransitMonitorModels(&UserMonitorDetail{Models: []ModelDetail{
 		{Model: "deepseek-v4.1-flash"},
 		{Model: "glm-5.3"},
-	}})
+	}}, true)
 	require.Len(t, models, 2)
 	for _, model := range models {
 		require.Zero(t, model.Availability7d)
 		require.Zero(t, model.Availability15d)
 		require.Zero(t, model.Availability30d)
 		require.Nil(t, model.AvailabilityAdjustment)
+	}
+}
+
+func TestPublicTransitAvailability_RuntimeDefaultsOffAndFailsClosed(t *testing.T) {
+	repo := &settingPublicRepoStub{values: map[string]string{}}
+	settings := NewSettingService(repo, &config.Config{})
+	for _, value := range []string{"", "false", "TRUE", "invalid", "true"} {
+		repo.values[SettingKeyPublicTransitAvailabilityAdjustmentEnabled] = value
+		require.Equal(t, value == "true", settings.GetPublicTransitRuntime(context.Background()).AvailabilityAdjustmentEnabled)
+	}
+	repo.values[SettingKeyPublicTransitEnabled] = "false"
+	require.False(t, settings.GetPublicTransitRuntime(context.Background()).AvailabilityAdjustmentEnabled)
+	repo.err = fmt.Errorf("settings unavailable")
+	require.False(t, settings.GetPublicTransitRuntime(context.Background()).AvailabilityAdjustmentEnabled)
+}
+
+type availabilitySwitchMonitorRepo struct {
+	adminOnlyMonitorRepo
+}
+
+func (*availabilitySwitchMonitorRepo) ListLatestPerModel(context.Context, int64) ([]*ChannelMonitorLatest, error) {
+	return []*ChannelMonitorLatest{{Model: "glm-5.3", Status: MonitorStatusError}}, nil
+}
+
+func (*availabilitySwitchMonitorRepo) ComputeAvailability(context.Context, int64, int) ([]*ChannelMonitorAvailability, error) {
+	return []*ChannelMonitorAvailability{{Model: "glm-5.3", AvailabilityPct: 80}}, nil
+}
+
+func TestPublicTransitAvailability_SnapshotSwitchAppliesAndRevertsWithoutRestart(t *testing.T) {
+	repo := &settingPublicRepoStub{values: map[string]string{
+		SettingKeyChannelMonitorEnabled: "true",
+		SettingKeyChannelMonitorMode:    ChannelMonitorModeV1,
+	}}
+	settings := NewSettingService(repo, &config.Config{})
+	groups := &stubGroupRepoForAvailable{}
+	channels := NewChannelService(&mockChannelRepository{listAllFn: func(context.Context) ([]Channel, error) {
+		return nil, nil
+	}}, groups, nil, nil, nil)
+	monitorRepo := &availabilitySwitchMonitorRepo{adminOnlyMonitorRepo: adminOnlyMonitorRepo{monitors: []*ChannelMonitor{
+		{ID: 117, Enabled: true, PrimaryModel: "glm-5.3"},
+	}}}
+	svc := NewPublicTransitService(channels, NewChannelMonitorService(monitorRepo, nil), settings,
+		NewPaymentConfigService(nil, repo, nil), groups, nil)
+	for _, value := range []string{"", "true", "false", "true", "false"} {
+		repo.values[SettingKeyPublicTransitAvailabilityAdjustmentEnabled] = value
+		v1, err := svc.Snapshot(context.Background(), "https://example.test")
+		require.NoError(t, err)
+		v2, err := svc.SnapshotV2Range(context.Background(), "https://example.test", "24h")
+		require.NoError(t, err)
+		require.Equal(t, v1.Monitoring, v2.Monitoring)
+		require.Len(t, v1.Monitoring, 1)
+		item := v1.Monitoring[0]
+		if value == "true" {
+			require.GreaterOrEqual(t, item.Availability7d, 88.0)
+			require.LessOrEqual(t, item.Availability7d, 90.0)
+			require.NotNil(t, item.AvailabilityAdjustment)
+			require.Equal(t, 80.0, *item.AvailabilityAdjustment.RawAvailability7d)
+		} else {
+			require.Equal(t, 80.0, item.Availability7d)
+			require.Equal(t, 80.0, item.Availability15d)
+			require.Equal(t, 80.0, item.Availability30d)
+			require.Nil(t, item.AvailabilityAdjustment)
+			require.Nil(t, item.Models[0].AvailabilityAdjustment)
+		}
 	}
 }

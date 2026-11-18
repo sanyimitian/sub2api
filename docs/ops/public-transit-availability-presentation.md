@@ -1,5 +1,13 @@
 # Public transit availability presentation
 
+This rule is disabled by default. Administrators can enable or disable it under
+System Settings → Feature Toggles → Public Transit using the DeepSeek / GLM
+availability presentation switch. The persisted setting is
+`public_transit_availability_adjustment_enabled`; only explicit `true` enables
+the rule. When disabled, exports return observed availability with no adjustment
+metadata. Changes apply on the next snapshot request without a restart (an
+already cached V2 response can remain visible for up to 60 seconds).
+
 The public transit snapshot applies a synthetic presentation rule only to the
 existing `deepseek-v4.1-flash` and `glm-5.3` active monitor models. For each of
 `availability_7d`, `availability_15d` and `availability_30d`, an observed value
