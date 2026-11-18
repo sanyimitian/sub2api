@@ -67,6 +67,8 @@ type PlazaGroup struct {
 // 模型枚举来自渠道配置；token 模型的展示单价与阶梯由 BillingService 的阶梯表
 // 查询给出（与扣费走同一条解析链与计费函数），图片/按次模型沿用渠道/分组档位价。
 type ModelPlazaService struct {
+	accountRepo    AccountRepository
+	settingRepo    SettingRepository
 	channelRepo    ChannelRepository
 	groupRepo      GroupRepository
 	pricingService *PricingService
@@ -81,8 +83,12 @@ func NewModelPlazaService(
 	pricingService *PricingService,
 	billingService *BillingService,
 	resolver *ModelPricingResolver,
+	accountRepo AccountRepository,
+	settingRepo SettingRepository,
 ) *ModelPlazaService {
 	return &ModelPlazaService{
+		accountRepo:    accountRepo,
+		settingRepo:    settingRepo,
 		channelRepo:    channelRepo,
 		groupRepo:      groupRepo,
 		pricingService: pricingService,
@@ -105,6 +111,10 @@ func NewModelPlazaService(
 //
 // 可见性过滤（专属分组）不在此层做，由 handler 按登录态裁剪。
 func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error) {
+	return s.listGroups(ctx, false)
+}
+
+func (s *ModelPlazaService) listGroups(ctx context.Context, syncing bool) ([]PlazaGroup, error) {
 	channels, err := s.channelRepo.ListAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
@@ -198,6 +208,14 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		}
 	}
 
+	if syncing {
+		if err := s.filterConfiguredGroupModels(ctx, groups, channels, byGroup); err != nil {
+			return nil, err
+		}
+	} else if err := s.filterSavedGroupModels(ctx, byGroup); err != nil {
+		return nil, err
+	}
+
 	officialMemo := make(map[string]*PlazaOfficialPricing)
 	out := make([]PlazaGroup, 0, len(order))
 	for _, gid := range order {
@@ -226,6 +244,85 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		return out[i].Name < out[j].Name
 	})
 	return out, nil
+}
+
+// filterConfiguredGroupModels keeps the advertised catalog within each group's
+// configured account support. Transient rate limits do not remove advertised
+// models. Routing, admission and billing configuration remain untouched.
+func (s *ModelPlazaService) filterConfiguredGroupModels(ctx context.Context, groups []Group, channels []Channel, byGroup map[int64]*PlazaGroup) error {
+	if s.accountRepo == nil {
+		return fmt.Errorf("model plaza account repository is unavailable")
+	}
+	platformSet := make(map[string]bool)
+	groupPlatforms := make(map[int64]string, len(groups))
+	for _, g := range groups {
+		groupPlatforms[g.ID] = g.Platform
+		if isConcreteRequestPlatform(g.Platform) {
+			platformSet[g.Platform] = true
+			if g.Platform == PlatformAnthropic || g.Platform == PlatformGemini {
+				platformSet[PlatformAntigravity] = true
+			}
+		}
+	}
+	platforms := make([]string, 0, len(platformSet))
+	for platform := range platformSet {
+		platforms = append(platforms, platform)
+	}
+	sort.Strings(platforms)
+	if len(platforms) == 0 {
+		return nil
+	}
+	accounts, err := s.accountRepo.ListModelAvailabilityCandidates(ctx, nil, platforms, true)
+	if err != nil {
+		return fmt.Errorf("list model plaza support accounts: %w", err)
+	}
+	accountsByGroup := make(map[int64][]*Account)
+	for i := range accounts {
+		account := &accounts[i]
+		if account.Status != StatusActive || !account.Schedulable {
+			continue
+		}
+		for _, gid := range account.GroupIDs {
+			platform := groupPlatforms[gid]
+			mixed := (platform == PlatformAnthropic || platform == PlatformGemini) && account.IsMixedSchedulingEnabled()
+			if platform == account.Platform || mixed {
+				accountsByGroup[gid] = append(accountsByGroup[gid], account)
+			}
+		}
+	}
+	mappingCache := populateChannelCache(channels, groupPlatforms)
+	for _, group := range groups {
+		// Composite groups publish route targets rather than a direct account
+		// pool; retain their existing explicit channel catalog.
+		if !isConcreteRequestPlatform(group.Platform) {
+			continue
+		}
+		pg := byGroup[group.ID]
+		filtered := make([]PlazaModel, 0, len(pg.Models))
+		for _, model := range pg.Models {
+			if !group.ModelAllowlist.Allows(model.Name) {
+				continue
+			}
+			requested := model.Name
+			if mapped := lookupMappingAcrossPlatforms(mappingCache, group.ID, model.Platform, strings.ToLower(requested)); mapped != "" {
+				requested = mapped
+			}
+			for _, account := range accountsByGroup[group.ID] {
+				supported := account.IsModelSupported(requested)
+				if account.Platform == PlatformAntigravity {
+					supported = mapAntigravityModel(account, requested) != ""
+				} else if account.IsBedrock() {
+					_, supported = ResolveBedrockModelID(account, requested)
+				}
+				if supported {
+					filtered = append(filtered, model)
+					break
+				}
+			}
+		}
+		pg.Models = filtered
+	}
+	return nil
 }
 
 // fillDisplayPricing 把模型的展示定价换成实收口径：

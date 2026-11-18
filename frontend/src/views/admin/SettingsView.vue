@@ -7360,6 +7360,7 @@
               </div>
               <Toggle v-model="form.available_channels_enabled" />
             </div>
+            <ModelPlazaSync v-if="form.available_channels_enabled" target="channels" />
           </div>
         </div>
 
@@ -7384,6 +7385,8 @@
               </div>
               <Toggle v-model="form.model_plaza_enabled" />
             </div>
+
+            <ModelPlazaSync v-if="form.model_plaza_enabled" />
 
             <div v-if="form.model_plaza_enabled" class="flex items-center justify-between">
               <div>
@@ -9157,6 +9160,7 @@ import PaymentProviderDialog from "@/components/payment/PaymentProviderDialog.vu
 import GroupBadge from "@/components/common/GroupBadge.vue";
 import GroupOptionItem from "@/components/common/GroupOptionItem.vue";
 import Toggle from "@/components/common/Toggle.vue";
+import ModelPlazaSync from "@/components/modelPlaza/ModelPlazaSync.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";

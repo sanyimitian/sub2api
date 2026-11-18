@@ -96,6 +96,23 @@ export async function getModelPlaza(options?: { signal?: AbortSignal }): Promise
   return data
 }
 
-export const modelPlazaAPI = { getModelPlaza }
+export interface ModelPlazaSyncResult {
+  synced_at: string
+  group_count: number
+  model_count: number
+}
+
+/** Explicit admin action; loading or refreshing the plaza never triggers a sync. */
+export async function syncModelPlaza(): Promise<ModelPlazaSyncResult> {
+  const { data } = await apiClient.post<ModelPlazaSyncResult>('/admin/model-plaza/sync')
+  return data
+}
+
+export async function syncAvailableChannelModels(): Promise<ModelPlazaSyncResult> {
+  const { data } = await apiClient.post<ModelPlazaSyncResult>('/admin/available-channels/sync')
+  return data
+}
+
+export const modelPlazaAPI = { getModelPlaza, syncModelPlaza }
 
 export default modelPlazaAPI
