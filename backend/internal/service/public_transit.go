@@ -232,21 +232,22 @@ type PublicTransitModelSource struct {
 }
 
 type PublicTransitMonitor struct {
-	Name                string                          `json:"name"`
-	Provider            string                          `json:"provider"`
-	GroupName           string                          `json:"group_name,omitempty"`
-	PrimaryModel        string                          `json:"primary_model"`
-	PrimaryStatus       string                          `json:"primary_status"`
-	Availability7d      float64                         `json:"availability_7d"`
-	Availability15d     float64                         `json:"availability_15d"`
-	Availability30d     float64                         `json:"availability_30d"`
-	AvgLatency7dMs      *int                            `json:"avg_latency_7d_ms,omitempty"`
-	LatestLatencyMs     *int                            `json:"latest_latency_ms,omitempty"`
-	LatestPingLatencyMs *int                            `json:"latest_ping_latency_ms,omitempty"`
-	LastCheckedAt       string                          `json:"last_checked_at,omitempty"`
-	ExtraModels         []PublicTransitExtraModelStatus `json:"extra_models"`
-	Models              []PublicTransitMonitorModel     `json:"models"`
-	Timeline            []PublicTransitMonitorTimeline  `json:"timeline"`
+	Name                   string                               `json:"name"`
+	Provider               string                               `json:"provider"`
+	GroupName              string                               `json:"group_name,omitempty"`
+	PrimaryModel           string                               `json:"primary_model"`
+	PrimaryStatus          string                               `json:"primary_status"`
+	Availability7d         float64                              `json:"availability_7d"`
+	Availability15d        float64                              `json:"availability_15d"`
+	Availability30d        float64                              `json:"availability_30d"`
+	AvailabilityAdjustment *PublicTransitAvailabilityAdjustment `json:"availability_adjustment,omitempty"`
+	AvgLatency7dMs         *int                                 `json:"avg_latency_7d_ms,omitempty"`
+	LatestLatencyMs        *int                                 `json:"latest_latency_ms,omitempty"`
+	LatestPingLatencyMs    *int                                 `json:"latest_ping_latency_ms,omitempty"`
+	LastCheckedAt          string                               `json:"last_checked_at,omitempty"`
+	ExtraModels            []PublicTransitExtraModelStatus      `json:"extra_models"`
+	Models                 []PublicTransitMonitorModel          `json:"models"`
+	Timeline               []PublicTransitMonitorTimeline       `json:"timeline"`
 }
 
 type PublicTransitExtraModelStatus struct {
@@ -256,13 +257,14 @@ type PublicTransitExtraModelStatus struct {
 }
 
 type PublicTransitMonitorModel struct {
-	Model           string  `json:"model"`
-	LatestStatus    string  `json:"latest_status"`
-	LatestLatencyMs *int    `json:"latest_latency_ms,omitempty"`
-	Availability7d  float64 `json:"availability_7d"`
-	Availability15d float64 `json:"availability_15d"`
-	Availability30d float64 `json:"availability_30d"`
-	AvgLatency7dMs  *int    `json:"avg_latency_7d_ms,omitempty"`
+	Model                  string                               `json:"model"`
+	LatestStatus           string                               `json:"latest_status"`
+	LatestLatencyMs        *int                                 `json:"latest_latency_ms,omitempty"`
+	Availability7d         float64                              `json:"availability_7d"`
+	Availability15d        float64                              `json:"availability_15d"`
+	Availability30d        float64                              `json:"availability_30d"`
+	AvailabilityAdjustment *PublicTransitAvailabilityAdjustment `json:"availability_adjustment,omitempty"`
+	AvgLatency7dMs         *int                                 `json:"avg_latency_7d_ms,omitempty"`
 }
 
 type PublicTransitMonitorTimeline struct {
@@ -874,6 +876,7 @@ func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*Use
 			Models:              models,
 			Timeline:            timeline,
 		}
+		primaryFound := false
 		for _, m := range models {
 			if m.Model != v.PrimaryModel {
 				continue
@@ -881,8 +884,13 @@ func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*Use
 			item.Availability7d = m.Availability7d
 			item.Availability15d = m.Availability15d
 			item.Availability30d = m.Availability30d
+			item.AvailabilityAdjustment = m.AvailabilityAdjustment
 			item.AvgLatency7dMs = m.AvgLatency7dMs
+			primaryFound = true
 			break
+		}
+		if !primaryFound && len(v.Timeline) > 0 {
+			item.AvailabilityAdjustment = adjustPublicTransitAvailability(v.PrimaryModel, &item.Availability7d, nil, nil)
 		}
 		if len(v.Timeline) > 0 {
 			item.LastCheckedAt = v.Timeline[0].CheckedAt.UTC().Format(time.RFC3339)
@@ -904,7 +912,7 @@ func buildPublicTransitMonitorModels(detail *UserMonitorDetail) []PublicTransitM
 	}
 	out := make([]PublicTransitMonitorModel, 0, len(detail.Models))
 	for _, m := range detail.Models {
-		out = append(out, PublicTransitMonitorModel{
+		item := PublicTransitMonitorModel{
 			Model:           m.Model,
 			LatestStatus:    m.LatestStatus,
 			LatestLatencyMs: m.LatestLatencyMs,
@@ -912,7 +920,12 @@ func buildPublicTransitMonitorModels(detail *UserMonitorDetail) []PublicTransitM
 			Availability15d: m.Availability15d,
 			Availability30d: m.Availability30d,
 			AvgLatency7dMs:  m.AvgLatency7dMs,
-		})
+		}
+		// Adjust only the copied public DTO, never the monitor detail or history.
+		if m.LatestStatus != "" {
+			item.AvailabilityAdjustment = adjustPublicTransitAvailability(m.Model, &item.Availability7d, &item.Availability15d, &item.Availability30d)
+		}
+		out = append(out, item)
 	}
 	return out
 }
