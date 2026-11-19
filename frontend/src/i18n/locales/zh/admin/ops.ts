@@ -2,7 +2,7 @@ export default {
     ops: {
       errorCountAlert: {
         metric: '上游错误条数',
-        description: '按错误列表口径统计指定状态码，同步与流式均计入，每条记录计一次。',
+        description: '仅统计指定状态码的最终失败请求，重试后成功的不计入。同步与流式均计入，每条记录计一次。',
         create: '添加 502/503 告警',
         ruleName: '上游 502/503 错误过多',
         codes: '统计状态码（逗号分隔）',
