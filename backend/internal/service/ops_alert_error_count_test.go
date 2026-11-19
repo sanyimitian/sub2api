@@ -12,12 +12,13 @@ import (
 
 type errorCountAlertRepo struct {
 	opsRepoMock
-	rule     *OpsAlertRule
-	counts   map[int]int64
-	countErr error
-	filter   *OpsErrorLogFilter
-	events   []*OpsAlertEvent
-	updates  int
+	rule            *OpsAlertRule
+	counts          map[int]int64
+	recoveredCounts map[int]int64
+	countErr        error
+	filter          *OpsErrorLogFilter
+	events          []*OpsAlertEvent
+	updates         int
 }
 
 func (r *errorCountAlertRepo) ListAlertRules(context.Context) ([]*OpsAlertRule, error) {
@@ -25,6 +26,16 @@ func (r *errorCountAlertRepo) ListAlertRules(context.Context) ([]*OpsAlertRule, 
 }
 func (r *errorCountAlertRepo) CountErrorsByStatus(_ context.Context, filter *OpsErrorLogFilter) (map[int]int64, error) {
 	r.filter = filter
+	if filter.IncludeRecoveredUpstream && len(r.recoveredCounts) > 0 {
+		counts := make(map[int]int64, len(r.counts)+len(r.recoveredCounts))
+		for code, count := range r.counts {
+			counts[code] = count
+		}
+		for code, count := range r.recoveredCounts {
+			counts[code] += count
+		}
+		return counts, r.countErr
+	}
 	return r.counts, r.countErr
 }
 func (r *errorCountAlertRepo) GetActiveAlertEvent(context.Context, int64) (*OpsAlertEvent, error) {
@@ -72,7 +83,7 @@ func TestOpsErrorCountAlertLifecycle(t *testing.T) {
 	require.Equal(t, []string{"excluded-model"}, repo.filter.ExcludedModels)
 	require.Equal(t, []int{502, 503}, repo.filter.StatusCodes)
 	require.Equal(t, "upstream", repo.filter.Phase)
-	require.True(t, repo.filter.IncludeRecoveredUpstream, "same provider-health scope as the error list")
+	require.False(t, repo.filter.IncludeRecoveredUpstream, "recovered retries must not count toward the failure threshold")
 	require.Equal(t, int64(7), *repo.filter.GroupID)
 	require.Equal(t, "openai", repo.filter.Platform)
 	require.Equal(t, 5*time.Minute, repo.filter.EndTime.Sub(*repo.filter.StartTime))
@@ -83,6 +94,7 @@ func TestOpsErrorCountAlertLifecycle(t *testing.T) {
 	require.Len(t, repo.events, 1)
 	require.Equal(t, float64(21), *repo.events[0].MetricValue)
 	require.Contains(t, repo.events[0].Description, "502: 12; 503: 9")
+	require.Contains(t, repo.events[0].Description, "Final request failures (recovered retries excluded)")
 	svc.evaluateOnce(30 * time.Second)
 	require.Len(t, repo.events, 1, "ongoing breach must not create duplicate alerts")
 
@@ -99,6 +111,36 @@ func TestOpsErrorCountAlertLifecycle(t *testing.T) {
 	repo.events[0].FiredAt = time.Now().Add(-11 * time.Minute)
 	svc.evaluateOnce(30 * time.Second)
 	require.Len(t, repo.events, 2)
+}
+
+func TestOpsErrorCountAlertCountsOnlyFinalFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		failed    map[int]int64
+		wantAlert bool
+	}{
+		{name: "nineteen recovered 502 requests do not alert", failed: map[int]int64{}},
+		{name: "fourteen final failures remain below threshold", failed: map[int]int64{502: 14}},
+		{name: "fifteen final failures reach threshold", failed: map[int]int64{502: 15}, wantAlert: true},
+		{name: "final 502 and 503 failures share the threshold", failed: map[int]int64{502: 14, 503: 1}, wantAlert: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rule := &OpsAlertRule{ID: 9, Name: "Final upstream failures", Enabled: true,
+				MetricType: OpsMetricUpstreamErrorCount, Operator: ">=", Threshold: 15,
+				WindowMinutes: 10, Filters: map[string]any{"status_codes": []int{502, 503}}}
+			repo := &errorCountAlertRepo{rule: rule, counts: tc.failed, recoveredCounts: map[int]int64{502: 19}}
+			svc := NewOpsAlertEvaluatorService(nil, repo, nil, nil, nil, nil)
+			svc.evaluateOnce(30 * time.Second)
+			require.Equal(t, 10*time.Minute, repo.filter.EndTime.Sub(*repo.filter.StartTime))
+			if !tc.wantAlert {
+				require.Empty(t, repo.events, "successful retries must not trigger a final-failure alert")
+				return
+			}
+			require.Len(t, repo.events, 1)
+			require.Equal(t, float64(15), *repo.events[0].MetricValue)
+			require.Equal(t, tc.failed, repo.events[0].Dimensions["status_counts"])
+		})
+	}
 }
 
 func TestOpsErrorCountAlertWithoutScope(t *testing.T) {

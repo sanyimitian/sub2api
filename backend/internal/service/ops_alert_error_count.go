@@ -87,7 +87,9 @@ func opsErrorCountFilter(rule *OpsAlertRule, start, end time.Time, platform stri
 	}
 	return &OpsErrorLogFilter{
 		StartTime: &start, EndTime: &end, Platform: platform, GroupID: groupID,
-		Phase: "upstream", IncludeRecoveredUpstream: true, View: "errors",
+		// Alert on final request failures; recovered retries remain visible only
+		// in provider-health telemetry and must not consume the alert threshold.
+		Phase: "upstream", View: "errors",
 		StatusCodes: filters.StatusCodes, ExcludedModels: filters.ExcludedModels,
 	}, nil
 }
@@ -101,7 +103,7 @@ func opsErrorCountDescription(rule *OpsAlertRule, counts map[int]int64) string {
 	for _, code := range filters.StatusCodes {
 		parts = append(parts, fmt.Sprintf("%d: %d", code, counts[code]))
 	}
-	description := "\nHTTP errors: " + strings.Join(parts, "; ")
+	description := "\nFinal request failures (recovered retries excluded): " + strings.Join(parts, "; ")
 	if len(filters.ExcludedModels) > 0 {
 		description += "\nExcluded requested models: " + strings.Join(filters.ExcludedModels, ", ")
 	}

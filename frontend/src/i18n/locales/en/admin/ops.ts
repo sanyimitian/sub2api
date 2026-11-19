@@ -2,7 +2,7 @@ export default {
     ops: {
       errorCountAlert: {
         metric: 'Upstream error count',
-        description: 'Count matching error log records, including streaming and non-streaming requests. Each record counts once.',
+        description: 'Count final failed requests with matching status codes; successful retries are excluded. Includes streaming and non-streaming requests. Each record counts once.',
         create: 'Add 502/503 alert',
         ruleName: 'Too many upstream 502/503 errors',
         codes: 'Status codes (comma separated)',
