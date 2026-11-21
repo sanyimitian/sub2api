@@ -72,6 +72,7 @@ type Handlers struct {
 	AsyncImage          *AsyncImageHandler
 	BatchImage          *BatchImageHandler
 	PublicTransit       *PublicTransitHandler
+	MCPOAuth            *MCPOAuthHandler
 }
 
 // BuildInfo contains build-time information

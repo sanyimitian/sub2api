@@ -96,14 +96,9 @@ export default defineConfig(({ mode }) => {
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      // 语言包是原始字符串，需要消息编译器；下方 JIT 模式无需 unsafe-eval。
+      // 语言包是原始字符串，需要消息编译器；v11 的 JIT 编译无需 unsafe-eval。
       'vue-i18n': 'vue-i18n/dist/vue-i18n.esm-bundler.js'
     }
-  },
-  define: {
-    // 启用 vue-i18n JIT 编译，在 CSP 环境下处理消息插值
-    // JIT 编译器生成 AST 对象而非 JS 代码，无需 unsafe-eval
-    __INTLIFY_JIT_COMPILATION__: true
   },
   build: {
     outDir: '../backend/internal/web/dist',

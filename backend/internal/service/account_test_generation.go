@@ -340,7 +340,7 @@ func (s *AccountTestService) testAntigravityGeneration(c *gin.Context, account *
 	if shouldUseAntigravityGeminiTestRequest(modelID, mappedModel) {
 		body, err = gateway.buildGeminiTestRequestWithPrompt(projectID, mappedModel, accountTestGenerationPrompt(c))
 	} else {
-		body, err = gateway.buildClaudeTestRequest(projectID, mappedModel)
+		body, err = gateway.buildClaudeTestRequest(projectID, mappedModel, accountTestGenerationPrompt(c))
 	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())

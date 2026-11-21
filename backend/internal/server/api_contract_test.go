@@ -602,6 +602,8 @@ func TestAPIContracts(t *testing.T) {
 							"cache_read_tokens": 2,
 							"cache_creation_5m_tokens": 0,
 							"cache_creation_1h_tokens": 0,
+							"cache_creation_30m_tokens": 0,
+							"cache_creation_12h_tokens": 0,
 							"input_cost": 0,
 							"output_cost": 0,
 							"cache_creation_cost": 0,
@@ -926,7 +928,17 @@ func TestAPIContracts(t *testing.T) {
 					"payment_visible_method_wxpay_enabled": false,
 					"openai_low_upstream_rate_priority_enabled": true,
 					"openai_oauth_scheduling_rate_multiplier": 0.05,
-					"openai_ttft_mode": "semantic",
+					"openai_session_pool_enabled": false,
+					"openai_session_pool_first_token_timeout_seconds": 10,
+					"openai_session_pool_retry_interval_seconds": 1800,
+					"openai_session_pool_size": 6,
+					"openai_ws_latency_probe_reuse_seconds": 600,
+					"openai_ws_latency_switch_consecutive": 3,
+					"openai_ws_latency_switch_enabled": false,
+					"openai_ws_latency_switch_min_tps": 0,
+					"openai_ws_latency_switch_probe_count": 6,
+					"openai_ws_latency_switch_slow_ms": 15000,
+					"openai_ws_latency_switch_wait_seconds": 300,					"openai_ttft_mode": "semantic",
 					"openai_advanced_scheduler_enabled": true,
 					"openai_advanced_scheduler_sticky_weighted_enabled": false,
 					"openai_advanced_scheduler_subscription_priority_enabled": false,
@@ -1252,7 +1264,17 @@ func TestAPIContracts(t *testing.T) {
 					"payment_visible_method_wxpay_enabled": false,
 					"openai_low_upstream_rate_priority_enabled": false,
 					"openai_oauth_scheduling_rate_multiplier": 1,
-					"openai_ttft_mode": "semantic",
+					"openai_session_pool_enabled": false,
+					"openai_session_pool_first_token_timeout_seconds": 10,
+					"openai_session_pool_retry_interval_seconds": 1800,
+					"openai_session_pool_size": 6,
+					"openai_ws_latency_probe_reuse_seconds": 600,
+					"openai_ws_latency_switch_consecutive": 3,
+					"openai_ws_latency_switch_enabled": false,
+					"openai_ws_latency_switch_min_tps": 0,
+					"openai_ws_latency_switch_probe_count": 6,
+					"openai_ws_latency_switch_slow_ms": 15000,
+					"openai_ws_latency_switch_wait_seconds": 300,					"openai_ttft_mode": "semantic",
 					"openai_advanced_scheduler_enabled": false,
 					"openai_advanced_scheduler_sticky_weighted_enabled": false,
 					"openai_advanced_scheduler_subscription_priority_enabled": false,
@@ -1499,7 +1521,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(nil, userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(nil, userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
@@ -2046,6 +2068,10 @@ func (s *stubAccountRepo) ClearAntigravityQuotaScopes(ctx context.Context, id in
 }
 
 func (s *stubAccountRepo) ClearModelRateLimits(ctx context.Context, id int64) error {
+	return errors.New("not implemented")
+}
+
+func (s *stubAccountRepo) ClearModelRateLimit(ctx context.Context, id int64, scope string) error {
 	return errors.New("not implemented")
 }
 
