@@ -206,6 +206,13 @@
           </div>
         </template>
 
+        <template #cell-cache_rate="{ row }">
+          <span
+            class="text-sm font-medium tabular-nums text-sky-600 dark:text-sky-400"
+            :title="t('admin.usage.cacheRateHint')"
+          >{{ formatCacheRate(row) }}</span>
+        </template>
+
         <template #cell-cost="{ row }">
           <div class="text-sm">
             <div class="flex items-center gap-1.5">
@@ -664,6 +671,13 @@ const showUpstreamEndpoint = props.showUpstreamEndpoint
 const ipGeoBatchLoading = ref(false)
 
 const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))
+
+const formatCacheRate = (row: AdminUsageLog): string => {
+  const cacheReadTokens = row.cache_read_tokens ?? 0
+  const totalInputTokens = (row.input_tokens ?? 0) + cacheReadTokens + (row.cache_creation_tokens ?? 0)
+  const rate = totalInputTokens > 0 ? (cacheReadTokens / totalInputTokens) * 100 : 0
+  return `${rate.toFixed(1)}%`
+}
 
 const hasReasoningEffortMapping = (row: AdminUsageLog): boolean => {
   const requested = row.reasoning_effort?.trim() || ''

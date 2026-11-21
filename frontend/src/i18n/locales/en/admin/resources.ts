@@ -666,6 +666,8 @@ export default {
     usage: {
       title: 'Usage Records',
       description: 'View and manage all user usage records',
+      cache: 'Cache',
+      cacheRateHint: 'Cache hit rate = cache read tokens / (input tokens + cache read tokens + cache creation tokens) × 100%',
       userFilter: 'User',
       searchUserPlaceholder: 'Search user by email...',
       searchApiKeyPlaceholder: 'Search API key by name...',
