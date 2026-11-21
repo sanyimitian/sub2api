@@ -39,6 +39,11 @@ export default {
             '开启后，用户端渠道监控 V2 不再显示「用户排行」页，用户 API 也不返回排行数据。管理员仍可查看。',
         },
         availableChannels: {
+          syncModels: '同步模型',
+          syncing: '同步中…',
+          syncHint: '按关联分组已启用账户支持的模型更新可用渠道展示，按分组分别展示。仅点击时同步，之后不会自动更新。',
+          syncSuccess: '已同步 {groups} 个分组，共 {models} 个模型条目',
+          syncFailed: '同步失败，原展示清单已保留',
           title: '可用渠道',
           description: '向已登录用户展示他们能访问的渠道、模型和定价聚合视图。默认关闭。',
           configureLink: '前往 渠道管理 > 渠道定价 配置模型价格',
@@ -61,10 +66,24 @@ export default {
           },
         },
         publicTransit: {
-          title: '公开资料出口', description: '开放标准公开快照接口，并可选开放可视化页面。', configureLink: '打开公开资料页面', previewLink: '在后台预览', apiEnabled: '公开资料接口', apiEnabledHint: '开放发现与快照接口，不暴露账号凭据。', pageEnabled: '公开资料页面', pageEnabledHint: '开放 /public/transit 给访客访问。'
+          title: '公开资料出口', description: '开放标准公开快照接口，并可选开放可视化页面。', configureLink: '打开公开资料页面', previewLink: '在后台预览', apiEnabled: '公开资料接口', apiEnabledHint: '开放发现与快照接口，不暴露账号凭据。', pageEnabled: '公开资料页面', pageEnabledHint: '开放 /public/transit 给访客访问。',
+          availabilityAdjustmentEnabled: 'DeepSeek / GLM 可用率展示调整',
+          availabilityAdjustmentEnabledHint: '默认关闭。开启后，DeepSeek / GLM 公开可用率低于所设触发阈值时，按下方范围生成模拟展示值；保留原始观测值供核对。',
+          availabilityAdjustmentThreshold: '触发阈值（%）',
+          availabilityAdjustmentThresholdHint: '默认 85%。仅原始可用率严格低于阈值时调整，等于阈值时保持原值。范围 0%–100%，最多两位小数。',
+          availabilityAdjustmentThresholdError: '请填写 0–100 之间的触发阈值，最多两位小数。',
+          availabilityAdjustmentMin: '展示下限（%）',
+          availabilityAdjustmentMax: '展示上限（%）',
+          availabilityAdjustmentRangeHint: '默认 88.00%–90.00%。范围 0%–100%，最多两位小数，下限可等于上限。可在展示调整关闭时预先配置。',
+          availabilityAdjustmentRangeError: '请填写 0–100 之间的展示下限和上限，最多两位小数，且下限不能高于上限。'
         },
         modelPlaza: {
           title: '模型广场',
+          syncModels: '同步模型',
+          syncing: '同步中…',
+          syncHint: '点击后按各分组已启用账户支持的模型更新展示清单。清单保存后不会自动同步；账户配置变化后请再次点击。',
+          syncSuccess: '已同步 {groups} 个分组，共 {models} 个模型条目',
+          syncFailed: '同步失败，原展示清单已保留',
           description: '以分组为单位向访客展示可用模型与价格的公开页面。默认关闭。',
           enabled: '启用模型广场',
           enabledHint: '开启后顶栏显示入口，页面可通过 /model-plaza 独立访问。',

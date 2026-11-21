@@ -39,6 +39,11 @@ export default {
             'When on, the user Channel Monitor V2 page hides the user ranking tab and the user API returns no ranking rows. Admins still see the ranking.',
         },
         availableChannels: {
+          syncModels: 'Sync models',
+          syncing: 'Syncing…',
+          syncHint: 'Update available channels from models supported by each linked group’s enabled accounts, displayed separately by group. Sync runs only when clicked.',
+          syncSuccess: 'Synced {groups} groups and {models} model entries',
+          syncFailed: 'Sync failed. The previous display list was preserved.',
           title: 'Available Channels',
           description: 'Show logged-in users an aggregate view of the channels, models and pricing they can access. Disabled by default.',
           configureLink: 'Configure model pricing in Channel Management > Channel Pricing',
@@ -61,10 +66,24 @@ export default {
           },
         },
         publicTransit: {
-          title: 'Public Transit Export', description: 'Expose a standard public snapshot API and optional visual page.', configureLink: 'Open public data page', previewLink: 'Preview in admin', apiEnabled: 'Public data API', apiEnabledHint: 'Exposes discovery and snapshot endpoints without private credentials.', pageEnabled: 'Public data page', pageEnabledHint: 'Expose /public/transit for visitors.'
+          title: 'Public Transit Export', description: 'Expose a standard public snapshot API and optional visual page.', configureLink: 'Open public data page', previewLink: 'Preview in admin', apiEnabled: 'Public data API', apiEnabledHint: 'Exposes discovery and snapshot endpoints without private credentials.', pageEnabled: 'Public data page', pageEnabledHint: 'Expose /public/transit for visitors.',
+          availabilityAdjustmentEnabled: 'DeepSeek / GLM availability display adjustment',
+          availabilityAdjustmentEnabledHint: 'Disabled by default. When enabled, public DeepSeek / GLM availability below the configured threshold uses a synthetic display value within the range below; original measurements remain available for verification.',
+          availabilityAdjustmentThreshold: 'Trigger threshold (%)',
+          availabilityAdjustmentThresholdHint: 'Defaults to 85%. Only original availability strictly below the threshold is adjusted; values equal to it remain unchanged. Enter 0%–100% with up to two decimal places.',
+          availabilityAdjustmentThresholdError: 'Enter a trigger threshold from 0 to 100 with up to two decimal places.',
+          availabilityAdjustmentMin: 'Display minimum (%)',
+          availabilityAdjustmentMax: 'Display maximum (%)',
+          availabilityAdjustmentRangeHint: 'Defaults to 88.00%–90.00%. Enter 0%–100% with up to two decimal places; equal bounds are allowed. You can configure the range while display adjustment is off.',
+          availabilityAdjustmentRangeError: 'Enter a display minimum and maximum from 0 to 100 with up to two decimal places. The minimum must not exceed the maximum.'
         },
         modelPlaza: {
           title: 'Model Plaza',
+          syncModels: 'Sync models',
+          syncing: 'Syncing…',
+          syncHint: 'Click to update the display list from models supported by each group’s enabled accounts. The saved list does not sync automatically; click again after changing account settings.',
+          syncSuccess: 'Synced {groups} groups and {models} model entries',
+          syncFailed: 'Sync failed. The previous display list was preserved.',
           description: 'A public page showcasing available models and pricing by group. Disabled by default.',
           enabled: 'Enable Model Plaza',
           enabledHint: 'When enabled, an entry appears in the header and the page is reachable at /model-plaza.',

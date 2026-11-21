@@ -38,6 +38,8 @@ type AvailableChannel struct {
 	RestrictModels     bool
 	Groups             []AvailableGroupRef
 	SupportedModels    []SupportedModel
+	// Nil before manual sync; otherwise each group has its own saved model list.
+	GroupModels map[int64][]SupportedModel
 }
 
 // ListAvailable 返回所有渠道的可用视图：每个渠道附带关联分组信息与支持模型列表。

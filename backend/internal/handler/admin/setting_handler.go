@@ -400,10 +400,14 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		GrokCrossClientModelMapEnabled: settings.GrokCrossClientModelMapEnabled,
 		GrokDefaultBaseURLMode:         settings.GrokDefaultBaseURLMode,
 
-		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
-		SubscriptionEnabled:      settings.SubscriptionEnabled,
-		PublicTransitEnabled:     settings.PublicTransitEnabled,
-		PublicTransitPageEnabled: settings.PublicTransitPageEnabled,
+		AvailableChannelsEnabled:                     settings.AvailableChannelsEnabled,
+		SubscriptionEnabled:                          settings.SubscriptionEnabled,
+		PublicTransitEnabled:                         settings.PublicTransitEnabled,
+		PublicTransitPageEnabled:                     settings.PublicTransitPageEnabled,
+		PublicTransitAvailabilityAdjustmentEnabled:   settings.PublicTransitAvailabilityAdjustmentEnabled,
+		PublicTransitAvailabilityAdjustmentThreshold: settings.PublicTransitAvailabilityAdjustmentThreshold,
+		PublicTransitAvailabilityAdjustmentMin:       settings.PublicTransitAvailabilityAdjustmentMin,
+		PublicTransitAvailabilityAdjustmentMax:       settings.PublicTransitAvailabilityAdjustmentMax,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,

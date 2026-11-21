@@ -360,9 +360,13 @@ type UpdateSettingsRequest struct {
 	GrokDefaultBaseURLMode         *string `json:"grok_default_base_url_mode"`
 
 	// Available Channels feature switch (user-facing)
-	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
-	PublicTransitEnabled     *bool `json:"public_transit_enabled"`
-	PublicTransitPageEnabled *bool `json:"public_transit_page_enabled"`
+	AvailableChannelsEnabled                     *bool    `json:"available_channels_enabled"`
+	PublicTransitEnabled                         *bool    `json:"public_transit_enabled"`
+	PublicTransitPageEnabled                     *bool    `json:"public_transit_page_enabled"`
+	PublicTransitAvailabilityAdjustmentEnabled   *bool    `json:"public_transit_availability_adjustment_enabled"`
+	PublicTransitAvailabilityAdjustmentThreshold *float64 `json:"public_transit_availability_adjustment_threshold"`
+	PublicTransitAvailabilityAdjustmentMin       *float64 `json:"public_transit_availability_adjustment_min"`
+	PublicTransitAvailabilityAdjustmentMax       *float64 `json:"public_transit_availability_adjustment_max"`
 
 	// Subscription feature switch (user-facing subscription surface; see SettingKeySubscriptionEnabled)
 	SubscriptionEnabled *bool `json:"subscription_enabled"`
@@ -2112,6 +2116,30 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.PublicTransitPageEnabled
 		}(),
+		PublicTransitAvailabilityAdjustmentEnabled: func() bool {
+			if req.PublicTransitAvailabilityAdjustmentEnabled != nil {
+				return *req.PublicTransitAvailabilityAdjustmentEnabled
+			}
+			return previousSettings.PublicTransitAvailabilityAdjustmentEnabled
+		}(),
+		PublicTransitAvailabilityAdjustmentThreshold: func() float64 {
+			if req.PublicTransitAvailabilityAdjustmentThreshold != nil {
+				return *req.PublicTransitAvailabilityAdjustmentThreshold
+			}
+			return previousSettings.PublicTransitAvailabilityAdjustmentThreshold
+		}(),
+		PublicTransitAvailabilityAdjustmentMin: func() float64 {
+			if req.PublicTransitAvailabilityAdjustmentMin != nil {
+				return *req.PublicTransitAvailabilityAdjustmentMin
+			}
+			return previousSettings.PublicTransitAvailabilityAdjustmentMin
+		}(),
+		PublicTransitAvailabilityAdjustmentMax: func() float64 {
+			if req.PublicTransitAvailabilityAdjustmentMax != nil {
+				return *req.PublicTransitAvailabilityAdjustmentMax
+			}
+			return previousSettings.PublicTransitAvailabilityAdjustmentMax
+		}(),
 		ModelPlazaEnabled: func() bool {
 			if req.ModelPlazaEnabled != nil {
 				return *req.ModelPlazaEnabled
@@ -2581,10 +2609,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		GrokCrossClientModelMapEnabled: updatedSettings.GrokCrossClientModelMapEnabled,
 		GrokDefaultBaseURLMode:         updatedSettings.GrokDefaultBaseURLMode,
 
-		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
-		SubscriptionEnabled:      updatedSettings.SubscriptionEnabled,
-		PublicTransitEnabled:     updatedSettings.PublicTransitEnabled,
-		PublicTransitPageEnabled: updatedSettings.PublicTransitPageEnabled,
+		AvailableChannelsEnabled:                     updatedSettings.AvailableChannelsEnabled,
+		SubscriptionEnabled:                          updatedSettings.SubscriptionEnabled,
+		PublicTransitEnabled:                         updatedSettings.PublicTransitEnabled,
+		PublicTransitPageEnabled:                     updatedSettings.PublicTransitPageEnabled,
+		PublicTransitAvailabilityAdjustmentEnabled:   updatedSettings.PublicTransitAvailabilityAdjustmentEnabled,
+		PublicTransitAvailabilityAdjustmentThreshold: updatedSettings.PublicTransitAvailabilityAdjustmentThreshold,
+		PublicTransitAvailabilityAdjustmentMin:       updatedSettings.PublicTransitAvailabilityAdjustmentMin,
+		PublicTransitAvailabilityAdjustmentMax:       updatedSettings.PublicTransitAvailabilityAdjustmentMax,
 
 		ModelPlazaEnabled:       updatedSettings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   updatedSettings.ModelPlazaRequireAuth,

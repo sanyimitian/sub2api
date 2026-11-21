@@ -200,9 +200,13 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyGrokDefaultBaseURLMode:         GrokDefaultBaseURLModeCLI,
 
 		// Available channels feature (default disabled; opt-in)
-		SettingKeyAvailableChannelsEnabled: "false",
-		SettingKeyPublicTransitEnabled:     "true",
-		SettingKeyPublicTransitPageEnabled: "false",
+		SettingKeyAvailableChannelsEnabled:                     "false",
+		SettingKeyPublicTransitEnabled:                         "true",
+		SettingKeyPublicTransitPageEnabled:                     "false",
+		SettingKeyPublicTransitAvailabilityAdjustmentEnabled:   "false",
+		SettingKeyPublicTransitAvailabilityAdjustmentThreshold: "85",
+		SettingKeyPublicTransitAvailabilityAdjustmentMin:       "88",
+		SettingKeyPublicTransitAvailabilityAdjustmentMax:       "90",
 
 		// Subscription feature (default enabled; opt-out)
 		SettingKeySubscriptionEnabled: "true",
@@ -830,6 +834,15 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.AvailableChannelsEnabled = settings[SettingKeyAvailableChannelsEnabled] == "true"
 	result.PublicTransitEnabled = !isFalseSettingValue(settings[SettingKeyPublicTransitEnabled])
 	result.PublicTransitPageEnabled = publicTransitPageEnabledFromSettings(settings)
+	result.PublicTransitAvailabilityAdjustmentEnabled = settings[SettingKeyPublicTransitAvailabilityAdjustmentEnabled] == "true"
+	availabilityRange, availabilityRangeErr := parsePublicTransitAvailabilityRange(settings)
+	availabilityThreshold, availabilityThresholdErr := parsePublicTransitAvailabilityThreshold(settings)
+	if availabilityRangeErr != nil || availabilityThresholdErr != nil {
+		result.PublicTransitAvailabilityAdjustmentEnabled = false
+	}
+	result.PublicTransitAvailabilityAdjustmentThreshold = availabilityThreshold
+	result.PublicTransitAvailabilityAdjustmentMin = availabilityRange.Minimum
+	result.PublicTransitAvailabilityAdjustmentMax = availabilityRange.Maximum
 
 	// Subscription feature (default: enabled; only an explicit false disables)
 	result.SubscriptionEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionEnabled])
