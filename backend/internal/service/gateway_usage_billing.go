@@ -593,6 +593,10 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 }
 
 func detachUpstreamContext(ctx context.Context, drainTimeout ...time.Duration) (context.Context, context.CancelFunc) {
+	// 主动探测没有用户账单需要断开后排空，必须遵守探测截止时间和服务关闭。
+	if ctx != nil && isOpenAIPreparedProbe(ctx) {
+		return ctx, func() {}
+	}
 	if ctx == nil {
 		return context.Background(), func() {}
 	}

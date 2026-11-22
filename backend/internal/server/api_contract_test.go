@@ -724,6 +724,10 @@ func TestAPIContracts(t *testing.T) {
 					"promo_code_enabled": true,
 					"public_transit_enabled": true,
 					"public_transit_page_enabled": false,
+					"public_transit_availability_adjustment_enabled": false,
+					"public_transit_availability_adjustment_threshold": 85,
+					"public_transit_availability_adjustment_min": 88,
+					"public_transit_availability_adjustment_max": 90,
 					"password_reset_enabled": false,
 						"frontend_url": "",
 						"totp_enabled": false,
@@ -928,7 +932,17 @@ func TestAPIContracts(t *testing.T) {
 					"payment_visible_method_wxpay_enabled": false,
 					"openai_low_upstream_rate_priority_enabled": true,
 					"openai_oauth_scheduling_rate_multiplier": 0.05,
-					"openai_ttft_mode": "semantic",
+					"openai_session_pool_enabled": false,
+					"openai_session_pool_first_token_timeout_seconds": 10,
+					"openai_session_pool_retry_interval_seconds": 1800,
+					"openai_session_pool_size": 6,
+					"openai_ws_latency_probe_reuse_seconds": 600,
+					"openai_ws_latency_switch_consecutive": 3,
+					"openai_ws_latency_switch_enabled": false,
+					"openai_ws_latency_switch_min_tps": 0,
+					"openai_ws_latency_switch_probe_count": 6,
+					"openai_ws_latency_switch_slow_ms": 15000,
+					"openai_ws_latency_switch_wait_seconds": 300,					"openai_ttft_mode": "semantic",
 					"openai_advanced_scheduler_enabled": true,
 					"openai_advanced_scheduler_sticky_weighted_enabled": false,
 					"openai_advanced_scheduler_subscription_priority_enabled": false,
@@ -1084,6 +1098,10 @@ func TestAPIContracts(t *testing.T) {
 					"promo_code_enabled": true,
 					"public_transit_enabled": true,
 					"public_transit_page_enabled": false,
+					"public_transit_availability_adjustment_enabled": false,
+					"public_transit_availability_adjustment_threshold": 85,
+					"public_transit_availability_adjustment_min": 88,
+					"public_transit_availability_adjustment_max": 90,
 					"password_reset_enabled": false,
 					"frontend_url": "",
 						"invitation_code_enabled": false,
@@ -1254,7 +1272,17 @@ func TestAPIContracts(t *testing.T) {
 					"payment_visible_method_wxpay_enabled": false,
 					"openai_low_upstream_rate_priority_enabled": false,
 					"openai_oauth_scheduling_rate_multiplier": 1,
-					"openai_ttft_mode": "semantic",
+					"openai_session_pool_enabled": false,
+					"openai_session_pool_first_token_timeout_seconds": 10,
+					"openai_session_pool_retry_interval_seconds": 1800,
+					"openai_session_pool_size": 6,
+					"openai_ws_latency_probe_reuse_seconds": 600,
+					"openai_ws_latency_switch_consecutive": 3,
+					"openai_ws_latency_switch_enabled": false,
+					"openai_ws_latency_switch_min_tps": 0,
+					"openai_ws_latency_switch_probe_count": 6,
+					"openai_ws_latency_switch_slow_ms": 15000,
+					"openai_ws_latency_switch_wait_seconds": 300,					"openai_ttft_mode": "semantic",
 					"openai_advanced_scheduler_enabled": false,
 					"openai_advanced_scheduler_sticky_weighted_enabled": false,
 					"openai_advanced_scheduler_subscription_priority_enabled": false,
@@ -1501,7 +1529,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(nil, userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(nil, userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)

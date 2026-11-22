@@ -67,6 +67,17 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 	allowHeadersValue := strings.Join(allowHeaders, ", ")
 
 	return func(c *gin.Context) {
+		if modelIdentificationPublicRead(c.Request.Method, c.Request.URL.Path) || modelBenchmarkPublicRead(c.Request.Method, c.Request.URL.Path) {
+			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Accept, Content-Type")
+			if c.Request.Method == http.MethodOptions {
+				c.AbortWithStatus(http.StatusNoContent)
+				return
+			}
+			c.Next()
+			return
+		}
 		// OAuth discovery and public-client protocol endpoints use no browser
 		// session credentials. Keep this exception exact so consent and account
 		// management APIs retain the configured origin policy.

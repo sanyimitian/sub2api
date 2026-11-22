@@ -59,12 +59,15 @@ func NewPublicTransitService(
 }
 
 type PublicTransitRuntime struct {
-	APIEnabled  bool
-	PageEnabled bool
+	APIEnabled                    bool
+	PageEnabled                   bool
+	AvailabilityAdjustmentEnabled bool
+	AvailabilityRange             PublicTransitAvailabilityRange
+	AvailabilityThreshold         float64
 }
 
 func (s *SettingService) GetPublicTransitRuntime(ctx context.Context) PublicTransitRuntime {
-	vals, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyPublicTransitEnabled, SettingKeyPublicTransitPageEnabled})
+	vals, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyPublicTransitEnabled, SettingKeyPublicTransitPageEnabled, SettingKeyPublicTransitAvailabilityAdjustmentEnabled, SettingKeyPublicTransitAvailabilityAdjustmentMin, SettingKeyPublicTransitAvailabilityAdjustmentMax, SettingKeyPublicTransitAvailabilityAdjustmentThreshold})
 	if err != nil {
 		return PublicTransitRuntime{APIEnabled: false, PageEnabled: false}
 	}
@@ -82,7 +85,15 @@ func (s *SettingService) GetPublicTransitRuntime(ctx context.Context) PublicTran
 	if !apiEnabled {
 		pageEnabled = false
 	}
-	return PublicTransitRuntime{APIEnabled: apiEnabled, PageEnabled: pageEnabled}
+	displayRange, rangeErr := parsePublicTransitAvailabilityRange(vals)
+	threshold, thresholdErr := parsePublicTransitAvailabilityThreshold(vals)
+	return PublicTransitRuntime{
+		APIEnabled:                    apiEnabled,
+		PageEnabled:                   pageEnabled,
+		AvailabilityAdjustmentEnabled: apiEnabled && rangeErr == nil && thresholdErr == nil && vals[SettingKeyPublicTransitAvailabilityAdjustmentEnabled] == "true",
+		AvailabilityRange:             displayRange,
+		AvailabilityThreshold:         threshold,
+	}
 }
 
 func (s *PublicTransitService) Enabled(ctx context.Context) bool {
@@ -232,21 +243,22 @@ type PublicTransitModelSource struct {
 }
 
 type PublicTransitMonitor struct {
-	Name                string                          `json:"name"`
-	Provider            string                          `json:"provider"`
-	GroupName           string                          `json:"group_name,omitempty"`
-	PrimaryModel        string                          `json:"primary_model"`
-	PrimaryStatus       string                          `json:"primary_status"`
-	Availability7d      float64                         `json:"availability_7d"`
-	Availability15d     float64                         `json:"availability_15d"`
-	Availability30d     float64                         `json:"availability_30d"`
-	AvgLatency7dMs      *int                            `json:"avg_latency_7d_ms,omitempty"`
-	LatestLatencyMs     *int                            `json:"latest_latency_ms,omitempty"`
-	LatestPingLatencyMs *int                            `json:"latest_ping_latency_ms,omitempty"`
-	LastCheckedAt       string                          `json:"last_checked_at,omitempty"`
-	ExtraModels         []PublicTransitExtraModelStatus `json:"extra_models"`
-	Models              []PublicTransitMonitorModel     `json:"models"`
-	Timeline            []PublicTransitMonitorTimeline  `json:"timeline"`
+	Name                   string                               `json:"name"`
+	Provider               string                               `json:"provider"`
+	GroupName              string                               `json:"group_name,omitempty"`
+	PrimaryModel           string                               `json:"primary_model"`
+	PrimaryStatus          string                               `json:"primary_status"`
+	Availability7d         float64                              `json:"availability_7d"`
+	Availability15d        float64                              `json:"availability_15d"`
+	Availability30d        float64                              `json:"availability_30d"`
+	AvailabilityAdjustment *PublicTransitAvailabilityAdjustment `json:"availability_adjustment,omitempty"`
+	AvgLatency7dMs         *int                                 `json:"avg_latency_7d_ms,omitempty"`
+	LatestLatencyMs        *int                                 `json:"latest_latency_ms,omitempty"`
+	LatestPingLatencyMs    *int                                 `json:"latest_ping_latency_ms,omitempty"`
+	LastCheckedAt          string                               `json:"last_checked_at,omitempty"`
+	ExtraModels            []PublicTransitExtraModelStatus      `json:"extra_models"`
+	Models                 []PublicTransitMonitorModel          `json:"models"`
+	Timeline               []PublicTransitMonitorTimeline       `json:"timeline"`
 }
 
 type PublicTransitExtraModelStatus struct {
@@ -256,13 +268,14 @@ type PublicTransitExtraModelStatus struct {
 }
 
 type PublicTransitMonitorModel struct {
-	Model           string  `json:"model"`
-	LatestStatus    string  `json:"latest_status"`
-	LatestLatencyMs *int    `json:"latest_latency_ms,omitempty"`
-	Availability7d  float64 `json:"availability_7d"`
-	Availability15d float64 `json:"availability_15d"`
-	Availability30d float64 `json:"availability_30d"`
-	AvgLatency7dMs  *int    `json:"avg_latency_7d_ms,omitempty"`
+	Model                  string                               `json:"model"`
+	LatestStatus           string                               `json:"latest_status"`
+	LatestLatencyMs        *int                                 `json:"latest_latency_ms,omitempty"`
+	Availability7d         float64                              `json:"availability_7d"`
+	Availability15d        float64                              `json:"availability_15d"`
+	Availability30d        float64                              `json:"availability_30d"`
+	AvailabilityAdjustment *PublicTransitAvailabilityAdjustment `json:"availability_adjustment,omitempty"`
+	AvgLatency7dMs         *int                                 `json:"avg_latency_7d_ms,omitempty"`
 }
 
 type PublicTransitMonitorTimeline struct {
@@ -370,6 +383,7 @@ func (s *PublicTransitService) Snapshot(ctx context.Context, baseURL string) (*P
 
 	monitorRuntime := s.settingService.GetChannelMonitorRuntime(ctx)
 	var monitorItems []PublicTransitMonitor
+	runtime := s.settingService.GetPublicTransitRuntime(ctx)
 	if monitorRuntime.ActiveProbesAllowed() {
 		monitors, err := s.monitorService.ListUserView(ctx)
 		if err != nil {
@@ -379,11 +393,10 @@ func (s *PublicTransitService) Snapshot(ctx context.Context, baseURL string) (*P
 		if err != nil {
 			return nil, fmt.Errorf("load public monitor details: %w", err)
 		}
-		monitorItems = buildPublicTransitMonitors(monitors, monitorDetails)
+		monitorItems = buildPublicTransitMonitors(monitors, monitorDetails, runtime.AvailabilityAdjustmentEnabled, runtime.AvailabilityRange, runtime.AvailabilityThreshold)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	runtime := s.settingService.GetPublicTransitRuntime(ctx)
 	cacheUsageByGroupID, err := s.publicGroupCacheUsage(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load public group cache usage: %w", err)
@@ -845,7 +858,7 @@ func (s *PublicTransitService) publicMonitorDetails(ctx context.Context, views [
 	return out, nil
 }
 
-func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*UserMonitorDetail) []PublicTransitMonitor {
+func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*UserMonitorDetail, adjustAvailability bool, displayRange PublicTransitAvailabilityRange, threshold float64) []PublicTransitMonitor {
 	out := make([]PublicTransitMonitor, 0, len(views))
 	for _, v := range views {
 		if v == nil {
@@ -859,7 +872,7 @@ func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*Use
 				LatencyMs: e.LatencyMs,
 			})
 		}
-		models := buildPublicTransitMonitorModels(details[v.ID])
+		models := buildPublicTransitMonitorModels(details[v.ID], adjustAvailability, displayRange, threshold)
 		timeline := buildPublicTransitMonitorTimeline(v.Timeline)
 		item := PublicTransitMonitor{
 			Name:                v.Name,
@@ -874,6 +887,7 @@ func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*Use
 			Models:              models,
 			Timeline:            timeline,
 		}
+		primaryFound := false
 		for _, m := range models {
 			if m.Model != v.PrimaryModel {
 				continue
@@ -881,8 +895,13 @@ func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*Use
 			item.Availability7d = m.Availability7d
 			item.Availability15d = m.Availability15d
 			item.Availability30d = m.Availability30d
+			item.AvailabilityAdjustment = m.AvailabilityAdjustment
 			item.AvgLatency7dMs = m.AvgLatency7dMs
+			primaryFound = true
 			break
+		}
+		if adjustAvailability && !primaryFound && len(v.Timeline) > 0 {
+			item.AvailabilityAdjustment = adjustPublicTransitAvailability(v.PrimaryModel, &item.Availability7d, nil, nil, displayRange, threshold)
 		}
 		if len(v.Timeline) > 0 {
 			item.LastCheckedAt = v.Timeline[0].CheckedAt.UTC().Format(time.RFC3339)
@@ -898,13 +917,13 @@ func buildPublicTransitMonitors(views []*UserMonitorView, details map[int64]*Use
 	return out
 }
 
-func buildPublicTransitMonitorModels(detail *UserMonitorDetail) []PublicTransitMonitorModel {
+func buildPublicTransitMonitorModels(detail *UserMonitorDetail, adjustAvailability bool, displayRange PublicTransitAvailabilityRange, threshold float64) []PublicTransitMonitorModel {
 	if detail == nil {
 		return []PublicTransitMonitorModel{}
 	}
 	out := make([]PublicTransitMonitorModel, 0, len(detail.Models))
 	for _, m := range detail.Models {
-		out = append(out, PublicTransitMonitorModel{
+		item := PublicTransitMonitorModel{
 			Model:           m.Model,
 			LatestStatus:    m.LatestStatus,
 			LatestLatencyMs: m.LatestLatencyMs,
@@ -912,7 +931,12 @@ func buildPublicTransitMonitorModels(detail *UserMonitorDetail) []PublicTransitM
 			Availability15d: m.Availability15d,
 			Availability30d: m.Availability30d,
 			AvgLatency7dMs:  m.AvgLatency7dMs,
-		})
+		}
+		// Adjust only the copied public DTO, never the monitor detail or history.
+		if adjustAvailability && m.LatestStatus != "" {
+			item.AvailabilityAdjustment = adjustPublicTransitAvailability(m.Model, &item.Availability7d, &item.Availability15d, &item.Availability30d, displayRange, threshold)
+		}
+		out = append(out, item)
 	}
 	return out
 }

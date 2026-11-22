@@ -1,6 +1,6 @@
 # Edge and HTTP Ingress Security
 
-Sub2API supports long-lived SSE and WebSocket requests. Protect request ingress
+Codebot supports long-lived SSE and WebSocket requests. Protect request ingress
 and individual socket operations without imposing a fixed timeout on the entire
 response. Healthy generations can remain open while an upstream is thinking.
 

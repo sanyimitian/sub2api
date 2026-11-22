@@ -217,11 +217,8 @@ func ProvideHandlers(
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
 	return &Handlers{
-		ModelIdentification: modelIdentificationHandler,
-		PublicTransit:       publicTransitHandler,
 		Auth:                authHandler,
 		User:                userHandler,
-		MCPOAuth:            mcpOAuthHandler,
 		APIKey:              apiKeyHandler,
 		Usage:               usageHandler,
 		Redeem:              redeemHandler,
@@ -229,6 +226,7 @@ func ProvideHandlers(
 		Announcement:        announcementHandler,
 		ChannelMonitor:      channelMonitorUserHandler,
 		ChannelMonitorV2:    channelMonitorV2Handler,
+		ModelIdentification: modelIdentificationHandler,
 		Admin:               adminHandlers,
 		Gateway:             gatewayHandler,
 		OpenAIGateway:       openaiGatewayHandler,
@@ -241,6 +239,8 @@ func ProvideHandlers(
 		ModelPlaza:          modelPlazaHandler,
 		AsyncImage:          asyncImageHandler,
 		BatchImage:          batchImageHandler,
+		PublicTransit:       publicTransitHandler,
+		MCPOAuth:            mcpOAuthHandler,
 	}
 }
 

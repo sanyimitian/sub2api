@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,7 @@ func newPlazaService(channels []Channel, groups []Group, pricing *PricingService
 	repo := &mockChannelRepository{
 		listAllFn: func(ctx context.Context) ([]Channel, error) { return channels, nil },
 	}
-	return NewModelPlazaService(repo, &stubGroupRepoForAvailable{activeGroups: groups}, pricing, nil, nil)
+	return NewModelPlazaService(repo, &stubGroupRepoForAvailable{activeGroups: groups}, pricing, nil, nil, nil, nil)
 }
 
 func plazaPricedChannel(id int64, name string, groupIDs []int64, platform string, models ...string) Channel {
@@ -403,7 +404,7 @@ func TestListPlazaGroups_RepoErrorsPropagate(t *testing.T) {
 	repo := &mockChannelRepository{
 		listAllFn: func(ctx context.Context) ([]Channel, error) { return nil, sentinel },
 	}
-	svc := NewModelPlazaService(repo, &stubGroupRepoForAvailable{}, nil, nil, nil)
+	svc := NewModelPlazaService(repo, &stubGroupRepoForAvailable{}, nil, nil, nil, nil, nil)
 	out, err := svc.ListGroups(context.Background())
 	require.Nil(t, out)
 	require.ErrorIs(t, err, sentinel)
@@ -411,7 +412,7 @@ func TestListPlazaGroups_RepoErrorsPropagate(t *testing.T) {
 	svc2 := NewModelPlazaService(
 		&mockChannelRepository{listAllFn: func(ctx context.Context) ([]Channel, error) { return nil, nil }},
 		&stubGroupRepoForAvailable{listActiveErr: sentinel},
-		nil, nil, nil,
+		nil, nil, nil, nil, nil,
 	)
 	out2, err2 := svc2.ListGroups(context.Background())
 	require.Nil(t, out2)
@@ -428,7 +429,7 @@ func newPlazaServiceWithBilling(channels []Channel, groups []Group, groupPlatfor
 	}
 	cs := NewChannelService(repo, nil, nil, nil, nil)
 	bs := NewBillingService(&config.Config{}, catalog)
-	return NewModelPlazaService(repo, &stubGroupRepoForAvailable{activeGroups: groups}, catalog, bs, NewModelPricingResolver(cs, bs))
+	return NewModelPlazaService(repo, &stubGroupRepoForAvailable{activeGroups: groups}, catalog, bs, NewModelPricingResolver(cs, bs), nil, nil)
 }
 
 func plazaModelsByName(models []PlazaModel) map[string]PlazaModel {
@@ -581,4 +582,86 @@ func TestListGroups_TimePricingPassthrough(t *testing.T) {
 	require.InDelta(t, 0.5, m.TimePricing.Periods[0].Multiplier, 1e-12)
 	// 展示单价为标准时段价
 	require.InDelta(t, 0.28e-6, *m.Pricing.InputPrice, 1e-15)
+}
+
+type plazaSupportAccountRepo struct {
+	AccountRepository
+	accounts []Account
+	err      error
+	calls    int
+}
+
+func (r *plazaSupportAccountRepo) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	r.calls++
+	return r.accounts, r.err
+}
+
+func plazaSupportAccount(id, groupID int64, platform string, models ...string) Account {
+	mapping := make(map[string]any, len(models))
+	for _, model := range models {
+		mapping[model] = model
+	}
+	return Account{ID: id, Platform: platform, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, GroupIDs: []int64{groupID},
+		Credentials: map[string]any{"model_mapping": mapping}}
+}
+
+func TestListPlazaGroups_OnlyConfiguredGroupSupport(t *testing.T) {
+	channel := plazaPricedChannel(1, "shared", []int64{10, 20, 30, 40}, PlatformOpenAI, "gpt-6-sol", "gpt-6-astra", "gpt-image-2", "gpt-3.5-turbo")
+	groups := []Group{
+		{ID: 10, Platform: PlatformOpenAI}, {ID: 20, Platform: PlatformOpenAI},
+		{ID: 30, Platform: PlatformOpenAI, ModelAllowlist: GroupModelAllowlist{Enabled: true, Models: []string{"gpt-image-2"}}},
+		{ID: 40, Platform: PlatformOpenAI},
+	}
+	accounts := []Account{
+		plazaSupportAccount(1, 10, PlatformOpenAI, "gpt-6-sol"),
+		plazaSupportAccount(2, 20, PlatformOpenAI, "gpt-image-2"),
+		plazaSupportAccount(3, 30, PlatformOpenAI, "gpt-6-sol"),
+		plazaSupportAccount(4, 10, PlatformAnthropic, "gpt-6-astra"),
+		plazaSupportAccount(5, 10, PlatformOpenAI, "gpt-3.5-turbo"),
+		plazaSupportAccount(6, 10, PlatformOpenAI, "gpt-6-astra"),
+	}
+	accounts[4].Schedulable = false
+	accounts[5].Status = StatusDisabled
+	future := time.Now().Add(time.Hour)
+	accounts[0].RateLimitResetAt = &future
+	repo := &plazaSupportAccountRepo{accounts: accounts}
+	svc := newPlazaService([]Channel{channel}, groups, nil)
+	svc.accountRepo = repo
+	out, err := svc.listGroups(context.Background(), true)
+	require.NoError(t, err)
+	require.Equal(t, 1, repo.calls, "one bulk lookup, not one per group/model")
+	require.Len(t, out, 2)
+	byID := make(map[int64]PlazaGroup)
+	for _, group := range out {
+		byID[group.ID] = group
+	}
+	require.Equal(t, "gpt-6-sol", byID[10].Models[0].Name)
+	require.Len(t, byID[10].Models, 1)
+	require.Equal(t, "gpt-image-2", byID[20].Models[0].Name)
+	require.Len(t, byID[20].Models, 1)
+	require.Equal(t, 3e-6, *byID[10].Models[0].Pricing.InputPrice)
+	require.Len(t, channel.ModelPricing[0].Models, 4, "display filtering must not mutate price cards")
+}
+
+func TestListPlazaGroups_ConfiguredSupportUsesChannelMapping(t *testing.T) {
+	channel := plazaPricedChannel(1, "mapped", []int64{10}, PlatformOpenAI, "gpt-6-sol", "gpt-6-astra")
+	channel.ModelMapping = map[string]map[string]string{PlatformOpenAI: {"customer-model": "gpt-6-sol"}}
+	svc := newPlazaService([]Channel{channel}, []Group{{ID: 10, Platform: PlatformOpenAI}}, nil)
+	svc.accountRepo = &plazaSupportAccountRepo{accounts: []Account{plazaSupportAccount(1, 10, PlatformOpenAI, "gpt-6-sol")}}
+	out, err := svc.listGroups(context.Background(), true)
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Len(t, out[0].Models, 2)
+	require.Equal(t, "customer-model", out[0].Models[0].Name)
+	require.Equal(t, "gpt-6-sol", out[0].Models[1].Name)
+}
+
+func TestListPlazaGroups_SupportLookupFailsClosed(t *testing.T) {
+	sentinel := errors.New("account query failed")
+	svc := newPlazaService([]Channel{plazaPricedChannel(1, "ch", []int64{10}, PlatformOpenAI, "gpt-6-sol")}, []Group{{ID: 10, Platform: PlatformOpenAI}}, nil)
+	svc.accountRepo = &plazaSupportAccountRepo{err: sentinel}
+	out, err := svc.listGroups(context.Background(), true)
+	require.ErrorIs(t, err, sentinel)
+	require.Nil(t, out)
 }

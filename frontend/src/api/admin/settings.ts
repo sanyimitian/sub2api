@@ -757,6 +757,10 @@ export interface SystemSettings {
   subscription_enabled: boolean;
   public_transit_enabled: boolean;
   public_transit_page_enabled: boolean;
+  public_transit_availability_adjustment_enabled: boolean;
+  public_transit_availability_adjustment_threshold: number;
+  public_transit_availability_adjustment_min: number;
+  public_transit_availability_adjustment_max: number;
 
   // Model Plaza feature switches + description
   model_plaza_enabled: boolean;
@@ -1082,6 +1086,10 @@ export interface UpdateSettingsRequest {
   subscription_enabled?: boolean;
   public_transit_enabled?: boolean;
   public_transit_page_enabled?: boolean;
+  public_transit_availability_adjustment_enabled?: boolean;
+  public_transit_availability_adjustment_threshold?: number;
+  public_transit_availability_adjustment_min?: number;
+  public_transit_availability_adjustment_max?: number;
 
   // Model Plaza feature switches + description
   model_plaza_enabled?: boolean;
@@ -1611,7 +1619,7 @@ export async function updateBetaPolicySettings(
 // --- Web Search Emulation Config ---
 
 export interface WebSearchProviderConfig {
-  type: "brave" | "tavily";
+  type: "brave" | "tavily" | "exa";
   api_key: string;
   api_key_configured: boolean;
   quota_limit: number | null;

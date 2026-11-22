@@ -364,6 +364,9 @@
               :model-mappings="modelMappings"
               :platform="account?.platform || 'anthropic'"
               :account-id="account?.id"
+              :show-max-effort-control="canConfigureOpenAIMaxEffort"
+              :model-max-effort-support="modelMaxEffortSupport"
+              @update:model-max-effort-support="modelMaxEffortSupport = $event"
               :show-sync-button="account.platform !== 'grok' || !account.id"
               @upstream-sync-finished="refreshGrokDiagnostics"
             />
@@ -400,6 +403,28 @@
                 </p>
               </div>
 
+            <div
+              v-if="canConfigureOpenAIMaxEffort && allowedModels.length > 0"
+              class="mb-3 space-y-1.5 rounded border border-gray-200 p-2 dark:border-dark-600"
+            >
+              <label
+                v-for="model in allowedModels"
+                :key="'max-' + model"
+                class="flex items-center justify-between gap-3 text-xs text-gray-700 dark:text-gray-300"
+              >
+                <span class="min-w-0 truncate">{{ model }}</span>
+                <span class="inline-flex shrink-0 items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+                    :checked="isOpenAIModelMaxEffortSupported(model)"
+                    :aria-label="`${t('admin.accounts.maxEffortSupport')}: ${model}`"
+                    @change="setOpenAIModelMaxEffortSupport(model, ($event.target as HTMLInputElement).checked)"
+                  />
+                  <span>Max</span>
+                </span>
+              </label>
+            </div>
               <div
                 v-if="account.platform === 'grok'"
                 class="mb-1.5 grid grid-cols-[minmax(0,1fr)_1rem_minmax(0,1.2fr)_2rem] gap-1.5 text-xs text-gray-500 dark:text-dark-400 sm:gap-2"
@@ -974,6 +999,9 @@
             :model-mappings="modelMappings"
             :platform="account?.platform || 'anthropic'"
             :account-id="account?.id"
+            :show-max-effort-control="canConfigureOpenAIMaxEffort"
+            :model-max-effort-support="modelMaxEffortSupport"
+            @update:model-max-effort-support="modelMaxEffortSupport = $event"
             :show-sync-button="account.platform !== 'grok' || !account.id"
             @upstream-sync-finished="refreshGrokDiagnostics"
           />
@@ -994,6 +1022,29 @@
               <p :class="account.platform === 'grok' ? 'text-xs text-gray-500 dark:text-dark-400' : 'text-xs text-purple-700 dark:text-purple-400'">
                 {{ t('admin.accounts.mapRequestModels') }}
               </p>
+            </div>
+
+            <div
+              v-if="canConfigureOpenAIMaxEffort && allowedModels.length > 0"
+              class="mb-3 space-y-1.5 rounded border border-gray-200 p-2 dark:border-dark-600"
+            >
+              <label
+                v-for="model in allowedModels"
+                :key="'oauth-max-' + model"
+                class="flex items-center justify-between gap-3 text-xs text-gray-700 dark:text-gray-300"
+              >
+                <span class="min-w-0 truncate">{{ model }}</span>
+                <span class="inline-flex shrink-0 items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+                    :checked="isOpenAIModelMaxEffortSupported(model)"
+                    :aria-label="`${t('admin.accounts.maxEffortSupport')}: ${model}`"
+                    @change="setOpenAIModelMaxEffortSupport(model, ($event.target as HTMLInputElement).checked)"
+                  />
+                  <span>Max</span>
+                </span>
+              </label>
             </div>
 
             <div

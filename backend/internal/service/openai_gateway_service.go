@@ -722,6 +722,10 @@ func (s *OpenAIGatewayService) CloseOpenAIWSPool() {
 	if s == nil {
 		return
 	}
+	if s.openaiSessionPoolCancel != nil {
+		s.openaiSessionPoolCancel()
+		<-s.openaiSessionPoolDone
+	}
 	s.openaiCompatSessionResponses.Close()
 	s.openaiCompatAnthropicDigestSessions.Close()
 	if s.openaiWSPool != nil {

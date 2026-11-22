@@ -17,7 +17,7 @@ func TestAuthService_Register_BlacklistedEmailAliasRejected(t *testing.T) {
 		SettingKeyRegistrationEmailBlacklist: `["spam.user@gmail.com"]`,
 	}, nil, nil)
 
-	_, _, err := svc.Register(context.Background(), "SpamUser+1@googlemail.com", "password")
+	_, _, err := svc.Register(context.Background(), "SpamUser+1@googlemail.com", "Password123")
 	require.ErrorIs(t, err, ErrEmailBlocked)
 	require.Equal(t, "EMAIL_BLOCKED", infraerrors.FromError(err).Reason)
 	require.Empty(t, repo.created)
@@ -31,11 +31,11 @@ func TestAuthService_Register_BlacklistOverridesSuffixWhitelist(t *testing.T) {
 		SettingKeyRegistrationEmailBlacklist:       `["blocked@gmail.com"]`,
 	}, nil, nil)
 
-	_, _, err := svc.Register(context.Background(), "blocked@gmail.com", "password")
+	_, _, err := svc.Register(context.Background(), "blocked@gmail.com", "Password123")
 	require.ErrorIs(t, err, ErrEmailBlocked)
 	require.Empty(t, repo.created)
 
-	_, user, err := svc.Register(context.Background(), "allowed@gmail.com", "password")
+	_, user, err := svc.Register(context.Background(), "allowed@gmail.com", "Password123")
 	require.NoError(t, err)
 	require.Equal(t, "allowed@gmail.com", user.Email)
 }

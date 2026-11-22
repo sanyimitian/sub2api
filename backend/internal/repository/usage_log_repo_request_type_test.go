@@ -102,9 +102,9 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // upstream_request_id
 			sqlmock.AnyArg(), // session_id
 			log.NativeCompactionV2,
+			sqlmock.AnyArg(), // request_timings
 			log.CacheCreation30mTokens,
 			log.CacheCreation12hTokens,
-			sqlmock.AnyArg(),
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(99), createdAt))
@@ -200,9 +200,9 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // upstream_request_id
 			sqlmock.AnyArg(), // session_id
 			log.NativeCompactionV2,
+			sqlmock.AnyArg(), // request_timings
 			log.CacheCreation30mTokens,
 			log.CacheCreation12hTokens,
-			sqlmock.AnyArg(),
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(100), createdAt))
@@ -966,9 +966,9 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{}, // upstream_request_id
 			sql.NullString{},
 			false, // native_compaction_v2
-			0,     // cache_creation_30m_tokens
-			0,     // cache_creation_12h_tokens
 			sql.NullString{Valid: true, String: `{"account_queue_wait_ms":123}`},
+			9,    // cache_creation_30m_tokens
+			2390, // cache_creation_12h_tokens
 			now,
 		}})
 		require.NoError(t, err)
@@ -985,6 +985,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 		require.NotNil(t, log.RequestTimings)
 		require.NotNil(t, log.RequestTimings.AccountQueueWaitMs)
 		require.Equal(t, int64(123), *log.RequestTimings.AccountQueueWaitMs)
+		require.Equal(t, 9, log.CacheCreation30mTokens)
+		require.Equal(t, 2390, log.CacheCreation12hTokens)
 	})
 
 	t.Run("request_type_ws_v2_overrides_legacy", func(t *testing.T) {
@@ -1052,9 +1054,9 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // upstream_request_id
 			sql.NullString{},  // session_id
 			false,             // native_compaction_v2
+			sql.NullString{},  // request_timings
 			0,                 // cache_creation_30m_tokens
 			0,                 // cache_creation_12h_tokens
-			sql.NullString{},
 			now,
 		}})
 		require.NoError(t, err)
@@ -1118,9 +1120,9 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // upstream_request_id
 			sql.NullString{},  // session_id
 			true,              // native_compaction_v2
+			sql.NullString{},  // request_timings
 			0,                 // cache_creation_30m_tokens
 			0,                 // cache_creation_12h_tokens
-			sql.NullString{},
 			now,
 		}})
 		require.NoError(t, err)
@@ -1185,9 +1187,9 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // upstream_request_id
 			sql.NullString{},  // session_id
 			false,             // native_compaction_v2
+			sql.NullString{},  // request_timings
 			0,                 // cache_creation_30m_tokens
 			0,                 // cache_creation_12h_tokens
-			sql.NullString{},
 			now,
 		}})
 		require.NoError(t, err)

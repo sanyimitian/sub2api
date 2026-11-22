@@ -263,9 +263,15 @@ func TestOpenAISessionPoolDiagnosticAccountRejections(t *testing.T) {
 				require.Len(t, events, 1)
 				fields := events[0].ContextMap()
 				require.Equal(t, "no_eligible_accounts", fields["reason"])
-				require.EqualValues(t, 1, fields["schedulable_account_count"])
 				require.EqualValues(t, 0, fields["eligible_account_count"])
-				require.Equal(t, map[string]int{stage + "_" + tt.reason: 1}, fields["account_rejections"])
+				if stage == "snapshot" && tt.reason == "account_not_schedulable" {
+					// The scheduler filters unschedulable snapshots before pool diagnostics.
+					require.EqualValues(t, 0, fields["schedulable_account_count"])
+					require.Empty(t, fields["account_rejections"])
+				} else {
+					require.EqualValues(t, 1, fields["schedulable_account_count"])
+					require.Equal(t, map[string]int{stage + "_" + tt.reason: 1}, fields["account_rejections"])
+				}
 				pool := svc.getOpenAIWSLatencyCandidatePool(ctx, openAISessionPoolKey)
 				require.Len(t, pool.Candidates, 1)
 				require.Empty(t, pool.Candidates[0].LeaseID, "过滤失败不能占用共享候选")

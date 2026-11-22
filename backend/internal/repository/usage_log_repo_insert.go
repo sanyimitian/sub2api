@@ -85,9 +85,9 @@ var usageLogInsertArgTypes = [...]string{
 	"text",        // upstream_request_id
 	"text",        // session_id
 	"boolean",     // native_compaction_v2
+	"jsonb",       // request_timings
 	"integer",     // cache_creation_30m_tokens
 	"integer",     // cache_creation_12h_tokens
-	"jsonb",       // request_timings
 	"timestamptz", // created_at
 }
 
@@ -289,9 +289,9 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			upstream_request_id,
 			session_id,
 			native_compaction_v2,
+			request_timings,
 			cache_creation_30m_tokens,
 			cache_creation_12h_tokens,
-			request_timings,
 			created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9,
@@ -752,9 +752,9 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			upstream_request_id,
 			session_id,
 			native_compaction_v2,
+			request_timings,
 			cache_creation_30m_tokens,
 			cache_creation_12h_tokens,
-			request_timings,
 			created_at
 		) AS (VALUES `)
 
@@ -850,9 +850,9 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				upstream_request_id,
 				session_id,
 				native_compaction_v2,
+				request_timings,
 				cache_creation_30m_tokens,
 				cache_creation_12h_tokens,
-				request_timings,
 				created_at
 			)
 			SELECT
@@ -917,9 +917,9 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				upstream_request_id,
 				session_id,
 				native_compaction_v2,
+				request_timings,
 				cache_creation_30m_tokens,
 				cache_creation_12h_tokens,
-				request_timings,
 				created_at
 			FROM input
 			ON CONFLICT (request_id, api_key_id) DO NOTHING
@@ -1024,9 +1024,9 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			upstream_request_id,
 			session_id,
 			native_compaction_v2,
+			request_timings,
 			cache_creation_30m_tokens,
 			cache_creation_12h_tokens,
-			request_timings,
 			created_at
 		) AS (VALUES `)
 
@@ -1117,9 +1117,9 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			upstream_request_id,
 			session_id,
 			native_compaction_v2,
+			request_timings,
 			cache_creation_30m_tokens,
 			cache_creation_12h_tokens,
-			request_timings,
 			created_at
 		)
 		SELECT
@@ -1184,9 +1184,9 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			upstream_request_id,
 			session_id,
 			native_compaction_v2,
+			request_timings,
 			cache_creation_30m_tokens,
 			cache_creation_12h_tokens,
-			request_timings,
 			created_at
 		FROM input
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
@@ -1259,9 +1259,9 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			upstream_request_id,
 			session_id,
 			native_compaction_v2,
+			request_timings,
 			cache_creation_30m_tokens,
 			cache_creation_12h_tokens,
-			request_timings,
 			created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9,
@@ -1394,9 +1394,9 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			upstreamRequestID,    // upstream_request_id
 			sessionID,            // session_id
 			log.NativeCompactionV2,
+			requestTimings,
 			log.CacheCreation30mTokens,
 			log.CacheCreation12hTokens,
-			requestTimings,
 			createdAt,
 		},
 	}
