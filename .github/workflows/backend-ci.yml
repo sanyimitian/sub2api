@@ -27,6 +27,8 @@ jobs:
       - uses: actions/checkout@v6
       - name: Check Docker Compose simple mode environment
         run: /bin/sh deploy/tests/docker-compose-simple-mode-env-test.sh
+      - name: Check client IP gateway stability with benchmark network
+        run: python3 deploy/tests/docker-compose-client-ip-test.py
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod

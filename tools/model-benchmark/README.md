@@ -47,6 +47,13 @@ HTTP 状态码随逐题结果保存，旧记录从已保存错误中提取，不
 
 新服务器或尚未启用 worker 的部署，在完整仓库根目录执行一次 `sudo bash deploy/install-model-benchmark.sh --compose-file deploy/docker-compose.yml --env-file deploy/.env`。脚本自动安装缺失的 Docker Engine 与 Compose v2（Ubuntu/Debian）、生成内部通信密钥、构建带 Python 依赖的 worker 并启动。应用使用已包含本功能的发布镜像；保持原有部署配置、数据库卷和项目名，自定义项目名通过 `--project-name` 指定。仅准备 worker、不重启应用可追加 `--worker-only`。
 
+容器部署需要 Docker Engine 28+、Compose 2.33.1+。评测叠加配置将应用连接评测网络的
+`gw_priority`（网关优先级）设为 -1，低于主网络默认的 0，保持宿主机反代连接应用时的
+网关地址稳定。`SERVER_TRUSTED_PROXIES`（可信代理列表）应填写主网络的实际网关单个地址，
+不需要信任评测网络或整个内网。自定义主网络的优先级必须高于 -1；不要用
+`priority`（网络连接顺序）替代网关优先级。已有部署升级时须合并此网络配置并重新创建应用容器，
+只更新应用镜像或执行容器重启不会应用这项修改。详见[可信代理配置](../../deploy/EDGE_SECURITY.md#trusted-client-ips)。
+
 worker 已启用后无需手动准备题库和 grader。页面显示准备阶段及进度，失败后 30 秒起自动重试、最长间隔 5 分钟，管理员可点击「立即重试准备」。用户只能查看状态；准备期间不能发起或重测，不消耗次数。服务每 30 秒检查执行环境，发现异常时暂停派发并自动恢复，保留排队任务和既有数据。
 
 宿主机安装需要 root/sudo；网页及匿名接口没有宿主机软件安装权限。安装器只使用 Docker 官方签名软件源，不执行远程脚本。其他已装 Docker 的 Linux 也可运行；不支持的发行版缺少 Docker 时会给出说明。环境重试接口仅管理员可调用，且不接受命令、下载地址或自定义脚本。
