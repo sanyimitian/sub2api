@@ -16,6 +16,8 @@ type AdminService interface {
 	ListUsers(ctx context.Context, page, pageSize int, filters UserListFilters, sortBy, sortOrder string) ([]User, int64, error)
 	GetUser(ctx context.Context, id int64) (*User, error)
 	GetUserIncludeDeleted(ctx context.Context, id int64) (*User, error)
+	// HasUserBalanceCredit 判断是否曾有注册赠送以外的正向余额入账。
+	HasUserBalanceCredit(ctx context.Context, userID int64) (bool, error)
 	CreateUser(ctx context.Context, input *CreateUserInput) (*User, error)
 	UpdateUser(ctx context.Context, id int64, input *UpdateUserInput) (*User, error)
 	DeleteUser(ctx context.Context, id int64) error

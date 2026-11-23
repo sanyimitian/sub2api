@@ -2,6 +2,7 @@
 # install-model-benchmark.sh installs missing host prerequisites and starts this worker.
 # The worker prepares missing question sources, bank and grader image automatically.
 # Build/deploy a sub2api image containing this feature before enabling the page.
+# 需要 Docker Engine 28+ 和 Compose 2.33.1+，以支持网关优先级。
 services:
   sub2api:
     # Recent docker logs copy only. Complete 90-day archives live in /app/data/logs.
@@ -20,7 +21,10 @@ services:
       MODEL_BENCHMARK_WORKER_URL: http://model-benchmark:8124
       MODEL_BENCHMARK_WORKER_TOKEN: ${MODEL_BENCHMARK_WORKER_TOKEN:?Set a random token of at least 32 characters}
     networks:
-      - benchmark-network
+      # 主网络默认优先级为 0；评测网络不能抢占应用网关，否则宿主机反代
+      # 连接映射端口时会换用另一个来源地址，导致已有可信代理配置失效。
+      benchmark-network:
+        gw_priority: -1
 
   model-benchmark:
     logging:

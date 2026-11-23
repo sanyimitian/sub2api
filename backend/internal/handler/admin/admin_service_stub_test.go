@@ -200,6 +200,10 @@ func (s *stubAdminService) UpdateUserBalance(ctx context.Context, userID int64, 
 	return &user, nil
 }
 
+func (s *stubAdminService) HasUserBalanceCredit(context.Context, int64) (bool, error) {
+	return true, nil
+}
+
 func (s *stubAdminService) RecordManualRecharge(ctx context.Context, userID int64, amount float64, platform, recipient, notes string) (*service.User, error) {
 	return s.UpdateUserBalance(ctx, userID, amount, "add", notes)
 }

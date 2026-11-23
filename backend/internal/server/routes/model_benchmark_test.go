@@ -99,6 +99,19 @@ func TestModelBenchmarkAdminAuthentication(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
+type benchmarkRouteUsers struct {
+	service.AdminService
+	users map[int64]*service.User
+}
+
+func (s *benchmarkRouteUsers) GetUserIncludeDeleted(_ context.Context, id int64) (*service.User, error) {
+	return s.users[id], nil
+}
+
+func (s *benchmarkRouteUsers) HasUserBalanceCredit(_ context.Context, id int64) (bool, error) {
+	return s.users[id].TotalRecharged > 0, nil
+}
+
 func TestModelBenchmarkUserAuthenticationAndScope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	var gotPath string
@@ -112,7 +125,7 @@ func TestModelBenchmarkUserAuthenticationAndScope(t *testing.T) {
 	t.Setenv("MODEL_BENCHMARK_WORKER_URL", worker.URL)
 	t.Setenv("MODEL_BENCHMARK_WORKER_TOKEN", "worker-test-token")
 	users := &identificationAuthUsers{users: map[int64]*service.User{
-		7: {ID: 7, Email: "user@example.invalid", Role: service.RoleUser, Status: service.StatusActive, TokenVersion: 1, TokenVersionResolved: true},
+		7: {ID: 7, Email: "user@example.invalid", Role: service.RoleUser, Status: service.StatusActive, TokenVersion: 1, TokenVersionResolved: true, TotalRecharged: 1},
 		1: {ID: 1, Email: "admin@example.invalid", Role: service.RoleAdmin, Status: service.StatusActive, TokenVersion: 1, TokenVersionResolved: true},
 	}}
 	auth := service.NewAuthService(nil, users, nil, nil, &config.Config{JWT: config.JWTConfig{Secret: "benchmark-auth-test-secret", ExpireHour: 1}}, nil, nil, nil, nil, nil, nil, nil, nil)
@@ -122,7 +135,8 @@ func TestModelBenchmarkUserAuthenticationAndScope(t *testing.T) {
 	// Register the same route helper and real JWT middleware used by RegisterUserRoutes.
 	group := router.Group("/api/v1")
 	group.Use(gin.HandlerFunc(middleware.NewJWTAuthMiddleware(auth, service.NewUserService(users, nil, nil, nil), nil, nil)))
-	registerUserModelBenchmarkRoutes(group)
+	accountHandler := admin.NewUserHandler(&benchmarkRouteUsers{users: users.users}, nil, nil, nil, nil, nil, nil)
+	registerUserModelBenchmarkRoutes(group, admin.NewModelBenchmarkHandlerForAdmin(accountHandler, nil))
 	adminToken, err := auth.GenerateToken(context.Background(), users.users[1])
 	require.NoError(t, err)
 	adminRequest := httptest.NewRequest("GET", "/api/v1/model-benchmarks/results?cursor=next", nil)
@@ -157,6 +171,23 @@ func TestModelBenchmarkUserAuthenticationAndScope(t *testing.T) {
 				require.Empty(t, gotPath)
 			}
 		}
+	}
+	users.users[7].TotalRecharged = 0
+	for _, path := range []string{"/runs", "/runs/" + id + "/rerun"} {
+		gotPath = ""
+		req := httptest.NewRequest("POST", "/api/v1/model-benchmarks"+path, strings.NewReader(`{"role":"admin","total_recharged":100}`))
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, 403, w.Code)
+		require.Contains(t, w.Body.String(), "当前帐号权重太低,无法进行掺水测试,请联系管理员")
+		require.Empty(t, gotPath)
+		// 相同用户入口下，管理员也不受充值门槛限制。
+		req = httptest.NewRequest("POST", "/api/v1/model-benchmarks"+path, strings.NewReader(`{}`))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		w = httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, 200, w.Code, w.Body.String())
 	}
 	for _, path := range []string{"/schedules", "/schedules/" + id + "/run", "/config", "/suites/refresh", "/execution", "/displays", "/environment/retry", "/bank/update", "/bank/activate"} {
 		w := httptest.NewRecorder()

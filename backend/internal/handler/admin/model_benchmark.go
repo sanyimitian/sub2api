@@ -36,9 +36,10 @@ type ModelBenchmarkHandler struct {
 type benchmarkUsers interface {
 	ListUsers(context.Context, int, int, service.UserListFilters, string, string) ([]service.User, int64, error)
 	GetUserIncludeDeleted(context.Context, int64) (*service.User, error)
+	HasUserBalanceCredit(context.Context, int64) (bool, error)
 }
 
-// Account access is wired only for the administrator handler.
+// 管理与用户路由共用此处理器，账号服务同时用于身份快照及测试资格校验。
 func NewModelBenchmarkHandlerForAdmin(users *UserHandler, federation *service.ModelBenchmarkFederationService) *ModelBenchmarkHandler {
 	h := NewModelBenchmarkHandler()
 	h.federation = federation
@@ -341,6 +342,22 @@ func (h *ModelBenchmarkHandler) User(c *gin.Context) {
 		path += "?" + query.Encode()
 	}
 	if c.Request.Method == http.MethodPost && (path == "/runs" || strings.HasSuffix(path, "/rerun")) {
+		role, _ := middleware.GetUserRoleFromContext(c)
+		if role != service.RoleAdmin {
+			if h.users == nil {
+				response.Error(c, http.StatusServiceUnavailable, "无法读取测试用户资格")
+				return
+			}
+			credited, err := h.users.HasUserBalanceCredit(c.Request.Context(), subject.UserID)
+			if err != nil {
+				response.Error(c, http.StatusServiceUnavailable, "无法读取测试用户资格")
+				return
+			}
+			if !credited {
+				response.Error(c, http.StatusForbidden, "当前帐号权重太低,无法进行掺水测试,请联系管理员")
+				return
+			}
+		}
 		identity := benchmarkIdentity{Email: c.GetString(middleware.ContextKeyAuthEmail)}
 		if h.users != nil {
 			user, err := h.users.GetUserIncludeDeleted(c.Request.Context(), subject.UserID)
