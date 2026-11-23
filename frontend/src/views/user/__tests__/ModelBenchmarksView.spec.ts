@@ -34,6 +34,26 @@ beforeEach(() => {
 })
 
 describe('user model benchmarks', () => {
+  it.each(['create', 'rerun'] as const)('显示%s被充值资格校验拒绝时的原始提示', async action => {
+    const message = '当前帐号权重太低,无法进行掺水测试,请联系管理员'
+    vi.mocked(userBenchmarks[action]).mockRejectedValueOnce({ response: { status: 403, data: { message } } })
+    const wrapper = render()
+    await flushPromises()
+    if (action === 'create') {
+      await wrapper.get('[name="base_url"]').setValue('https://own.example.com/v1')
+      await wrapper.get('[name="api_key"]').setValue('user-secret')
+      await wrapper.get('[name="model"]').setValue('test-model')
+      await wrapper.get('form').trigger('submit')
+    } else {
+      await wrapper.findAll('button').find(b => b.text() === 'modelBenchmark.rerun')!.trigger('click')
+    }
+    await flushPromises()
+    expect(userBenchmarks[action]).toHaveBeenCalledOnce()
+    expect(app.showError).toHaveBeenCalledWith(message)
+    expect(app.showSuccess).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-run-id="own-run"]').exists()).toBe(true)
+  })
+
   it('removes revoked sources even when refreshing a later history page fails', async () => {
     const source = (id: string) => ({ id, name: id, source_type: 'local' as const, last_success_at: null, stale: false, pending: false, items: [{ id: `plan-${id}`, name: id, model: run.model, effort: run.effort, results: [{ ...run, id }] }] })
     vi.mocked(userBenchmarks.showcase).mockImplementation(async (_signal, cursor) => ({ items: [source(cursor ? 'revoked' : 'kept')], next_cursor: cursor ? null : 'page-two' }))

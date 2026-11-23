@@ -21,6 +21,10 @@ type benchmarkUsersStub struct {
 	gets    int
 }
 
+func (s *benchmarkUsersStub) HasUserBalanceCredit(context.Context, int64) (bool, error) {
+	return true, nil
+}
+
 func (s *benchmarkUsersStub) ListUsers(_ context.Context, page, pageSize int, filters service.UserListFilters, sortBy, sortOrder string) ([]service.User, int64, error) {
 	s.filters = filters
 	return []service.User{{ID: 7, Email: "alice@example.com", Username: "alice", PasswordHash: "never-return"}}, 31, nil
