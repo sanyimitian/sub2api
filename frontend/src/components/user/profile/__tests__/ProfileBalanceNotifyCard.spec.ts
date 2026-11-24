@@ -2,18 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import ProfileBalanceNotifyCard from '../ProfileBalanceNotifyCard.vue'
 
-const { sendNotifyEmailCode, verifyNotifyEmail, getProfile } = vi.hoisted(() => ({
+const { sendNotifyEmailCode, verifyNotifyEmail, getProfile, toggleNotifyEmail, showError } = vi.hoisted(() => ({
   sendNotifyEmailCode: vi.fn(),
   verifyNotifyEmail: vi.fn(),
-  getProfile: vi.fn()
+  getProfile: vi.fn(),
+  toggleNotifyEmail: vi.fn(),
+  showError: vi.fn()
 }))
 
 vi.mock('@/api', () => ({
-  userAPI: { sendNotifyEmailCode, verifyNotifyEmail, getProfile }
+  userAPI: { sendNotifyEmailCode, verifyNotifyEmail, getProfile, toggleNotifyEmail }
 }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: null }) }))
 vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({ showSuccess: vi.fn(), showError: vi.fn() })
+  useAppStore: () => ({ showSuccess: vi.fn(), showError })
 }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
@@ -42,6 +44,57 @@ describe('ProfileBalanceNotifyCard', () => {
   afterEach(() => {
     vi.clearAllTimers()
     vi.useRealTimers()
+  })
+
+  it('shows the account email as the default recipient without additional verification', async () => {
+    const wrapper = mount(ProfileBalanceNotifyCard, {
+      props: { enabled: true, threshold: null, extraEmails: [], systemDefaultThreshold: 300, userEmail: ' customer@example.com ' }
+    })
+    await flushPromises()
+    expect((wrapper.get('input[type="email"]').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.text()).toContain('profile.balanceNotify.primaryEmail: customer@example.com')
+    expect(wrapper.text()).toContain('profile.balanceNotify.extraEmailsHint')
+    expect(wrapper.text()).not.toContain('profile.balanceNotify.noPrimaryEmailHint')
+    expect(sendNotifyEmailCode).not.toHaveBeenCalled()
+    expect(verifyNotifyEmail).not.toHaveBeenCalled()
+  })
+
+  it.each(['', '  ', 'user@linuxdo-connect.invalid', 'user@oidc-connect.invalid', 'user@wechat-connect.invalid', ' user@DINGTALK-connect.invalid '])('requires a real notification address for %s', async (userEmail) => {
+    const wrapper = mount(ProfileBalanceNotifyCard, {
+      props: { enabled: true, threshold: null, extraEmails: [], systemDefaultThreshold: 300, userEmail }
+    })
+    await flushPromises()
+    expect((wrapper.get('input[type="email"]').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.text()).toContain('profile.balanceNotify.noPrimaryEmailHint')
+    expect(wrapper.text()).not.toContain('profile.balanceNotify.primaryEmail:')
+    expect(wrapper.text()).not.toContain('-connect.invalid')
+  })
+
+  it('rejects adding the default recipient as an additional email', async () => {
+    const wrapper = mount(ProfileBalanceNotifyCard, {
+      props: { enabled: true, threshold: null, extraEmails: [], systemDefaultThreshold: 300, userEmail: ' Customer@example.com ' }
+    })
+    await wrapper.get('input[type="email"]').setValue(' CUSTOMER@EXAMPLE.COM ')
+    await button(wrapper, 'common.add').trigger('click')
+    expect(pendingRows(wrapper)).toHaveLength(0)
+    expect(showError).toHaveBeenCalledWith('profile.balanceNotify.emailDuplicate')
+    expect(sendNotifyEmailCode).not.toHaveBeenCalled()
+  })
+
+  it('shows the disabled account email and updates after reenabling it', async () => {
+    const disabled = { email: ' CUSTOMER@EXAMPLE.COM ', disabled: true, verified: true }
+    toggleNotifyEmail.mockResolvedValue({ balance_notify_extra_emails: [{ ...disabled, disabled: false }] })
+    const wrapper = mount(ProfileBalanceNotifyCard, {
+      props: { enabled: true, threshold: null, extraEmails: [disabled], systemDefaultThreshold: 300, userEmail: 'customer@example.com' }
+    })
+    expect(wrapper.text()).toContain('profile.balanceNotify.primaryEmailDisabled')
+    expect(wrapper.text()).toContain('profile.balanceNotify.primaryEmailDisabledHint')
+    expect(wrapper.text()).not.toContain('profile.balanceNotify.extraEmailsHint')
+    await wrapper.findAll('input[type="checkbox"]')[1]!.setValue(true)
+    await flushPromises()
+    expect(toggleNotifyEmail).toHaveBeenCalledWith(disabled.email, false)
+    expect(wrapper.text()).not.toContain('profile.balanceNotify.primaryEmailDisabled')
+    expect(wrapper.text()).toContain('profile.balanceNotify.extraEmailsHint')
   })
 
   it.each(['remove', 'unmount'])('does not start a pending email timer after %s', async (action) => {

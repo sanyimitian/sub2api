@@ -220,6 +220,64 @@ func TestBuildQuotaDimsFromState_UsesStateValues(t *testing.T) {
 
 // ---------- collectBalanceNotifyRecipients ----------
 
+func TestCollectBalanceNotifyRecipients_PrimaryEmailByDefault(t *testing.T) {
+	s := &BalanceNotifyService{}
+	u := &User{Email: "  Customer@Example.com  "}
+	require.Equal(t, []string{"Customer@Example.com"}, s.collectBalanceNotifyRecipients(u))
+}
+
+func TestCollectBalanceNotifyRecipients_PrimaryAndVerifiedExtras(t *testing.T) {
+	s := &BalanceNotifyService{}
+	u := &User{
+		Email: "Customer@Example.com",
+		BalanceNotifyExtraEmails: []NotifyEmailEntry{
+			{Email: " customer@example.com ", Verified: true},
+			{Email: "extra@example.com", Verified: true},
+			{Email: "EXTRA@example.com", Verified: true},
+			{Email: "unverified@example.com"},
+			{Email: "disabled@example.com", Verified: true, Disabled: true},
+		},
+	}
+	require.Equal(t, []string{"Customer@Example.com", "extra@example.com"}, s.collectBalanceNotifyRecipients(u))
+}
+
+func TestCollectBalanceNotifyRecipients_RespectsDisabledPrimaryEmail(t *testing.T) {
+	for _, verified := range []bool{false, true} {
+		s := &BalanceNotifyService{}
+		u := &User{
+			Email: " Customer@Example.com ",
+			BalanceNotifyExtraEmails: []NotifyEmailEntry{
+				{Email: " CUSTOMER@example.com ", Verified: verified, Disabled: true},
+				{Email: "customer@example.com", Verified: true},
+				{Email: "other@example.com", Verified: true},
+			},
+		}
+		require.Equal(t, []string{"other@example.com"}, s.collectBalanceNotifyRecipients(u))
+		u.BalanceNotifyExtraEmails[0].Disabled = false
+		require.Equal(t, []string{"Customer@Example.com", "other@example.com"}, s.collectBalanceNotifyRecipients(u))
+	}
+}
+
+func TestCollectBalanceNotifyRecipients_SkipsSyntheticPrimaryEmail(t *testing.T) {
+	for _, domain := range []string{
+		LinuxDoConnectSyntheticEmailDomain, OIDCConnectSyntheticEmailDomain,
+		WeChatConnectSyntheticEmailDomain, DingTalkConnectSyntheticEmailDomain,
+	} {
+		t.Run(domain, func(t *testing.T) {
+			s := &BalanceNotifyService{}
+			u := &User{Email: "  oauth" + domain + "  "}
+			require.Empty(t, s.collectBalanceNotifyRecipients(u))
+			u.BalanceNotifyExtraEmails = []NotifyEmailEntry{{Email: "real@example.com", Verified: true}}
+			require.Equal(t, []string{"real@example.com"}, s.collectBalanceNotifyRecipients(u))
+		})
+	}
+}
+
+func TestCollectBalanceNotifyRecipients_NilUser(t *testing.T) {
+	s := &BalanceNotifyService{}
+	require.Empty(t, s.collectBalanceNotifyRecipients(nil))
+}
+
 func TestCollectBalanceNotifyRecipients_Empty(t *testing.T) {
 	s := &BalanceNotifyService{}
 	u := &User{BalanceNotifyExtraEmails: nil}

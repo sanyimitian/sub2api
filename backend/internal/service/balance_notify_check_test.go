@@ -4,6 +4,8 @@ package service
 
 import (
 	"context"
+	"net/mail"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,6 +25,79 @@ func newBalanceNotifyServiceForTest() (*BalanceNotifyService, *mockSettingRepo) 
 }
 
 // ---------- guard clauses ----------
+
+func TestCheckBalanceAfterDeduction_DeliversToAccountEmail(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		useTemplate    bool
+		globalDisabled bool
+		userDisabled   bool
+		oldBalance     float64
+		extraEmails    []NotifyEmailEntry
+		wantRecipients []string
+	}{
+		{name: "默认账号邮箱", useTemplate: true, oldBalance: 301, wantRecipients: []string{"customer@example.com"}},
+		{name: "内置邮件正文", oldBalance: 301, wantRecipients: []string{"customer@example.com"}},
+		{name: "去重并保留已验证额外邮箱", useTemplate: true, oldBalance: 301,
+			extraEmails: []NotifyEmailEntry{
+				{Email: "CUSTOMER@example.com", Verified: true},
+				{Email: "extra@example.com", Verified: true},
+				{Email: "unverified@example.com"},
+				{Email: "disabled@example.com", Verified: true, Disabled: true},
+			},
+			wantRecipients: []string{"customer@example.com", "extra@example.com"}},
+		{name: "用户关闭提醒", useTemplate: true, oldBalance: 301, userDisabled: true},
+		{name: "关闭账号邮箱后只发送给额外邮箱", useTemplate: true, oldBalance: 301,
+			extraEmails: []NotifyEmailEntry{
+				{Email: " CUSTOMER@example.com ", Verified: true, Disabled: true},
+				{Email: "extra@example.com", Verified: true},
+			},
+			wantRecipients: []string{"extra@example.com"}},
+		{name: "内置正文也尊重账号邮箱关闭状态", oldBalance: 301,
+			extraEmails: []NotifyEmailEntry{
+				{Email: "customer@example.com", Verified: true, Disabled: true},
+				{Email: "extra@example.com", Verified: true},
+			},
+			wantRecipients: []string{"extra@example.com"}},
+		{name: "唯一收件邮箱关闭后不发信", useTemplate: true, oldBalance: 301,
+			extraEmails: []NotifyEmailEntry{{Email: "customer@example.com", Verified: true, Disabled: true}}},
+		{name: "全局关闭提醒", useTemplate: true, oldBalance: 301, globalDisabled: true},
+		{name: "已经低于阈值不补发", useTemplate: true, oldBalance: 299},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			repo := newNotificationEmailMemorySettingRepo()
+			smtpServer := startNotificationEmailTestSMTPServer(t)
+			settings := smtpServer.settings()
+			settings[SettingKeyBalanceLowNotifyEnabled] = "true"
+			if tc.globalDisabled {
+				settings[SettingKeyBalanceLowNotifyEnabled] = "false"
+			}
+			settings[SettingKeyBalanceLowNotifyThreshold] = "300"
+			require.NoError(t, repo.SetMultiple(ctx, settings))
+			emailService := NewEmailService(repo, nil)
+			s := NewBalanceNotifyService(emailService, repo, nil)
+			t.Cleanup(s.Stop)
+			if tc.useTemplate {
+				s.SetNotificationEmailService(NewNotificationEmailService(repo, emailService))
+			}
+			u := &User{ID: 42, Email: "customer@example.com", BalanceNotifyEnabled: !tc.userDisabled, BalanceNotifyExtraEmails: tc.extraEmails}
+			s.CheckBalanceAfterDeduction(ctx, u, tc.oldBalance, 2)
+			require.Equal(t, int64(len(tc.wantRecipients)), smtpServer.messageCount())
+			smtpServer.messageMu.Lock()
+			messages := append([]string(nil), smtpServer.messageBodies...)
+			smtpServer.messageMu.Unlock()
+			for i, raw := range messages {
+				message, err := mail.ReadMessage(strings.NewReader(raw))
+				require.NoError(t, err)
+				to, err := message.Header.AddressList("To")
+				require.NoError(t, err)
+				require.Len(t, to, 1)
+				require.Equal(t, tc.wantRecipients[i], to[0].Address)
+			}
+		})
+	}
+}
 
 func TestCheckBalanceAfterDeduction_NilUser(t *testing.T) {
 	s, _ := newBalanceNotifyServiceForTest()
