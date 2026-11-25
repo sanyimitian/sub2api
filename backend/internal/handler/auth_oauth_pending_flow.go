@@ -1686,6 +1686,10 @@ func (h *AuthHandler) bindPendingOAuthLogin(c *gin.Context, provider string) {
 	h.maybeSyncDingTalkAfterLogin(c.Request.Context(), session, user.ID)
 	tokenPair, err := h.authService.GenerateTokenPair(c.Request.Context(), user, "")
 	if err != nil {
+		if service.IsLoginRegionError(err) {
+			response.ErrorFrom(c, err)
+			return
+		}
 		response.InternalError(c, "Failed to generate token pair")
 		return
 	}
@@ -2056,6 +2060,10 @@ func (h *AuthHandler) ExchangePendingOAuthCompletion(c *gin.Context) {
 		tokenPair, err := h.authService.GenerateTokenPair(c.Request.Context(), loginUser, "")
 		if err != nil {
 			clearCookies()
+			if service.IsLoginRegionError(err) {
+				response.ErrorFrom(c, err)
+				return
+			}
 			response.InternalError(c, "Failed to generate token pair")
 			return
 		}

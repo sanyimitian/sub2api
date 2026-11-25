@@ -1279,6 +1279,13 @@ func (h *AuthHandler) tryOIDCVerifiedEmailFastPath(
 		readOAuthPromoCode(c),
 	)
 	if err != nil {
+		// 地区限制是明确的登录结果，不能当成快捷路径失败后继续创建待完成会话。
+		if service.IsLoginRegionError(err) {
+			clearOAuthPendingSessionCookie(c, isRequestHTTPS(c))
+			clearOAuthPendingBrowserCookie(c, isRequestHTTPS(c))
+			redirectOAuthError(c, frontendCallback, "login_blocked", infraerrors.Reason(err), infraerrors.Message(err))
+			return true
+		}
 		log.Printf("[OIDC OAuth] verified-email fast path skipped: reason=%s", infraerrors.Reason(err))
 		return false
 	}

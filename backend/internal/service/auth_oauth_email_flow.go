@@ -115,6 +115,9 @@ func (s *AuthService) RegisterOAuthEmailAccount(
 	if s.settingService == nil || (!s.settingService.IsRegistrationEnabled(ctx) && !s.canBypassRegistrationDisabledForOAuth(ctx, signupSource)) {
 		return nil, nil, ErrRegDisabled
 	}
+	if err := s.checkNewLoginRegion(ctx); err != nil {
+		return nil, nil, err
+	}
 
 	if err := ValidateRegistrationPassword(password); err != nil {
 		return nil, nil, err
@@ -200,6 +203,9 @@ func (s *AuthService) RegisterVerifiedOAuthEmailAccount(
 	}
 	if s.settingService == nil || (!s.settingService.IsRegistrationEnabled(ctx) && !s.canBypassRegistrationDisabledForOAuth(ctx, signupSource)) {
 		return nil, nil, ErrRegDisabled
+	}
+	if err := s.checkNewLoginRegion(ctx); err != nil {
+		return nil, nil, err
 	}
 
 	if err := ValidateRegistrationPassword(password); err != nil {

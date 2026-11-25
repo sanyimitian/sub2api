@@ -10,8 +10,10 @@ import batchImage from './batchImage'
 import admin from './admin'
 import misc from './misc'
 import publicTransit from './publicTransit'
+import regionAccess from './regionAccess'
 
 export default {
+  regionAccess,
   modelBenchmark,
   modelIdentification,
   adminAccessKeys,

@@ -175,6 +175,10 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
 		return "", nil, ErrRegDisabled
 	}
+	// 注册会消耗邮箱验证码和邀请码并发放权益，必须先确认地区允许登录。
+	if err := s.checkNewLoginRegion(ctx); err != nil {
+		return "", nil, err
+	}
 
 	if err := ValidateRegistrationPassword(password); err != nil {
 		return "", nil, err
@@ -584,6 +588,9 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 // 注意：该函数用于 LinuxDo OAuth 登录场景（不同于上游账号的 OAuth，例如 Claude/OpenAI/Gemini）。
 // 为了满足现有数据库约束（需要密码哈希），新用户会生成随机密码并进行哈希保存。
 func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username string) (string, *User, error) {
+	if err := s.checkNewLoginRegion(ctx); err != nil {
+		return "", nil, err
+	}
 	email = strings.TrimSpace(email)
 	if email == "" || len(email) > 255 {
 		return "", nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
@@ -707,6 +714,10 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPairAndPromoCode(ctx context.
 }
 
 func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, email, username, invitationCode, affiliateCode, promoCode, signupSource string) (*TokenPair, *User, error) {
+	// 首次第三方登录可能创建账号、占用邀请码，不能只在最终签发时拒绝。
+	if err := s.checkNewLoginRegion(ctx); err != nil {
+		return nil, nil, err
+	}
 	// 检查 refreshTokenCache 是否可用
 	if s.refreshTokenCache == nil {
 		return nil, nil, errors.New("refresh token cache not configured")
@@ -1441,6 +1452,14 @@ func isReservedEmail(email string) bool {
 // 使用新的access_token_expire_minutes配置项（如果配置了），否则回退到expire_hour。
 // 会话指纹（IP/UA）从 ctx 中提取（由 HTTP 入口中间件注入），缺失时生成不带绑定的 token。
 func (s *AuthService) GenerateToken(ctx context.Context, user *User) (string, error) {
+	if err := s.checkNewLoginRegion(ctx); err != nil {
+		return "", err
+	}
+	return s.generateNewAccessToken(ctx, user)
+}
+
+// generateNewAccessToken 也用于已认证会话续期，续期不重新施加地区登录限制。
+func (s *AuthService) generateNewAccessToken(ctx context.Context, user *User) (string, error) {
 	sessionID, err := randomHexString(8)
 	if err != nil {
 		return "", fmt.Errorf("generate session id: %w", err)
@@ -1544,7 +1563,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldTokenString string) (
 	}
 
 	// 生成新token
-	return s.GenerateToken(ctx, user)
+	return s.generateNewAccessToken(ctx, user)
 }
 
 // IsPasswordResetEnabled 检查是否启用密码重置功能
@@ -1719,6 +1738,13 @@ type TokenPairWithUser struct {
 // GenerateTokenPair 生成Access Token和Refresh Token对
 // familyID: 可选的Token家族ID，用于Token轮转时保持家族关系
 func (s *AuthService) GenerateTokenPair(ctx context.Context, user *User, familyID string) (*TokenPair, error) {
+	if err := s.checkNewLoginRegion(ctx); err != nil {
+		return nil, err
+	}
+	return s.generateTokenPair(ctx, user, familyID)
+}
+
+func (s *AuthService) generateTokenPair(ctx context.Context, user *User, familyID string) (*TokenPair, error) {
 	// 检查 refreshTokenCache 是否可用
 	if s.refreshTokenCache == nil {
 		return nil, errors.New("refresh token cache not configured")
@@ -1888,7 +1914,7 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 	}
 
 	// 生成新的Token对，保持同一个家族ID
-	pair, err := s.GenerateTokenPair(ctx, user, data.FamilyID)
+	pair, err := s.generateTokenPair(ctx, user, data.FamilyID)
 	if err != nil {
 		return nil, err
 	}

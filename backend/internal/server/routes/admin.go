@@ -656,6 +656,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpA
 		// 面板 API 限流配置
 		adminSettings.GET("/panel-rate-limit", h.Admin.Setting.GetPanelRateLimitSettings)
 		adminSettings.PUT("/panel-rate-limit", h.Admin.Setting.UpdatePanelRateLimitSettings)
+		// 站点地区登录限制；变更沿用敏感操作二次验证。
+		adminSettings.GET("/region-access", h.Admin.Setting.GetRegionAccessSettings)
+		adminSettings.PUT("/region-access", gin.HandlerFunc(stepUpAuth), h.Admin.Setting.UpdateRegionAccessSettings)
 		// 流超时处理配置
 		adminSettings.GET("/stream-timeout", h.Admin.Setting.GetStreamTimeoutSettings)
 		adminSettings.PUT("/stream-timeout", h.Admin.Setting.UpdateStreamTimeoutSettings)

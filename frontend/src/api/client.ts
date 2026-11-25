@@ -124,6 +124,16 @@ apiClient.interceptors.response.use(
       // Validate `data` shape to avoid HTML error pages breaking our error handling.
       const apiData = (typeof data === 'object' && data !== null ? data : {}) as Record<string, any>
 
+      // 地区策略只控制新登录；不跳转首页或中断已有会话、接口密钥调用。
+      if (
+        window.location.pathname === '/login' &&
+        (apiData.reason === 'MAINLAND_ACCESS_DENIED' || apiData.reason === 'REGION_LOOKUP_UNAVAILABLE')
+      ) {
+        window.dispatchEvent(new CustomEvent('region-login-blocked', {
+          detail: { reason: apiData.reason }
+        }))
+      }
+
       // Ops monitoring disabled: treat as feature-flagged 404, and proactively redirect away
       // from ops pages to avoid broken UI states.
       if (status === 404 && apiData.message === 'Ops monitoring is disabled') {
