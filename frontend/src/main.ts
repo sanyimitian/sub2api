@@ -1,6 +1,7 @@
-import { createApp } from 'vue'
+import { createApp, h } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
+import SiteRegionGate from '@/components/common/SiteRegionGate.vue'
 import router from './router'
 import i18n, { initI18n } from './i18n'
 import { useAppStore } from '@/stores/app'
@@ -35,7 +36,7 @@ async function bootstrap() {
   initThemeClass()
   initIOSViewportZoomFix()
 
-  const app = createApp(App)
+  const app = createApp({ render: () => h(SiteRegionGate, null, { default: () => h(App) }) })
   const pinia = createPinia()
   app.use(pinia)
 
@@ -46,7 +47,9 @@ async function bootstrap() {
 
   updateFavicon(appStore.siteLogo)
 
-  await initI18n()
+  // 注入页面可能来自其他实例的旧缓存，初始化语言前必须获取最新公开设置。
+  const settings = await appStore.fetchPublicSettings(true)
+  await initI18n(settings?.default_language)
 
   app.use(router)
   app.use(i18n)

@@ -46,6 +46,23 @@ describe('refreshAuthTokens', () => {
     vi.useRealTimers()
   })
 
+  it('全站地区拒绝立即通知界面，保留现有令牌', async () => {
+    seedSession()
+    const blocked = vi.fn()
+    window.addEventListener('region-site-blocked', blocked)
+    const denied = { response: { status: 403, data: { reason: 'MAINLAND_ACCESS_DENIED', metadata: { scope: 'site' } } } }
+    mockedPost.mockRejectedValueOnce(denied)
+    try {
+      const { refreshAuthTokens } = await import('@/api/tokenRefresh')
+      await expect(refreshAuthTokens()).rejects.toBe(denied)
+      expect(blocked).toHaveBeenCalledOnce()
+      expect(localStorage.getItem('auth_token')).toBe('old-access')
+      expect(localStorage.getItem('refresh_token')).toBe('old-refresh')
+    } finally {
+      window.removeEventListener('region-site-blocked', blocked)
+    }
+  })
+
   it('shares one refresh request between concurrent callers in the same document', async () => {
     seedSession()
     let resolveRequest!: (value: ReturnType<typeof refreshedResponse>) => void

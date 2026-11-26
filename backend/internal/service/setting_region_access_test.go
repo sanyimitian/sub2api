@@ -19,7 +19,7 @@ func TestRegionAccessSettings_DefaultAndInvalidStoredValues(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, settings.Enabled)
 
-	for _, raw := range []string{"", " ", "null", "{}", `{"enabled":null}`, `{"enabled":"true"}`, "{bad-json"} {
+	for _, raw := range []string{"", " ", "null", "{}", `{"enabled":null}`, `{"enabled":"true"}`, `{"enabled":true,"site_wide":null}`, `{"enabled":true,"site_wide":"true"}`, "{bad-json"} {
 		t.Run(raw, func(t *testing.T) {
 			repo.values[SettingKeyRegionAccessSettings] = raw
 			settings, err := svc.GetRegionAccessSettings(ctx)
@@ -44,7 +44,7 @@ func TestRegionAccessSettings_CacheAndImmediateSave(t *testing.T) {
 	settings, err := svc.GetRegionAccessSettingsCached(ctx)
 	require.NoError(t, err)
 	require.True(t, settings.Enabled)
-	require.JSONEq(t, `{"enabled":true}`, repo.values[SettingKeyRegionAccessSettings])
+	require.JSONEq(t, `{"enabled":true,"site_wide":false,"default_language":"zh"}`, repo.values[SettingKeyRegionAccessSettings])
 	settings.Enabled = false
 	settings, err = svc.GetRegionAccessSettingsCached(ctx)
 	require.NoError(t, err)
@@ -90,7 +90,7 @@ func TestRegionAccessSettings_WriteFailurePreservesEnabledCache(t *testing.T) {
 	settings, err := svc.GetRegionAccessSettingsCached(ctx)
 	require.NoError(t, err)
 	require.True(t, settings.Enabled)
-	require.JSONEq(t, `{"enabled":true}`, repo.values[SettingKeyRegionAccessSettings])
+	require.JSONEq(t, `{"enabled":true,"site_wide":false,"default_language":"zh"}`, repo.values[SettingKeyRegionAccessSettings])
 	require.Error(t, svc.SetRegionAccessSettings(ctx, nil))
 }
 
@@ -140,4 +140,40 @@ func TestRegionAccessSettings_MissingRepositoryFailsClosed(t *testing.T) {
 		require.Error(t, err)
 		require.Nil(t, settings)
 	}
+}
+
+func TestRegionAccessSettings_DefaultLanguageRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	repo := newRuntimeSettingRepoStub()
+	svc := NewSettingService(repo, &config.Config{})
+	updates := 0
+	svc.SetOnUpdateCallback(func() { updates++ })
+
+	// 升级前的配置保留开关，语言默认中文。
+	repo.values[SettingKeyRegionAccessSettings] = `{"enabled":true}`
+	settings, err := svc.GetRegionAccessSettings(ctx)
+	require.NoError(t, err)
+	require.True(t, settings.Enabled)
+	require.Equal(t, "zh", settings.DefaultLanguage)
+
+	for _, language := range []string{"en", "zh"} {
+		require.NoError(t, svc.SetRegionAccessSettings(ctx, &RegionAccessSettings{Enabled: true, DefaultLanguage: language}))
+		settings, err = svc.GetRegionAccessSettings(ctx)
+		require.NoError(t, err)
+		require.Equal(t, language, settings.DefaultLanguage)
+		cached, err := svc.GetRegionAccessSettingsCached(ctx)
+		require.NoError(t, err)
+		require.Equal(t, language, cached.DefaultLanguage)
+		require.True(t, cached.Enabled)
+	}
+	require.Equal(t, 2, updates, "保存成功须使页面注入缓存失效")
+	require.Error(t, svc.SetRegionAccessSettings(ctx, &RegionAccessSettings{DefaultLanguage: "fr"}))
+	require.Equal(t, 2, updates)
+	repo.setFn = func(string, string) error { return errors.New("write failed") }
+	require.Error(t, svc.SetRegionAccessSettings(ctx, &RegionAccessSettings{DefaultLanguage: "en"}))
+	require.Equal(t, 2, updates)
+	cached, err := svc.GetRegionAccessSettingsCached(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "zh", cached.DefaultLanguage)
+	require.True(t, cached.Enabled)
 }

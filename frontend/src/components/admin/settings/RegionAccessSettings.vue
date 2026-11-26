@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getRegionAccessSettings, updateRegionAccessSettings } from '@/api/admin/regionAccess'
 import Toggle from '@/components/common/Toggle.vue'
+import { availableLocales, type LocaleCode } from '@/i18n'
 import Icon from '@/components/icons/Icon.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import RegionAccessBlocked from '@/components/common/RegionAccessBlocked.vue'
@@ -16,16 +17,26 @@ const loaded = ref(false)
 const saving = ref(false)
 const savedEnabled = ref(false)
 const draftEnabled = ref(false)
+const savedSiteWide = ref(false)
+const draftSiteWide = ref(false)
+const savedLanguage = ref<LocaleCode>('zh')
+const draftLanguage = ref<LocaleCode>('zh')
 const error = ref('')
 const notice = ref('')
 const preview = ref(false)
 const previewRetried = ref(false)
-const dirty = computed(() => loaded.value && savedEnabled.value !== draftEnabled.value)
-const stateDescription = computed(() => dirty.value
-  ? (draftEnabled.value ? t('regionAccess.pendingEnabled') : t('regionAccess.pendingDisabled'))
-  : (savedEnabled.value ? t('regionAccess.savedEnabled') : t('regionAccess.savedDisabled')))
+const regionDirty = computed(() => savedEnabled.value !== draftEnabled.value || savedSiteWide.value !== draftSiteWide.value)
+const dirty = computed(() => loaded.value && (regionDirty.value || savedLanguage.value !== draftLanguage.value))
+const stateDescription = computed(() => {
+  if (regionDirty.value) {
+    if (!draftEnabled.value) return t('regionAccess.pendingDisabled')
+    return t(draftSiteWide.value ? 'regionAccess.pendingSiteWide' : 'regionAccess.pendingEnabled')
+  }
+  if (!savedEnabled.value) return t('regionAccess.savedDisabled')
+  return t(savedSiteWide.value ? 'regionAccess.savedSiteWide' : 'regionAccess.savedEnabled')
+})
 
-watch(draftEnabled, () => { notice.value = '' })
+watch([draftEnabled, draftSiteWide, draftLanguage], () => { notice.value = '' })
 watch(preview, () => { previewRetried.value = false })
 
 async function load() {
@@ -36,6 +47,10 @@ async function load() {
     const settings = await getRegionAccessSettings()
     savedEnabled.value = settings.enabled
     draftEnabled.value = settings.enabled
+    savedSiteWide.value = settings.site_wide
+    draftSiteWide.value = settings.site_wide
+    savedLanguage.value = settings.default_language
+    draftLanguage.value = settings.default_language
     loaded.value = true
   } catch {
     error.value = t('regionAccess.loadFailed')
@@ -50,10 +65,16 @@ async function save() {
   error.value = ''
   notice.value = ''
   const enabled = draftEnabled.value
+  const site_wide = draftSiteWide.value
+  const default_language = draftLanguage.value
   try {
-    const settings = await stepUp.run(() => updateRegionAccessSettings({ enabled }))
+    const settings = await stepUp.run(() => updateRegionAccessSettings({ enabled, site_wide, default_language }))
     savedEnabled.value = settings.enabled
     draftEnabled.value = settings.enabled
+    savedSiteWide.value = settings.site_wide
+    draftSiteWide.value = settings.site_wide
+    savedLanguage.value = settings.default_language
+    draftLanguage.value = settings.default_language
     notice.value = t('regionAccess.saved')
   } catch (cause) {
     if (isStepUpBlocked(cause)) {
@@ -91,11 +112,26 @@ onMounted(load)
           </div>
           <Toggle id="region-access-enabled" v-model="draftEnabled" :disabled="saving" :aria-label="t('regionAccess.enabledLabel')" aria-describedby="region-access-enabled-hint" />
         </div>
+        <div class="flex items-start justify-between gap-5 border-t border-gray-100 pt-5 dark:border-dark-700">
+          <div>
+            <label for="region-access-site-wide" class="font-medium text-gray-900 dark:text-white">{{ t('regionAccess.siteWideLabel') }}</label>
+            <p id="region-access-site-wide-hint" class="mt-1 text-sm text-gray-600 dark:text-gray-400">{{ t('regionAccess.siteWideHint') }}</p>
+            <p v-if="draftEnabled && draftSiteWide" class="mt-2 text-sm text-amber-800 dark:text-amber-200">{{ t('regionAccess.siteWideAdminWarning') }}</p>
+          </div>
+          <Toggle id="region-access-site-wide" v-model="draftSiteWide" :disabled="saving || !draftEnabled" :aria-label="t('regionAccess.siteWideLabel')" aria-describedby="region-access-site-wide-hint" />
+        </div>
+        <div class="border-t border-gray-100 pt-5 dark:border-dark-700">
+          <label for="region-access-default-language" class="font-medium text-gray-900 dark:text-white">{{ t('regionAccess.defaultLanguage') }}</label>
+          <p id="region-access-default-language-hint" class="mt-1 text-sm text-gray-600 dark:text-gray-400">{{ t('regionAccess.defaultLanguageHint') }}</p>
+          <select id="region-access-default-language" v-model="draftLanguage" class="input mt-3 w-full sm:max-w-xs" :disabled="saving" aria-describedby="region-access-default-language-hint">
+            <option v-for="language in availableLocales" :key="language.code" :value="language.code">{{ language.name }}</option>
+          </select>
+        </div>
         <dl class="space-y-4 border-t border-gray-100 pt-5 text-sm dark:border-dark-700">
           <div class="grid grid-cols-[5rem_minmax(0,1fr)] gap-4"><dt class="text-gray-600 dark:text-gray-400">{{ t('regionAccess.scopeLabel') }}</dt><dd>{{ t('regionAccess.scope') }}</dd></div>
-          <div class="grid grid-cols-[5rem_minmax(0,1fr)] gap-4"><dt class="text-gray-600 dark:text-gray-400">{{ t('regionAccess.coverageLabel') }}</dt><dd>{{ t('regionAccess.coverage') }}</dd></div>
-          <div class="grid grid-cols-[5rem_minmax(0,1fr)] gap-4"><dt class="text-gray-600 dark:text-gray-400">{{ t('regionAccess.adminLabel') }}</dt><dd>{{ t('regionAccess.adminHint') }}</dd></div>
-          <div class="grid grid-cols-[5rem_minmax(0,1fr)] gap-4"><dt class="text-gray-600 dark:text-gray-400">{{ t('regionAccess.unknownLabel') }}</dt><dd>{{ t('regionAccess.unknownHint') }}</dd></div>
+          <div class="grid grid-cols-[5rem_minmax(0,1fr)] gap-4"><dt class="text-gray-600 dark:text-gray-400">{{ t('regionAccess.coverageLabel') }}</dt><dd>{{ t(draftSiteWide ? 'regionAccess.siteWideCoverage' : 'regionAccess.coverage') }}</dd></div>
+          <div class="grid grid-cols-[5rem_minmax(0,1fr)] gap-4"><dt class="text-gray-600 dark:text-gray-400">{{ t('regionAccess.adminLabel') }}</dt><dd>{{ t(draftSiteWide ? 'regionAccess.siteWideAdminHint' : 'regionAccess.adminHint') }}</dd></div>
+          <div class="grid grid-cols-[5rem_minmax(0,1fr)] gap-4"><dt class="text-gray-600 dark:text-gray-400">{{ t('regionAccess.unknownLabel') }}</dt><dd>{{ t(draftSiteWide ? 'regionAccess.siteWideUnknownHint' : 'regionAccess.unknownHint') }}</dd></div>
         </dl>
         <p class="flex items-start gap-2 text-sm text-primary-700 dark:text-primary-300"><Icon name="shield" size="sm" class="mt-0.5 flex-shrink-0" aria-hidden="true" />{{ stateDescription }}</p>
       </div>
@@ -111,7 +147,7 @@ onMounted(load)
     </footer>
     <BaseDialog :show="preview" :title="t('regionAccess.previewTitle')" width="normal" @close="preview = false">
       <p class="mb-6 text-xs text-gray-600 dark:text-gray-400">{{ t('regionAccess.previewHint') }}</p>
-      <RegionAccessBlocked preview @retry="previewRetried = true" />
+      <RegionAccessBlocked preview :site-wide="draftSiteWide" @retry="previewRetried = true" />
       <p v-if="previewRetried" role="status" class="mt-3 text-center text-xs text-gray-600 dark:text-gray-400">{{ t('regionAccess.previewRetry') }}</p>
     </BaseDialog>
     <TotpStepUpDialog :controller="stepUp" />

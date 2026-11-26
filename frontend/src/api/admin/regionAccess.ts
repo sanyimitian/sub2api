@@ -1,7 +1,10 @@
 import { apiClient } from '../client'
+import type { LocaleCode } from '@/i18n'
 
 export interface RegionAccessSettings {
   enabled: boolean
+  site_wide: boolean
+  default_language: LocaleCode
 }
 
 export async function getRegionAccessSettings(): Promise<RegionAccessSettings> {

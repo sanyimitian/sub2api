@@ -120,7 +120,7 @@ export default {
       titleLine1: 'One key,',
       titleLine2: 'every major AI model,',
       titleLine3: 'simply connected.',
-      lead: 'Skip overseas payments, separate signups, and scattered balances. One API brings OpenAI, Claude, Gemini, and the rest into your app.',
+      lead: 'Skip separate signups and scattered balances. One API brings OpenAI, Claude, Gemini, and the rest into your app.',
       detail: 'One balance covers every model and bills actual usage. Switch models without topping up again or managing separate invoices.',
       recharge: 'Free trial',
       console: 'Open console',

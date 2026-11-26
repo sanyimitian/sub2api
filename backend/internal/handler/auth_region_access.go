@@ -14,6 +14,17 @@ import (
 func (h *AuthHandler) GetLoginRegionAccess(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	err := h.settingSvc.CheckLoginRegion(c.Request.Context(), middleware.SecurityClientIP(c))
+	writeRegionAccessResult(c, err)
+}
+
+// GetSiteRegionAccess 仅返回全站访问判定，供首次打开和已打开页面重新检测。
+func (h *AuthHandler) GetSiteRegionAccess(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	err := h.settingSvc.CheckSiteRegion(c.Request.Context(), middleware.SecurityClientIP(c))
+	writeRegionAccessResult(c, err)
+}
+
+func writeRegionAccessResult(c *gin.Context, err error) {
 	if err == nil {
 		response.Success(c, gin.H{"allowed": true})
 		return

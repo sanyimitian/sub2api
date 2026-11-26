@@ -101,3 +101,46 @@ func TestRegionAccessHandler_RepositoryFailureIsServerError(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
 	}
 }
+
+func TestRegionAccessHandler_DefaultLanguage(t *testing.T) {
+	repo := &regionAccessHandlerRepo{}
+	router := newRegionAccessHandlerRouter(repo)
+	for _, language := range []string{"en", "zh"} {
+		rec := regionAccessHandlerRequest(router, http.MethodPut, `{"enabled":false,"default_language":"`+language+`"}`)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		rec = regionAccessHandlerRequest(router, http.MethodGet, "")
+		require.Contains(t, rec.Body.String(), `"default_language":"`+language+`"`)
+	}
+	for _, value := range []string{`"fr"`, `"EN"`, `42`, `true`} {
+		previousCalls := repo.setCalls
+		rec := regionAccessHandlerRequest(router, http.MethodPut, `{"enabled":true,"default_language":`+value+`}`)
+		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		require.Equal(t, previousCalls, repo.setCalls)
+	}
+	repo.value = `{"enabled":false,"default_language":"en"}`
+	rec := regionAccessHandlerRequest(router, http.MethodPut, `{"enabled":true}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.JSONEq(t, `{"enabled":true,"site_wide":false,"default_language":"en"}`, repo.value, "旧客户端仅修改开关时保留语言")
+}
+
+func TestRegionAccessHandler_SiteWide(t *testing.T) {
+	repo := &regionAccessHandlerRepo{}
+	router := newRegionAccessHandlerRouter(repo)
+	rec := regionAccessHandlerRequest(router, http.MethodGet, "")
+	require.Contains(t, rec.Body.String(), `"site_wide":false`)
+	for _, value := range []string{`"true"`, `1`, `{}`} {
+		rec = regionAccessHandlerRequest(router, http.MethodPut, `{"enabled":true,"site_wide":`+value+`}`)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		require.Zero(t, repo.setCalls)
+	}
+	rec = regionAccessHandlerRequest(router, http.MethodPut, `{"enabled":true,"site_wide":true,"default_language":"en"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	rec = regionAccessHandlerRequest(router, http.MethodPut, `{"enabled":true,"default_language":"zh"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, repo.value, `"site_wide":true`, "旧客户端省略范围时不能关闭全站限制")
+	rec = regionAccessHandlerRequest(router, http.MethodPut, `{"enabled":true,"site_wide":false}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = regionAccessHandlerRequest(router, http.MethodGet, "")
+	require.Contains(t, rec.Body.String(), `"site_wide":false`)
+	require.Contains(t, rec.Body.String(), `"enabled":true`)
+}

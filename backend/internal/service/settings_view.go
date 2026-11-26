@@ -344,6 +344,7 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
+	DefaultLanguage                     string
 	RegistrationEnabled                 bool
 	EmailVerifyEnabled                  bool
 	ForceEmailOnThirdPartySignup        bool

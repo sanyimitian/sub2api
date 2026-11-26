@@ -247,6 +247,25 @@ describe('API Client', () => {
       }
     })
 
+    it.each(['/', '/admin/settings', '/dashboard'])('全站拒绝在任意页面触发守卫，保留现有会话：%s', async (path) => {
+      window.history.replaceState({}, '', path)
+      localStorage.setItem('auth_token', 'existing-session')
+      const blocked = vi.fn()
+      window.addEventListener('region-site-blocked', blocked)
+      apiClient.defaults.adapter = vi.fn().mockRejectedValue({
+        response: { status: 403, data: { code: 403, reason: 'MAINLAND_ACCESS_DENIED', metadata: { scope: 'site' } } },
+        config: { url: '/auth/me', headers: {} },
+      })
+      try {
+        await expect(apiClient.get('/auth/me')).rejects.toMatchObject({ reason: 'MAINLAND_ACCESS_DENIED' })
+        expect(blocked).toHaveBeenCalledOnce()
+        expect(localStorage.getItem('auth_token')).toBe('existing-session')
+        expect(window.location.pathname).toBe(path)
+      } finally {
+        window.removeEventListener('region-site-blocked', blocked)
+      }
+    })
+
     it('code=0 时解包 data 字段', async () => {
       const adapter = vi.fn().mockResolvedValue({
         status: 200,

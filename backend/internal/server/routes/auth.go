@@ -25,8 +25,9 @@ func RegisterAuthRoutes(
 	// 创建速率限制器
 	rateLimiter := middleware.NewRateLimiter(redisClient)
 	passwordLoginLimit := rateLimiter.LimitLoginByEmail(10, time.Minute)
-	// 独立登录页预检；不挂到网关、用户接口或全站中间件。
+	// 登录预检与全站预检分别对应两种作用范围。
 	v1.GET("/auth/region-access", panelRateLimiter.PublicIP(), h.Auth.GetLoginRegionAccess)
+	v1.GET("/site/region-access", panelRateLimiter.PublicIP(), h.Auth.GetSiteRegionAccess)
 
 	// 公开接口
 	auth := v1.Group("/auth")

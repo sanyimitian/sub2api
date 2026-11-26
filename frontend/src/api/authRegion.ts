@@ -8,7 +8,15 @@ export interface AuthRegionAccess {
 }
 
 export async function getAuthRegionAccess(signal?: AbortSignal): Promise<AuthRegionAccess> {
-  const { data } = await apiClient.get<unknown>('/auth/region-access', {
+  return getRegionAccess('/auth/region-access', signal)
+}
+
+export async function getSiteRegionAccess(signal?: AbortSignal): Promise<AuthRegionAccess> {
+  return getRegionAccess('/site/region-access', signal)
+}
+
+async function getRegionAccess(path: string, signal?: AbortSignal): Promise<AuthRegionAccess> {
+  const { data } = await apiClient.get<unknown>(path, {
     signal,
     headers: { 'Cache-Control': 'no-cache' },
   })

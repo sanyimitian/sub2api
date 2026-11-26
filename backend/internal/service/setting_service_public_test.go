@@ -334,3 +334,29 @@ func TestSettingService_GetPublicSettings_MCPEnabledFollowsExplicitPublicURL(t *
 		require.Contains(t, string(encoded), fmt.Sprintf(`"mcp_enabled":%t`, tc.want))
 	}
 }
+
+func TestSettingService_PublicDefaultLanguage(t *testing.T) {
+	for _, tc := range []struct{ raw, want string }{
+		{"", "zh"},
+		{`{"enabled":true}`, "zh"},
+		{`{"enabled":false,"default_language":"en"}`, "en"},
+		{`{"enabled":true,"default_language":"en"}`, "en"},
+		{`{"enabled":false,"default_language":"zh"}`, "zh"},
+		{`{"enabled":true,"default_language":"fr"}`, "zh"},
+	} {
+		t.Run(tc.raw, func(t *testing.T) {
+			repo := &settingPublicRepoStub{values: map[string]string{SettingKeyRegionAccessSettings: tc.raw}}
+			svc := NewSettingService(repo, &config.Config{})
+			settings, err := svc.GetPublicSettings(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, tc.want, settings.DefaultLanguage)
+			injected, err := svc.GetPublicSettingsForInjection(context.Background())
+			require.NoError(t, err)
+			payload, err := json.Marshal(injected)
+			require.NoError(t, err)
+			var fields map[string]any
+			require.NoError(t, json.Unmarshal(payload, &fields))
+			require.Equal(t, tc.want, fields["default_language"])
+		})
+	}
+}

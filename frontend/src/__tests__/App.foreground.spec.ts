@@ -4,6 +4,7 @@ import { reactive } from 'vue'
 import App from '@/App.vue'
 
 const mocks = vi.hoisted(() => ({
+  removeRoute: vi.fn(),
   auth: { isAuthenticated: true, isAdmin: false, refreshUser: vi.fn() },
   app: { siteName: 'Test site', siteLogo: '', cachedPublicSettings: {}, fetchPublicSettings: vi.fn() },
   announcements: { fetchAnnouncements: vi.fn(), reset: vi.fn() },
@@ -19,7 +20,7 @@ vi.mock('@/stores', () => ({
   useAdminComplianceStore: () => mocks.compliance,
   useAdminSettingsStore: () => ({ customMenuItems: [] })
 }))
-vi.mock('vue-router', () => ({ RouterView: { template: '<div />' }, useRouter: () => ({ afterEach: vi.fn(), replace: vi.fn() }), useRoute: () => ({ path: '/', fullPath: '/', meta: {} }) }))
+vi.mock('vue-router', () => ({ RouterView: { template: '<div />' }, useRouter: () => ({ afterEach: vi.fn(() => mocks.removeRoute), replace: vi.fn() }), useRoute: () => ({ path: '/', fullPath: '/', meta: {} }) }))
 vi.mock('@/api/setup', () => ({ getSetupStatus: async () => ({ needs_setup: false }) }))
 vi.mock('@/router/title', () => ({ resolveRouteDocumentTitle: () => 'Test site' }))
 vi.mock('@/utils/branding', () => ({ updateFavicon: vi.fn() }))
@@ -79,6 +80,7 @@ describe('refreshing user balance on return', () => {
     window.dispatchEvent(new Event('focus'))
     expect(mocks.auth.refreshUser).toHaveBeenCalledTimes(1)
     wrapper.unmount()
+    expect(mocks.removeRoute).toHaveBeenCalledOnce()
     wrapper = undefined
     await vi.advanceTimersByTimeAsync(1000)
     visible('visible')

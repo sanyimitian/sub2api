@@ -120,7 +120,7 @@ export default {
       titleLine1: '一个密钥，',
       titleLine2: '连接主流 AI 模型，',
       titleLine3: '极简接入。',
-      lead: '免去海外支付、多平台注册和余额分散的繁琐。一个统一接口，就能把 OpenAI、Claude、Gemini 等模型全部接入你的应用。',
+      lead: '免去多平台注册和余额分散的繁琐。一个统一接口，就能把 OpenAI、Claude、Gemini 等模型全部接入你的应用。',
       detail: '一个余额覆盖全部模型，按实际调用量结算。切换模型时，无需重复充值，也不必管理多套账单。',
       recharge: '免费试用',
       console: '进入控制台',

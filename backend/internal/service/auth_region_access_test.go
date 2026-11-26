@@ -137,3 +137,58 @@ func (r *regionRefreshCache) AddToUserTokenSet(context.Context, int64, string, t
 func (r *regionRefreshCache) AddToFamilyTokenSet(context.Context, string, string, time.Duration) error {
 	return nil
 }
+
+func TestSiteRegionPolicyModes(t *testing.T) {
+	ctx := context.Background()
+	repo := newRuntimeSettingRepoStub()
+	svc := NewSettingService(repo, &config.Config{})
+	require.NoError(t, svc.CheckSiteRegion(ctx, "223.5.5.5"), "首次安装不限制全站")
+	for _, tc := range []struct {
+		enabled, siteWide bool
+		address           string
+		want              error
+	}{
+		{false, false, "223.5.5.5", nil},
+		{false, true, "223.5.5.5", nil},
+		{true, false, "223.5.5.5", nil},
+		{true, false, "192.168.1.1", nil},
+		{true, true, "223.5.5.5", ErrMainlandLoginDenied},
+		{true, true, "2400:3200::1", ErrMainlandLoginDenied},
+		{true, true, "::ffff:223.5.5.5", ErrMainlandLoginDenied},
+		{true, true, "8.8.8.8", nil},
+		{true, true, "1.32.192.1", nil},
+		{true, true, "17.91.136.1", nil},
+		{true, true, "1.32.199.1", nil},
+		{true, true, "192.168.1.1", ErrLoginRegionUnavailable},
+	} {
+		require.NoError(t, svc.SetRegionAccessSettings(ctx, &RegionAccessSettings{Enabled: tc.enabled, SiteWide: tc.siteWide, DefaultLanguage: "en"}))
+		err := svc.CheckSiteRegion(ctx, tc.address)
+		if tc.want == nil {
+			require.NoError(t, err)
+		} else {
+			require.ErrorIs(t, err, tc.want)
+		}
+	}
+}
+
+func TestSiteRegionSettingsFailurePreservesConfirmedScope(t *testing.T) {
+	for _, siteWide := range []bool{false, true} {
+		repo := newRuntimeSettingRepoStub()
+		svc := NewSettingService(repo, &config.Config{})
+		ctx := context.Background()
+		require.NoError(t, svc.SetRegionAccessSettings(ctx, &RegionAccessSettings{Enabled: true, SiteWide: siteWide}))
+		cached := *svc.regionAccessCache.Load()
+		cached.expires = time.Now().Add(-time.Second)
+		svc.regionAccessCache.Store(&cached)
+		repo.getValueFn = func(string) (string, error) { return "", errors.New("offline") }
+		for i := 0; i < 2; i++ {
+			err := svc.CheckSiteRegion(ctx, "8.8.8.8")
+			if siteWide {
+				require.ErrorIs(t, err, ErrLoginRegionUnavailable)
+			} else {
+				require.NoError(t, err, "登录模式读取失败不能扩大为全站限制")
+			}
+			require.ErrorIs(t, svc.CheckLoginRegion(ctx, "8.8.8.8"), ErrLoginRegionUnavailable, "新登录始终按原规则拒绝")
+		}
+	}
+}

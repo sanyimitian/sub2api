@@ -8,11 +8,13 @@ const props = withDefaults(defineProps<{
   retrying?: boolean
   siteName?: string
   preview?: boolean
+  siteWide?: boolean
 }>(), {
   reason: 'MAINLAND_ACCESS_DENIED',
   retrying: false,
   siteName: '',
   preview: false,
+  siteWide: false,
 })
 
 const emit = defineEmits<{ retry: [] }>()
@@ -22,30 +24,23 @@ const unavailable = computed(() => props.reason === 'REGION_LOOKUP_UNAVAILABLE')
 </script>
 
 <template>
-  <section class="region-access" :class="{ 'region-access-preview': preview }" :aria-label="t('regionAccess.accessCheck')">
+  <section class="region-access" :class="{ 'region-access-preview': preview }" :aria-label="t(siteWide ? 'regionAccess.siteAccessCheck' : 'regionAccess.accessCheck')">
     <header v-if="!preview" class="region-access-header">
-      <span class="region-access-brand">{{ siteName || t('regionAccess.accessCheck') }}</span>
-      <span v-if="siteName">{{ t('regionAccess.accessCheck') }}</span>
+      <span class="region-access-brand">{{ siteName || t(siteWide ? 'regionAccess.siteAccessCheck' : 'regionAccess.accessCheck') }}</span>
+      <span v-if="siteName">{{ t(siteWide ? 'regionAccess.siteAccessCheck' : 'regionAccess.accessCheck') }}</span>
     </header>
     <div class="region-access-stage">
       <article class="region-access-notice" :aria-labelledby="titleId">
         <div class="region-access-notice-head">
           <span class="region-access-icon"><Icon :name="unavailable ? 'exclamationCircle' : 'lock'" size="lg" aria-hidden="true" /></span>
-          <span class="region-access-status">{{ t('regionAccess.restricted') }}</span>
+          <span class="region-access-status">{{ t(siteWide ? 'regionAccess.siteRestricted' : 'regionAccess.restricted') }}</span>
         </div>
-        <h1 :id="titleId">{{ unavailable ? t('regionAccess.unavailableTitle') : t('regionAccess.blockedTitle') }}</h1>
+        <h1 :id="titleId">{{ unavailable ? t(siteWide ? 'regionAccess.siteUnavailableTitle' : 'regionAccess.unavailableTitle') : t('regionAccess.blockedTitle') }}</h1>
         <p class="region-access-intro">{{ unavailable ? t('regionAccess.unavailableIntro') : t('regionAccess.blockedIntro') }}</p>
         <div class="region-access-reason">
-          <p>{{ unavailable ? t('regionAccess.unavailableReason') : t('regionAccess.blockedReason') }}</p>
-          <p v-if="!unavailable" class="region-access-denied">{{ t('regionAccess.denied') }}</p>
+          <p>{{ unavailable ? t(siteWide ? 'regionAccess.siteUnavailableReason' : 'regionAccess.unavailableReason') : t('regionAccess.blockedReason') }}</p>
+          <p v-if="!unavailable" class="region-access-denied">{{ t(siteWide ? 'regionAccess.siteDenied' : 'regionAccess.denied') }}</p>
         </div>
-        <details v-if="!unavailable" class="region-access-regulations">
-          <summary>{{ t('regionAccess.regulations') }}<Icon name="chevronDown" size="xs" aria-hidden="true" /></summary>
-          <p>{{ t('regionAccess.regulationDetail') }}</p>
-          <a href="https://www.cac.gov.cn/2023-07/13/c_1690898327029107.htm" target="_blank" rel="noopener noreferrer">
-            {{ t('regionAccess.regulationSource') }}<Icon name="externalLink" size="xs" aria-hidden="true" />
-          </a>
-        </details>
         <button type="button" class="region-access-retry" :disabled="retrying" @click="emit('retry')">
           <Icon name="refresh" size="sm" aria-hidden="true" :class="{ 'region-access-spinning': retrying }" />
           {{ retrying ? t('regionAccess.retrying') : t('regionAccess.retry') }}
@@ -92,12 +87,6 @@ const unavailable = computed(() => props.reason === 'REGION_LOOKUP_UNAVAILABLE')
 .region-access-intro { color: var(--region-muted); font-size: .8125rem; line-height: 1.7; }
 .region-access-reason { margin-top: 1.4rem; padding-top: 1.25rem; border-top: 1px solid var(--region-line); font-size: .875rem; line-height: 1.85; }
 .region-access-denied { margin-top: .65rem; font-weight: 500; }
-.region-access-regulations { margin-top: 1.1rem; font-size: .75rem; line-height: 1.8; color: var(--region-muted); }
-.region-access-regulations summary { display: flex; align-items: center; gap: .4rem; color: var(--region-blue); width: fit-content; cursor: pointer; list-style: none; }
-.region-access-regulations summary::-webkit-details-marker { display: none; }
-.region-access-regulations[open] summary svg { transform: rotate(180deg); }
-.region-access-regulations p { margin-top: .6rem; }
-.region-access-regulations a { display: inline-flex; align-items: center; gap: .25rem; margin-top: .5rem; }
 .region-access a { color: var(--region-blue); text-decoration: underline; text-underline-offset: 3px; }
 .region-access-retry { margin-top: 1.4rem; display: flex; align-items: center; justify-content: center; gap: .5rem; width: 100%; min-height: 2.75rem; padding: .6rem 1rem; border-radius: .5rem; color: #ffffff; background: #2d74b8; font-size: .8125rem; font-weight: 500; transition: background-color 160ms ease-out; }
 .region-access-retry:hover:not(:disabled) { background: #265e96; }

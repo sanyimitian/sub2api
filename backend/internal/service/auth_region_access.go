@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	ErrMainlandLoginDenied    = infraerrors.Forbidden("MAINLAND_ACCESS_DENIED", "考虑到《生成式人工智能服务管理暂行办法》等相关监管要求以及法规要求，本站暂不向中国大陆地区提供服务。")
+	ErrMainlandLoginDenied    = infraerrors.Forbidden("MAINLAND_ACCESS_DENIED", "根据《生成式人工智能服务管理暂行办法》监管要求以及相关法律法规要求，本站暂不向中国大陆地区提供服务。")
 	ErrLoginRegionUnavailable = infraerrors.ServiceUnavailable("REGION_LOOKUP_UNAVAILABLE", "暂时无法确认当前网络地址所属地区，请稍后重新检测。")
 )
 
@@ -23,6 +23,34 @@ func (s *SettingService) CheckLoginRegion(ctx context.Context, address string) e
 	if !settings.Enabled {
 		return nil
 	}
+	return checkRegionAddress(address)
+}
+
+// CheckSiteRegion 在统一入口校验全站请求；已有会话、管理员和接口密钥没有例外。
+func (s *SettingService) CheckSiteRegion(ctx context.Context, address string) error {
+	settings, err := s.GetRegionAccessSettingsCached(ctx)
+	if err != nil {
+		// 最近确认未启用全站限制时，读取故障不能把登录限制扩大为全站封禁。
+		// 从未读到有效配置或最近已启用全站限制时，仍拒绝访问。
+		if s != nil {
+			if cached := s.regionAccessCache.Load(); cached != nil && cached.known && (!cached.settings.Enabled || !cached.settings.SiteWide) {
+				return nil
+			}
+		}
+		return ErrLoginRegionUnavailable.WithCause(err).WithMetadata(map[string]string{"scope": "site"})
+	}
+	if !settings.Enabled || !settings.SiteWide {
+		return nil
+	}
+	if err := checkRegionAddress(address); err != nil {
+		return infraerrors.FromError(err).WithMetadata(map[string]string{
+			"scope": "site", "default_language": settings.DefaultLanguage,
+		})
+	}
+	return nil
+}
+
+func checkRegionAddress(address string) error {
 	country, err := ipgeo.Lookup(address)
 	if err != nil {
 		return ErrLoginRegionUnavailable.WithCause(err)

@@ -12,10 +12,10 @@ function mountBlocked(props = {}) {
 }
 
 describe('地区登录受限提示', () => {
-  it('使用已确认文案与官方法规链接，且没有可关闭后继续登录的操作', async () => {
+  it('使用已确认文案并移除法规原文链接，且没有可关闭后继续登录的操作', async () => {
     const wrapper = mountBlocked()
-    expect(wrapper.text()).toContain('考虑到《生成式人工智能服务管理暂行办法》等相关监管要求以及法规要求，本站暂不向中国大陆地区提供服务。')
-    expect(wrapper.get('a[href="https://www.cac.gov.cn/2023-07/13/c_1690898327029107.htm"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('根据《生成式人工智能服务管理暂行办法》监管要求以及相关法律法规要求，本站暂不向中国大陆地区提供服务。')
+    expect(wrapper.find('a[href*="cac.gov.cn"]').exists()).toBe(false)
     expect(wrapper.get('a[href="https://db-ip.com"]').exists()).toBe(true)
     expect(wrapper.findAll('button')).toHaveLength(1)
     await wrapper.get('button').trigger('click')
