@@ -1,6 +1,6 @@
 import { createI18n } from 'vue-i18n'
 
-type LocaleCode = 'en' | 'zh'
+export type LocaleCode = 'en' | 'zh'
 
 type LocaleMessages = Record<string, any>
 
@@ -16,13 +16,13 @@ function isLocaleCode(value: string): value is LocaleCode {
   return value === 'en' || value === 'zh'
 }
 
-function getDefaultLocale(): LocaleCode {
+function getDefaultLocale(defaultLanguage?: string): LocaleCode {
   const saved = localStorage.getItem(LOCALE_KEY)
   if (saved && isLocaleCode(saved)) {
     return saved
   }
 
-  return DEFAULT_LOCALE
+  return defaultLanguage && isLocaleCode(defaultLanguage) ? defaultLanguage : DEFAULT_LOCALE
 }
 
 export const i18n = createI18n({
@@ -48,9 +48,14 @@ export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
   loadedLocales.add(locale)
 }
 
-export async function initI18n(): Promise<void> {
-  const current = getLocale()
+export async function initI18n(defaultLanguage?: string): Promise<void> {
+  const current = getDefaultLocale(defaultLanguage)
   await loadLocaleMessages(current)
+  i18n.global.locale.value = current
+  // 成功取得站点默认值后再记住，避免请求失败时把临时中文写成用户偏好。
+  if (defaultLanguage && isLocaleCode(defaultLanguage)) {
+    localStorage.setItem(LOCALE_KEY, current)
+  }
   document.documentElement.setAttribute('lang', current)
 }
 

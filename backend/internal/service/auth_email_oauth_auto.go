@@ -58,6 +58,10 @@ func (s *AuthService) loginOrRegisterVerifiedEmailOAuth(
 	if s == nil || s.userRepo == nil || s.entClient == nil {
 		return nil, nil, ErrServiceUnavailable
 	}
+	// 在创建账号、绑定第三方身份或发放首次登录权益之前检查地区。
+	if err := s.checkNewLoginRegion(ctx); err != nil {
+		return nil, nil, err
+	}
 
 	providerType := normalizeOAuthSignupSource(input.ProviderType)
 	if providerType != "github" && providerType != "google" && providerType != "oidc" {

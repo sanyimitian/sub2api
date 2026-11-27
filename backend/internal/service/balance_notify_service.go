@@ -305,10 +305,34 @@ func filterVerifiedEmails(entries []NotifyEmailEntry) []string {
 	return recipients
 }
 
-// collectBalanceNotifyRecipients returns verified, non-disabled email recipients.
-// Only emails with verified=true and disabled=false are included.
+// collectBalanceNotifyRecipients 默认使用账号邮箱，但尊重该地址的显式关闭状态。
+// 额外邮箱仍须已验证且启用；与账号邮箱相同的地址统一按账号邮箱处理。
 func (s *BalanceNotifyService) collectBalanceNotifyRecipients(user *User) []string {
-	return filterVerifiedEmails(user.BalanceNotifyExtraEmails)
+	if user == nil {
+		return nil
+	}
+	extraRecipients := filterVerifiedEmails(user.BalanceNotifyExtraEmails)
+	primaryEmail := strings.TrimSpace(user.Email)
+	if primaryEmail == "" || isReservedEmail(primaryEmail) {
+		return extraRecipients
+	}
+	primaryDisabled := false
+	for _, entry := range user.BalanceNotifyExtraEmails {
+		if entry.Disabled && strings.EqualFold(strings.TrimSpace(entry.Email), primaryEmail) {
+			primaryDisabled = true
+			break
+		}
+	}
+	var recipients []string
+	if !primaryDisabled {
+		recipients = append(recipients, primaryEmail)
+	}
+	for _, email := range extraRecipients {
+		if !strings.EqualFold(email, primaryEmail) {
+			recipients = append(recipients, email)
+		}
+	}
+	return recipients
 }
 
 // sendEmails sends an email to all recipients with shared timeout and error logging.

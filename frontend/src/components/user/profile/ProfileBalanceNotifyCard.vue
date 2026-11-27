@@ -47,8 +47,16 @@
 
         <!-- Email list with toggles -->
         <div>
+          <p v-if="primaryEmail" class="mb-2 text-sm text-gray-700 dark:text-gray-300 break-all">
+            {{ t('profile.balanceNotify.primaryEmail') }}: {{ primaryEmail }}
+            <span v-if="primaryEmailDisabled">（{{ t('profile.balanceNotify.primaryEmailDisabled') }}）</span>
+          </p>
           <label class="input-label">{{ t('profile.balanceNotify.extraEmails') }}</label>
-          <p class="mb-2 text-xs text-yellow-600 dark:text-yellow-400">{{ t('profile.balanceNotify.extraEmailsHint') }}</p>
+          <p class="mb-2 text-xs text-gray-600 dark:text-gray-300">
+            {{ t(primaryEmail
+              ? primaryEmailDisabled ? 'profile.balanceNotify.primaryEmailDisabledHint' : 'profile.balanceNotify.extraEmailsHint'
+              : 'profile.balanceNotify.noPrimaryEmailHint') }}
+          </p>
 
           <!-- Saved email entries -->
           <div v-if="emailEntries.length > 0" class="space-y-2 mb-3">
@@ -157,7 +165,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
@@ -190,8 +198,15 @@ const authStore = useAuthStore()
 const appStore = useAppStore()
 
 const notifyEnabled = ref(props.enabled)
+const primaryEmail = computed(() => {
+  const email = props.userEmail.trim()
+  return /@(linuxdo|oidc|wechat|dingtalk)-connect\.invalid$/i.test(email) ? '' : email
+})
 const customThreshold = ref<number | null>(props.threshold)
 const emailEntries = ref<NotifyEmailEntry[]>([...props.extraEmails])
+const primaryEmailDisabled = computed(() => Boolean(primaryEmail.value) && emailEntries.value.some(
+  entry => entry.disabled && entry.email.trim().toLowerCase() === primaryEmail.value.toLowerCase()
+))
 const pendingEmails = ref<PendingEmail[]>([])
 const newEmail = ref('')
 const savingThreshold = ref(false)
@@ -212,13 +227,6 @@ const canAddMore = computed(() => {
 watch(() => props.enabled, (val) => { notifyEnabled.value = val })
 watch(() => props.threshold, (val) => { customThreshold.value = val })
 watch(() => props.extraEmails, (val) => { emailEntries.value = [...val] })
-
-// When list is empty on mount, pre-fill the add input with user's email
-onMounted(() => {
-  if (emailEntries.value.length === 0 && props.userEmail) {
-    newEmail.value = props.userEmail
-  }
-})
 
 onUnmounted(() => {
   disposed = true
@@ -267,8 +275,9 @@ function addPendingEmail() {
   const email = newEmail.value.trim()
   if (!email) return
   // Check duplicates
-  const isDuplicate = emailEntries.value.some(e => e.email.toLowerCase() === email.toLowerCase())
-    || pendingEmails.value.some(p => p.email.toLowerCase() === email.toLowerCase())
+  const isDuplicate = primaryEmail.value.toLowerCase() === email.toLowerCase()
+    || emailEntries.value.some(e => e.email.trim().toLowerCase() === email.toLowerCase())
+    || pendingEmails.value.some(p => p.email.trim().toLowerCase() === email.toLowerCase())
   if (isDuplicate) {
     appStore.showError(t('profile.balanceNotify.emailDuplicate'))
     return

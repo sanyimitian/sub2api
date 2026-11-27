@@ -6,6 +6,7 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import type { ApiResponse } from '@/types'
 import { getLocale } from '@/i18n'
+import { getSiteRegionBlockReason, notifySiteRegionBlocked } from '@/utils/siteRegionAccess'
 import {
   ADMIN_UI_REQUEST_HEADER,
   USER_UI_REQUEST_HEADER,
@@ -124,6 +125,19 @@ apiClient.interceptors.response.use(
       // Validate `data` shape to avoid HTML error pages breaking our error handling.
       const apiData = (typeof data === 'object' && data !== null ? data : {}) as Record<string, any>
 
+      // 全站拒绝独立通知根级守卫；登录模式不影响已有会话。
+      notifySiteRegionBlocked(apiData)
+
+      // 登录页继续使用已有提示流程。
+      if (
+        window.location.pathname === '/login' &&
+        (apiData.reason === 'MAINLAND_ACCESS_DENIED' || apiData.reason === 'REGION_LOOKUP_UNAVAILABLE')
+      ) {
+        window.dispatchEvent(new CustomEvent('region-login-blocked', {
+          detail: { reason: apiData.reason }
+        }))
+      }
+
       // Ops monitoring disabled: treat as feature-flagged 404, and proactively redirect away
       // from ops pages to avoid broken UI states.
       if (status === 404 && apiData.message === 'Ops monitoring is disabled') {
@@ -209,6 +223,15 @@ apiClient.interceptors.response.use(
 
             if (axios.isAxiosError(refreshError)) {
               const refreshStatus = refreshError.response?.status ?? 0
+              const regionReason = getSiteRegionBlockReason(refreshError.response?.data)
+              if (regionReason) {
+                return Promise.reject({
+                  status: refreshStatus,
+                  reason: regionReason,
+                  metadata: refreshError.response?.data?.metadata,
+                  message: refreshError.response?.data?.message || refreshError.message,
+                })
+              }
               if (refreshStatus === 0 || refreshStatus === 429 || refreshStatus >= 500) {
                 return Promise.reject({
                   status: refreshStatus,

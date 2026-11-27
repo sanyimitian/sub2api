@@ -69,6 +69,8 @@ func SetupRouter(
 		return nil
 	}))
 	r.Use(middleware2.ServerTiming(cfg.Server.EnableServerTiming))
+	// 必须在静态页面、用户认证、后台和模型网关之前执行。
+	r.Use(middleware2.SiteRegionGuard(settingService))
 
 	// Serve embedded frontend with settings injection if available
 	if web.HasEmbeddedFrontend() {

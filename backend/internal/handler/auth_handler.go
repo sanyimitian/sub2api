@@ -124,10 +124,18 @@ func respondWithTokenPair(c *gin.Context, authService *service.AuthService, user
 
 	tokenPair, err := authService.GenerateTokenPair(c.Request.Context(), user, "")
 	if err != nil {
+		if service.IsLoginRegionError(err) {
+			response.ErrorFrom(c, err)
+			return
+		}
 		slog.Error("failed to generate token pair", "error", err, "user_id", user.ID)
 		// 回退到只返回Access Token
 		token, tokenErr := authService.GenerateToken(c.Request.Context(), user)
 		if tokenErr != nil {
+			if service.IsLoginRegionError(tokenErr) {
+				response.ErrorFrom(c, tokenErr)
+				return
+			}
 			response.InternalError(c, "Failed to generate token")
 			return
 		}

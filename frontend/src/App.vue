@@ -144,13 +144,14 @@ watch(
 )
 
 // Route change trigger (throttled by store)
-router.afterEach(() => {
+const removeAfterEach = router.afterEach(() => {
   if (authStore.isAuthenticated) {
     announcementStore.fetchAnnouncements()
   }
 })
 
 onBeforeUnmount(() => {
+  removeAfterEach()
   document.removeEventListener('visibilitychange', onVisibilityChange)
   window.removeEventListener('focus', refreshUserOnReturn)
   window.removeEventListener('admin-compliance-required', onAdminComplianceRequired)

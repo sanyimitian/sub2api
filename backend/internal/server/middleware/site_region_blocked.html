@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="{{.Language}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>{{if eq .Language "en"}}Regional access restriction{{else}}地区访问限制{{end}}</title>
+  <style nonce="{{.Nonce}}">
+    :root { color-scheme: light dark; --surface: #fff; --stage: #e9edf2; --text: #182336; --muted: #576579; --line: #e3e8ef; --blue: #2d74b8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--stage); color: var(--text); font-family: system-ui, sans-serif; }
+    main { display: grid; place-items: center; min-height: 100dvh; padding: 2rem 1rem; }
+    article { width: min(100%, 31rem); padding: 2rem; border-radius: .875rem; background: var(--surface); }
+    h1 { margin: 0 0 .6rem; font-size: 1.45rem; font-weight: 650; line-height: 1.4; text-wrap: balance; }
+    p { font-size: .875rem; line-height: 1.85; }
+    .intro, .help { color: var(--muted); font-size: .8125rem; }
+    .reason { margin-top: 1.4rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+    .retry { display: block; margin-top: 1.4rem; padding: .7rem 1rem; border-radius: .5rem; color: #fff; background: #2d74b8; text-align: center; text-decoration: none; }
+    .retry:hover { background: #265e96; }
+    .attribution { font-size: .75rem; color: var(--muted); }
+    .attribution a { color: var(--blue); }
+    html[lang="en"] [lang="zh"], html[lang="zh"] [lang="en"] { display: none; }
+    @media (prefers-color-scheme: dark) { :root { --surface: #1e293b; --stage: #0f172a; --text: #edf2f9; --muted: #b2bfd1; --line: #3a475d; --blue: #abd4f8; } }
+    @media (max-width: 420px) { main { padding: 1.25rem .75rem; } article { padding: 1.5rem 1.25rem; } h1 { font-size: 1.25rem; } }
+  </style>
+  <script nonce="{{.Nonce}}">
+    try {
+      var language = localStorage.getItem('sub2api_locale');
+      if (language === 'en' || language === 'zh') document.documentElement.lang = language;
+      document.title = document.documentElement.lang === 'en' ? 'Regional access restriction' : '地区访问限制';
+    } catch (_) {}
+  </script>
+</head>
+<body>
+  <main><article>
+    <section lang="zh">
+      {{if .Unavailable}}
+      <h1>暂时无法验证访问地区</h1>
+      <p class="intro">当前无法确认您的网络地址归属。</p>
+      <p class="reason">地区访问验证暂时不可用，本站已暂停本次访问。请稍后重新检测；若问题持续，请联系站点管理员。</p>
+      {{else}}
+      <h1>暂不支持当前地区</h1>
+      <p class="intro">您当前的网络地址被识别为中国大陆。</p>
+      <p class="reason">根据《生成式人工智能服务管理暂行办法》监管要求以及相关法律法规要求，本站暂不向中国大陆地区提供服务。</p>
+      <p>当前访问已被拒绝，已登录用户同样受限。</p>
+      {{end}}
+      <a class="retry" href="">重新检测</a>
+      <p class="help">如您认为地区识别有误，请联系站点管理员。</p>
+      <p class="attribution">地区数据：<a href="https://db-ip.com" rel="noopener noreferrer">DB-IP（网络地址地理数据库）</a></p>
+    </section>
+    <section lang="en">
+      {{if .Unavailable}}
+      <h1>Unable to verify your region</h1>
+      <p class="intro">The location of your current IP address cannot be confirmed.</p>
+      <p class="reason">Regional access verification is temporarily unavailable, so access has been suspended. Please try again later or contact the site administrator if the issue persists.</p>
+      {{else}}
+      <h1>This region is currently unsupported</h1>
+      <p class="intro">Your current IP address has been identified as being in mainland China.</p>
+      <p class="reason">In accordance with the regulatory requirements of the Interim Measures for the Management of Generative Artificial Intelligence Services and applicable laws and regulations, this site does not currently provide services to mainland China.</p>
+      <p>Access has been denied. Signed-in users are also restricted.</p>
+      {{end}}
+      <a class="retry" href="">Check again</a>
+      <p class="help">If you believe this location is incorrect, please contact the site administrator.</p>
+      <p class="attribution">Location data: <a href="https://db-ip.com" rel="noopener noreferrer">DB-IP</a></p>
+    </section>
+  </article></main>
+</body>
+</html>

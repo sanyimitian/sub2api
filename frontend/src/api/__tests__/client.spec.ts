@@ -228,6 +228,44 @@ describe('API Client', () => {
   // --- 响应拦截器 ---
 
   describe('响应拦截器', () => {
+    it.each(['/login', '/', '/admin/settings'])('地区拒绝只在登录页触发提示，不清除现有会话：%s', async (path) => {
+      window.history.replaceState({}, '', path)
+      localStorage.setItem('auth_token', 'existing-session')
+      const blocked = vi.fn()
+      window.addEventListener('region-login-blocked', blocked)
+      apiClient.defaults.adapter = vi.fn().mockRejectedValue({
+        response: { status: 403, data: { code: 403, reason: 'MAINLAND_ACCESS_DENIED', message: '地区登录受限' } },
+        config: { url: '/auth/login', headers: {} },
+      })
+      try {
+        await expect(apiClient.post('/auth/login', {})).rejects.toMatchObject({ reason: 'MAINLAND_ACCESS_DENIED' })
+        expect(blocked).toHaveBeenCalledTimes(path === '/login' ? 1 : 0)
+        expect(localStorage.getItem('auth_token')).toBe('existing-session')
+        expect(window.location.pathname).toBe(path)
+      } finally {
+        window.removeEventListener('region-login-blocked', blocked)
+      }
+    })
+
+    it.each(['/', '/admin/settings', '/dashboard'])('全站拒绝在任意页面触发守卫，保留现有会话：%s', async (path) => {
+      window.history.replaceState({}, '', path)
+      localStorage.setItem('auth_token', 'existing-session')
+      const blocked = vi.fn()
+      window.addEventListener('region-site-blocked', blocked)
+      apiClient.defaults.adapter = vi.fn().mockRejectedValue({
+        response: { status: 403, data: { code: 403, reason: 'MAINLAND_ACCESS_DENIED', metadata: { scope: 'site' } } },
+        config: { url: '/auth/me', headers: {} },
+      })
+      try {
+        await expect(apiClient.get('/auth/me')).rejects.toMatchObject({ reason: 'MAINLAND_ACCESS_DENIED' })
+        expect(blocked).toHaveBeenCalledOnce()
+        expect(localStorage.getItem('auth_token')).toBe('existing-session')
+        expect(window.location.pathname).toBe(path)
+      } finally {
+        window.removeEventListener('region-site-blocked', blocked)
+      }
+    })
+
     it('code=0 时解包 data 字段', async () => {
       const adapter = vi.fn().mockResolvedValue({
         status: 200,

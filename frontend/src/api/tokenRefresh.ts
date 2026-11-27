@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { ApiResponse } from '@/types'
 import { getAPIBaseURL } from './url'
+import { notifySiteRegionBlocked } from '@/utils/siteRegionAccess'
 
 const AUTH_TOKEN_KEY = 'auth_token'
 const AUTH_USER_KEY = 'auth_user'
@@ -166,6 +167,10 @@ async function requestTokenPair(
     persistTokenPair(payload.data)
     return payload.data
   } catch (error) {
+    // 地区拒绝不代表令牌失效，不进入跨页令牌轮换等待。
+    if (notifySiteRegionBlocked((error as { response?: { data?: unknown } }).response?.data)) {
+      throw error
+    }
     // A peer tab may have rotated the one-time refresh token while this request was in flight.
     // A 4xx response can arrive quickly while the winning peer's response is still in flight, so
     // wait through the shared request deadline before treating the session as expired. Transient
