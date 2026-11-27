@@ -355,6 +355,23 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it('loads and disables upstream gzip without changing other account settings', async () => {
+    const account = buildAccount()
+    account.extra = { openai_request_gzip: true, preserved_setting: 'keep' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const checkbox = wrapper.get<HTMLInputElement>('[data-testid="edit-openai-request-gzip"]')
+    expect(checkbox.element.checked).toBe(true)
+    await checkbox.setValue(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra?.openai_request_gzip).toBeUndefined()
+    expect(extra?.preserved_setting).toBe('keep')
+    wrapper.unmount()
+  })
+
   it('关闭探测开关后保留已保存模型', async () => {
     const account = buildAccount()
     account.extra = { openai_session_pool_enabled: true, openai_session_pool_models: ['model-a'] }

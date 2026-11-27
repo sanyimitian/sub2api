@@ -226,6 +226,8 @@ describe('admin UsageTable tooltip', () => {
             upstream_request_write_ms: 7,
             upstream_response_wait_ms: 9340,
             upstream_connection_reused: true,
+            upstream_request_body_bytes: 2000000,
+            upstream_request_wire_bytes: 300000,
           },
         }],
         loading: false,
@@ -245,6 +247,8 @@ describe('admin UsageTable tooltip', () => {
     expect(timingTooltip.props('compact')).toBe(true)
     await timingTooltip.trigger('mouseenter')
     await nextTick()
+    expect(document.body.textContent).toContain('2,000,000 B')
+    expect(document.body.textContent).toContain('300,000 B')
 
     const tooltip = document.body.querySelector('[role="tooltip"]')
     expect(tooltip?.style.left).toBe('128px')

@@ -1834,6 +1834,8 @@ export interface RequestTimingSnapshot {
   upstream_request_write_ms?: number | null
   upstream_response_wait_ms?: number | null
   upstream_connection_reused?: boolean | null
+  upstream_request_body_bytes?: number | null
+  upstream_request_wire_bytes?: number | null
 }
 
 export interface UsageLog {

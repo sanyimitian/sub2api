@@ -313,6 +313,12 @@ func doUpstreamRequest(client *http.Client, req *http.Request, drainTimeouts ...
 	ctx, cancel := pkghttputil.NewUpstreamAttemptContext(req.Context(), drainTimeout)
 	if recorder := service.RequestTimingRecorderFromContext(ctx); recorder != nil {
 		recorder.BeginUpstreamAttempt()
+		bodyBytes := pkghttputil.RequestBodyBytesBeforeGzip(req)
+		wireBytes := req.ContentLength
+		if bodyBytes < 0 && wireBytes == 0 {
+			wireBytes = -1
+		}
+		recorder.SetUpstreamRequestBodyBytes(bodyBytes, wireBytes)
 		ctx = withRequestTimingTrace(ctx, recorder)
 	}
 	resp, err := servertiming.Do(client, req.WithContext(ctx))

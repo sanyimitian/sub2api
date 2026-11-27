@@ -2110,6 +2110,24 @@
         </p>
       </div>
 
+      <label
+        v-if="account?.platform === 'openai' && account?.type === 'apikey'"
+        class="flex items-start gap-2 border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <input
+          v-model="openaiRequestGzipEnabled"
+          type="checkbox"
+          data-testid="edit-openai-request-gzip"
+          class="mt-1 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+        />
+        <span class="text-sm">
+          {{ t('admin.accounts.openai.requestGzip') }}
+          <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.openai.requestGzipDesc') }}
+          </span>
+        </span>
+      </label>
+
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
@@ -4283,6 +4301,7 @@ const customBaseUrl = ref('')
 
 // OpenAI 自动透传开关（OAuth/API Key）
 const openaiPassthroughEnabled = ref(false)
+const openaiRequestGzipEnabled = ref(false)
 const openaiPassthroughModelFilterEnabled = ref(false)
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
@@ -4837,6 +4856,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
+  openaiRequestGzipEnabled.value = false
   openaiPassthroughModelFilterEnabled.value = false
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
@@ -4856,6 +4876,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   webSearchEmulationMode.value = 'default'
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
+    openaiRequestGzipEnabled.value = newAccount.type === 'apikey' && extra?.openai_request_gzip === true
     openaiPassthroughModelFilterEnabled.value = extra?.openai_passthrough_model_filter === true
     openaiFlattenNamespacesEnabled.value =
       newAccount.type === 'oauth' && extra?.openai_responses_flatten_namespaces === true
@@ -6402,6 +6423,11 @@ const handleSubmit = async () => {
         newExtra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
       }
       delete newExtra.responses_websockets_v2_enabled
+      if (props.account.type === 'apikey' && openaiRequestGzipEnabled.value) {
+        newExtra.openai_request_gzip = true
+      } else {
+        delete newExtra.openai_request_gzip
+      }
       delete newExtra.openai_ws_enabled
       if (openaiPassthroughEnabled.value) {
         newExtra.openai_passthrough = true
