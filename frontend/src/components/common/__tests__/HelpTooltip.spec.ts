@@ -66,8 +66,8 @@ describe('HelpTooltip', () => {
     await nextTick()
 
     const tooltip = getTooltipElement()
-    expect(tooltip.style.top).toBe('calc(22px)')
-    expect(tooltip.style.left).toBe('70px')
+    expect(tooltip.style.top).toBe('54px')
+    expect(tooltip.style.left).toBe('20px')
 
     wrapper.unmount()
   })
@@ -195,7 +195,26 @@ describe('HelpTooltip', () => {
     expect(tooltip.style.display).not.toBe('none')
     expect(tooltip.classList.contains('fixed')).toBe(true)
     expect(tooltip.style.left).toBe('92px')
-    expect(tooltip.style.top).toBe('calc(152px)')
+    expect(tooltip.style.top).toBe('152px')
+  })
+
+  it('keeps the tooltip inside a narrow mobile viewport', async () => {
+    vi.stubGlobal('innerWidth', 375)
+    const wrapper = mount(HelpTooltip, {
+      attachTo: document.body,
+      props: { content: 'edge details' },
+    })
+    const trigger = wrapper.get('.group')
+    const tooltip = getTooltipElement()
+    // 图标贴在视口左侧、靠近顶部：居中会向左溢出，上方也放不下
+    vi.spyOn(trigger.element, 'getBoundingClientRect').mockReturnValue(new DOMRect(20, 40, 16, 16))
+    vi.spyOn(tooltip, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 256, 80))
+
+    await trigger.trigger('mouseenter')
+    await nextTick()
+
+    expect(tooltip.style.left).toBe('8px')
+    expect(tooltip.style.top).toBe('64px')
   })
 
   it.each(['window scroll', 'nested scroll', 'resize'] as const)(
@@ -216,7 +235,7 @@ describe('HelpTooltip', () => {
 
       const tooltip = getTooltipElement()
       expect(tooltip.style.left).toBe('92px')
-      expect(tooltip.style.top).toBe('calc(152px)')
+      expect(tooltip.style.top).toBe('152px')
 
       vi.stubGlobal('scrollX', 120)
       vi.stubGlobal('scrollY', 240)
@@ -232,7 +251,7 @@ describe('HelpTooltip', () => {
       expect(tooltip.style.display).not.toBe('none')
       expect(getBoundingClientRect).toHaveBeenCalledTimes(2)
       expect(tooltip.style.left).toBe('56px')
-      expect(tooltip.style.top).toBe('calc(92px)')
+      expect(tooltip.style.top).toBe('92px')
     },
   )
 })

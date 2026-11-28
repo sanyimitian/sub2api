@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, useTemplateRef, nextTick } from 'vue'
+import { getTooltipPosition } from '@/utils/floatingPanel'
 
 const props = withDefaults(defineProps<{
   content?: string
@@ -19,6 +20,9 @@ const triggerRef = useTemplateRef<HTMLElement>('trigger')
 const tooltipRef = useTemplateRef<HTMLElement>('tooltip')
 const tooltipStyle = ref({ top: '0px', left: '0px' })
 const tooltipSide = ref<'left' | 'right'>('right')
+// 上方放不下时翻到图标下方；箭头始终对准图标中心
+const placeBelow = ref(false)
+const arrowLeft = ref('50%')
 
 function openTooltip() {
   show.value = true
@@ -83,7 +87,8 @@ function onViewportChange() {
 
 function updatePosition() {
   const el = triggerRef.value
-  if (!el) return
+  const tip = tooltipRef.value
+  if (!el || !tip) return
   const rect = el.getBoundingClientRect()
 
   if (props.placement === 'right') {
@@ -97,10 +102,16 @@ function updatePosition() {
     return
   }
 
-  tooltipStyle.value = {
-    top: `${rect.top}px`,
-    left: `${rect.left + rect.width / 2}px`,
-  }
+  const { width, height } = tip.getBoundingClientRect()
+  const { left, top } = getTooltipPosition(
+    rect,
+    { width, height },
+    document.documentElement.clientWidth || window.innerWidth,
+    window.innerHeight
+  )
+  placeBelow.value = top >= rect.bottom
+  arrowLeft.value = `${rect.left + rect.width / 2 - left}px`
+  tooltipStyle.value = { top: `${top}px`, left: `${left}px` }
 }
 
 onMounted(() => {
@@ -145,7 +156,7 @@ onBeforeUnmount(() => {
 
     <!-- Teleport to body to escape modal overflow clipping -->
     <Teleport to="body">
-      <!-- before: 伪元素向下延伸一段透明区域，盖住提示框与触发图标之间的空隙，让指针能连续移入提示框。 -->
+      <!-- before: 伪元素朝触发图标延伸一段透明区域，盖住提示框与图标之间的空隙，让指针能连续移入提示框。 -->
       <div
         ref="tooltip"
         v-show="show"
@@ -156,10 +167,10 @@ onBeforeUnmount(() => {
             : 'fixed z-[99999] rounded-lg bg-gray-900 p-3 text-xs leading-relaxed text-white shadow-xl ring-1 ring-white/10 selection:bg-primary-200 selection:text-gray-900 dark:bg-gray-800 dark:selection:bg-primary-200 dark:selection:text-gray-900',
           props.placement === 'right'
             ? [tooltipSide === 'right' ? '-translate-y-1/2' : '-translate-x-full -translate-y-1/2', props.compact && (tooltipSide === 'right' ? 'before:absolute before:right-full before:top-0 before:h-full before:w-2' : 'before:absolute before:left-full before:top-0 before:h-full before:w-2')]
-            : ['-translate-x-1/2 -translate-y-full', !props.compact && 'before:absolute before:inset-x-0 before:top-full before:h-3'],
+            : [!props.compact && 'before:absolute before:inset-x-0 before:h-3', placeBelow ? 'before:bottom-full' : 'before:top-full'],
           props.widthClass,
         ]"
-        :style="{ top: props.placement === 'right' ? tooltipStyle.top : `calc(${tooltipStyle.top} - 8px)`, left: tooltipStyle.left }"
+        :style="tooltipStyle"
         @mouseleave="onTooltipLeave"
       >
         <button
@@ -181,7 +192,11 @@ onBeforeUnmount(() => {
             : 'absolute left-full top-1/2 h-0 w-0 -translate-y-1/2 border-b-[6px] border-l-[6px] border-t-[6px] border-b-transparent border-l-gray-900 border-t-transparent dark:border-l-gray-800'
           "
         ></div>
-        <div v-else-if="props.placement === 'top' && !props.compact" class="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-900 dark:bg-gray-800"></div>
+        <div
+          v-else-if="props.placement === 'top' && !props.compact"
+          :class="['absolute h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-900 dark:bg-gray-800', placeBelow ? '-top-1' : '-bottom-1']"
+          :style="{ left: arrowLeft }"
+        ></div>
       </div>
     </Teleport>
   </div>
