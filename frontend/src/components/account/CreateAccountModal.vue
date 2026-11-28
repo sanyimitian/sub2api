@@ -3310,6 +3310,24 @@
         </p>
       </div>
 
+      <label
+        v-if="form.platform === 'openai' && accountCategory === 'apikey'"
+        class="flex items-start gap-2 border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <input
+          v-model="openaiRequestGzipEnabled"
+          type="checkbox"
+          data-testid="create-openai-request-gzip"
+          class="mt-1 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+        />
+        <span class="text-sm">
+          {{ t('admin.accounts.openai.requestGzip') }}
+          <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.openai.requestGzipDesc') }}
+          </span>
+        </span>
+      </label>
+
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
         v-if="form.platform === 'openai'"
@@ -4785,6 +4803,7 @@ const applyGrokOAuthUpstreamConfig = (credentials: Record<string, unknown>) => {
 const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(true)
 const openaiPassthroughEnabled = ref(false)
+const openaiRequestGzipEnabled = ref(false)
 const openaiPassthroughModelFilterEnabled = ref(false)
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
@@ -5296,6 +5315,7 @@ watch(
     }
     if (newPlatform !== 'openai') {
       openaiPassthroughEnabled.value = false
+      openaiRequestGzipEnabled.value = false
       openaiPassthroughModelFilterEnabled.value = false
       openaiFlattenNamespacesEnabled.value = false
       openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
@@ -5761,6 +5781,7 @@ const resetForm = () => {
   interceptWarmupRequests.value = false
   autoPauseOnExpired.value = true
   openaiPassthroughEnabled.value = false
+  openaiRequestGzipEnabled.value = false
   openaiPassthroughModelFilterEnabled.value = false
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = true
@@ -5835,6 +5856,11 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   }
 
   const extra: Record<string, unknown> = { ...(base || {}) }
+  if (accountCategory.value === 'apikey' && openaiRequestGzipEnabled.value) {
+    extra.openai_request_gzip = true
+  } else {
+    delete extra.openai_request_gzip
+  }
   if (accountCategory.value === 'oauth-based') {
     extra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
     extra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)

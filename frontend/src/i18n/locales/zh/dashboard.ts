@@ -413,6 +413,8 @@ export default {
     timingNewConnection: '新建',
     outputTps: '输出 TPS',
     timingDetails: '阶段耗时明细',
+    timingRequestBodyBytes: '上游请求原始大小',
+    timingRequestWireBytes: '上游请求发送大小',
     outputTpsHint: '输出 Token ÷ 总耗时（包含首字等待），单位 tok/s。输出 Token 可能包含推理 Token。',
     time: '时间',
     ws: 'WS',

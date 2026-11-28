@@ -780,7 +780,9 @@ const requestTimingLabels: Record<string, string> = {
   upstream_connect_ms: 'usage.timingUpstreamConnectMs',
   upstream_tls_ms: 'usage.timingUpstreamTLSMs',
   upstream_request_write_ms: 'usage.timingUpstreamRequestWriteMs',
-  upstream_response_wait_ms: 'usage.timingUpstreamResponseWaitMs'
+  upstream_response_wait_ms: 'usage.timingUpstreamResponseWaitMs',
+  upstream_request_body_bytes: 'usage.timingRequestBodyBytes',
+  upstream_request_wire_bytes: 'usage.timingRequestWireBytes'
 }
 
 const requestTimingLabel = (key: string): string => t(requestTimingLabels[key] ?? key)
@@ -791,7 +793,11 @@ const requestTimingDetails = (timings: AdminUsageLog['request_timings']) => {
   const details: { key: string; label: string; value: string }[] = []
   for (const [key, value] of Object.entries(timings)) {
     if (typeof value === 'number') {
-      details.push({ key, label: requestTimingLabel(key), value: formatDuration(value) })
+      details.push({
+        key,
+        label: requestTimingLabel(key),
+        value: key.endsWith('_bytes') ? `${value.toLocaleString()} B` : formatDuration(value),
+      })
     }
   }
 

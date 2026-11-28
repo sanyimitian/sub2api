@@ -12,12 +12,14 @@ type requestTimingRecorderKey struct{}
 type RequestTimingSnapshot struct {
 	AccountQueueWaitMs       *int64 `json:"account_queue_wait_ms,omitempty"`
 	UpstreamConnectionWaitMs *int64 `json:"upstream_connection_wait_ms,omitempty"`
-	UpstreamDNSMs           *int64 `json:"upstream_dns_ms,omitempty"`
-	UpstreamConnectMs       *int64 `json:"upstream_connect_ms,omitempty"`
-	UpstreamTLSMs           *int64 `json:"upstream_tls_ms,omitempty"`
-	UpstreamRequestWriteMs  *int64 `json:"upstream_request_write_ms,omitempty"`
-	UpstreamResponseWaitMs  *int64 `json:"upstream_response_wait_ms,omitempty"`
+	UpstreamDNSMs            *int64 `json:"upstream_dns_ms,omitempty"`
+	UpstreamConnectMs        *int64 `json:"upstream_connect_ms,omitempty"`
+	UpstreamTLSMs            *int64 `json:"upstream_tls_ms,omitempty"`
+	UpstreamRequestWriteMs   *int64 `json:"upstream_request_write_ms,omitempty"`
+	UpstreamResponseWaitMs   *int64 `json:"upstream_response_wait_ms,omitempty"`
 	UpstreamConnectionReused *bool  `json:"upstream_connection_reused,omitempty"`
+	UpstreamRequestBodyBytes *int64 `json:"upstream_request_body_bytes,omitempty"`
+	UpstreamRequestWireBytes *int64 `json:"upstream_request_wire_bytes,omitempty"`
 }
 
 // RequestTimingRecorder collects mutable timings for a single inbound request.
@@ -72,7 +74,25 @@ func (r *RequestTimingRecorder) BeginUpstreamAttempt() {
 	r.snapshot.UpstreamRequestWriteMs = nil
 	r.snapshot.UpstreamResponseWaitMs = nil
 	r.snapshot.UpstreamConnectionReused = nil
+	r.snapshot.UpstreamRequestBodyBytes = nil
+	r.snapshot.UpstreamRequestWireBytes = nil
 	r.mu.Unlock()
+}
+
+// SetUpstreamRequestBodyBytes records payload lengths, excluding headers/TLS.
+// Unknown (streamed) lengths are omitted rather than presented as zero bytes.
+func (r *RequestTimingRecorder) SetUpstreamRequestBodyBytes(original, wire int64) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if original >= 0 {
+		r.snapshot.UpstreamRequestBodyBytes = &original
+	}
+	if wire >= 0 {
+		r.snapshot.UpstreamRequestWireBytes = &wire
+	}
 }
 
 func (r *RequestTimingRecorder) SetUpstreamConnectionWait(duration time.Duration) {
@@ -134,18 +154,20 @@ func (r *RequestTimingRecorder) Snapshot() *RequestTimingSnapshot {
 	defer r.mu.Unlock()
 
 	snapshot := RequestTimingSnapshot{
-		AccountQueueWaitMs:      cloneTimingInt64(r.snapshot.AccountQueueWaitMs),
+		AccountQueueWaitMs:       cloneTimingInt64(r.snapshot.AccountQueueWaitMs),
 		UpstreamConnectionWaitMs: cloneTimingInt64(r.snapshot.UpstreamConnectionWaitMs),
-		UpstreamDNSMs:           cloneTimingInt64(r.snapshot.UpstreamDNSMs),
-		UpstreamConnectMs:       cloneTimingInt64(r.snapshot.UpstreamConnectMs),
-		UpstreamTLSMs:           cloneTimingInt64(r.snapshot.UpstreamTLSMs),
-		UpstreamRequestWriteMs:  cloneTimingInt64(r.snapshot.UpstreamRequestWriteMs),
-		UpstreamResponseWaitMs:  cloneTimingInt64(r.snapshot.UpstreamResponseWaitMs),
+		UpstreamDNSMs:            cloneTimingInt64(r.snapshot.UpstreamDNSMs),
+		UpstreamConnectMs:        cloneTimingInt64(r.snapshot.UpstreamConnectMs),
+		UpstreamTLSMs:            cloneTimingInt64(r.snapshot.UpstreamTLSMs),
+		UpstreamRequestWriteMs:   cloneTimingInt64(r.snapshot.UpstreamRequestWriteMs),
+		UpstreamResponseWaitMs:   cloneTimingInt64(r.snapshot.UpstreamResponseWaitMs),
 		UpstreamConnectionReused: cloneTimingBool(r.snapshot.UpstreamConnectionReused),
+		UpstreamRequestBodyBytes: cloneTimingInt64(r.snapshot.UpstreamRequestBodyBytes),
+		UpstreamRequestWireBytes: cloneTimingInt64(r.snapshot.UpstreamRequestWireBytes),
 	}
 	if snapshot.AccountQueueWaitMs == nil && snapshot.UpstreamConnectionWaitMs == nil && snapshot.UpstreamDNSMs == nil && snapshot.UpstreamConnectMs == nil &&
 		snapshot.UpstreamTLSMs == nil && snapshot.UpstreamRequestWriteMs == nil && snapshot.UpstreamResponseWaitMs == nil &&
-		snapshot.UpstreamConnectionReused == nil {
+		snapshot.UpstreamConnectionReused == nil && snapshot.UpstreamRequestBodyBytes == nil && snapshot.UpstreamRequestWireBytes == nil {
 		return nil
 	}
 	return &snapshot

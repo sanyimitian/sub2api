@@ -282,6 +282,21 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     wrapper.unmount()
   })
 
+  it('requires opt-in to gzip requests for a new OpenAI API key account', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    const checkbox = wrapper.get<HTMLInputElement>('[data-testid="create-openai-request-gzip"]')
+    expect(checkbox.element.checked).toBe(false)
+    await checkbox.setValue(true)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('gzip account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('synthetic-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_request_gzip).toBe(true)
+    wrapper.unmount()
+  })
+
   it('sets month and year expiry presets without submitting the account form', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-01-31T12:34:00'))

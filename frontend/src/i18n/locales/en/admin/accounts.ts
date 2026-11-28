@@ -749,6 +749,8 @@ export default {
       openai: {
         baseUrlHint: 'Leave default for official OpenAI API',
         apiKeyHint: 'Your OpenAI API Key',
+        requestGzip: 'Compress upstream requests (gzip)',
+        requestGzipDesc: 'Compress larger JSON requests to reduce upload size while preserving the full context. Disabled by default; enable only when the upstream supports gzip request decoding.',
         oauthPassthrough: 'Auto passthrough (auth only)',
         oauthPassthroughDesc:
           'When enabled, this OpenAI account uses automatic passthrough: the gateway forwards request/response as-is and only swaps auth, while keeping billing/concurrency/audit and necessary safety filtering.',

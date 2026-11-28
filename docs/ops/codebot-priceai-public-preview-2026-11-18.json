@@ -1,0 +1,88 @@
+{
+  "status": "preview-not-deployed",
+  "groups": [
+    {
+      "name": "claude-kiro 【0.11倍率 稳定 可用】 ",
+      "platform": "anthropic",
+      "rate_multiplier": 0.11,
+      "before_models": [],
+      "after_models": [
+        {
+          "standard_model": "claude-opus-5-5",
+          "raw_model": "claude-opus-5-5",
+          "platform": "anthropic",
+          "billing_mode": "token",
+          "price_source": "standard",
+          "catalog_source": "public_catalog",
+          "price": {
+            "input_usd_per_token": 0.000004,
+            "output_usd_per_token": 0.00002,
+            "cache_write_usd_per_token": 0.000005,
+            "cache_read_usd_per_token": 2e-7
+          },
+          "source": {
+            "upstream_type": "unknown",
+            "account_pool_type": "unknown",
+            "disclosure": "upstream source is not disclosed; account internals are not public"
+          },
+          "supported_protocols": [
+            "anthropic_messages",
+            "openai_compatible"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "国模正常缓存",
+      "platform": "openai",
+      "rate_multiplier": 0.1,
+      "before_models": [],
+      "after_models": [
+        {
+          "standard_model": "deepseek-v4.1-flash",
+          "raw_model": "deepseek-v4.1-flash",
+          "platform": "openai",
+          "billing_mode": "token",
+          "price_source": "standard",
+          "catalog_source": "public_catalog",
+          "price": {
+            "input_usd_per_token": 1.5e-7,
+            "output_usd_per_token": 6e-7,
+            "cache_read_usd_per_token": 3e-9
+          },
+          "source": {
+            "upstream_type": "unknown",
+            "account_pool_type": "unknown",
+            "disclosure": "upstream source is not disclosed; account internals are not public; token prices reflect the current billing period: weekday 01:00-04:00 and 06:00-10:00 UTC cost 2x off-peak; Beijing weekends are off-peak"
+          },
+          "supported_protocols": [
+            "openai_chat_completions",
+            "openai_responses"
+          ]
+        },
+        {
+          "standard_model": "glm-5.3",
+          "raw_model": "glm-5.3",
+          "platform": "openai",
+          "billing_mode": "token",
+          "price_source": "standard",
+          "catalog_source": "public_catalog",
+          "price": {
+            "input_usd_per_token": 0.0000014,
+            "output_usd_per_token": 0.0000044,
+            "cache_read_usd_per_token": 2.6e-7
+          },
+          "source": {
+            "upstream_type": "unknown",
+            "account_pool_type": "unknown",
+            "disclosure": "upstream source is not disclosed; account internals are not public"
+          },
+          "supported_protocols": [
+            "openai_chat_completions",
+            "openai_responses"
+          ]
+        }
+      ]
+    }
+  ]
+}

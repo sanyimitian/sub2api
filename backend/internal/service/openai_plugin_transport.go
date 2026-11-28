@@ -15,6 +15,7 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 			return response, err
 		}
 	}
+	prepareOpenAIRequestGzip(request, account)
 	return s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
 }
 
@@ -32,6 +33,7 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 			return response, err
 		}
 	}
+	prepareOpenAIRequestGzip(request, account)
 	if useTLSFallback {
 		return s.httpUpstream.DoWithTLS(
 			request,

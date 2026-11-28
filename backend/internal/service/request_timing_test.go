@@ -28,3 +28,22 @@ func TestRequestTimingRecorderStartsWithZeroAccountQueueWait(t *testing.T) {
 		t.Fatalf("expected a zero account queue wait, got %#v", timings)
 	}
 }
+
+func TestRequestTimingPayloadSizesAreIsolatedBetweenAttempts(t *testing.T) {
+	recorder := NewRequestTimingRecorder()
+	recorder.SetUpstreamRequestBodyBytes(2000000, 300000)
+	first := recorder.Snapshot()
+	if *first.UpstreamRequestBodyBytes != 2000000 || *first.UpstreamRequestWireBytes != 300000 {
+		t.Fatalf("unexpected sizes: %#v", first)
+	}
+	*first.UpstreamRequestWireBytes = 1
+	if *recorder.Snapshot().UpstreamRequestWireBytes != 300000 {
+		t.Fatal("snapshot mutation changed the recorder")
+	}
+	recorder.BeginUpstreamAttempt()
+	recorder.SetUpstreamRequestBodyBytes(-1, -1)
+	second := recorder.Snapshot()
+	if second.UpstreamRequestBodyBytes != nil || second.UpstreamRequestWireBytes != nil {
+		t.Fatal("previous attempt sizes leaked into a streamed attempt")
+	}
+}
